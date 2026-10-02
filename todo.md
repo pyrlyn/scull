@@ -1,0 +1,20 @@
+- T2. Workspace scaffold
+- T3. Conformance and benchmark harness
+- T4. Parser
+- T5. Unicode tables
+- T6. Grid and scrollback
+- T7. Terminal state
+- T8. PTY and I/O thread
+- T9. Damage, synchronized output, frame snapshot
+- T10. C ABI
+- T11. Resize and reflow
+- T12. Input encoding
+- T13. Selection, search, links, shell integration
+- T14. macOS app: first light
+- T15. macOS renderer
+- T16. macOS input method and accessibility
+- T17. Windows app and renderer
+- T18. Windows input method and accessibility
+- T19. Images
+- T20. Configuration, fonts and themes
+- T21. Tabs, splits and windows

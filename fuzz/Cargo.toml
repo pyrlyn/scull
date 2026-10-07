@@ -1,0 +1,29 @@
+# cargo-fuzz (libFuzzer) targets for scull. Its own workspace, excluded from
+# the root one, so `just check` stays on stable and never compiles this
+# directory. Nightly only: `cargo +nightly fuzz run parser`.
+[package]
+name = "scull-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+scull-parser = { path = "../crates/scull-parser" }
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "parser"
+path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+bench = false

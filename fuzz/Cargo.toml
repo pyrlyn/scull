@@ -1,0 +1,26 @@
+[package]
+name = "scull-fuzz"
+description = "libFuzzer targets for the conformance stub"
+version = "0.0.0"
+# Own workspace, so this cannot inherit the root package table.
+edition = "2024"
+rust-version = "1.99"
+license = "GPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# Same resolved pin as apps/cox/fuzz. Nightly-only; CI runs the in-crate corpus.
+libfuzzer-sys = "0.4.13"
+scull-harness = { path = "../crates/scull-harness" }
+
+[workspace]
+
+[[bin]]
+name = "stub_feed"
+path = "fuzz_targets/stub_feed.rs"
+test = false
+doc = false
+bench = false

@@ -31,7 +31,7 @@ fn workspace_deps(meta: &Metadata, name: &str) -> Vec<String> {
 #[test]
 fn leaves_have_no_workspace_dependencies() {
     let meta = metadata();
-    for leaf in ["scull-unicode", "scull-input", "scull-pty"] {
+    for leaf in ["scull-unicode", "scull-input", "scull-pty", "scull-harness"] {
         assert_eq!(workspace_deps(&meta, leaf), Vec::<String>::new(), "{leaf}");
     }
 }

@@ -1,5 +1,7 @@
 [workspace]
 members = ["crates/*"]
+# cargo-fuzz is its own workspace (nightly). CI gates the in-crate corpus instead.
+exclude = ["fuzz"]
 resolver = "3"
 
 [workspace.package]
@@ -19,6 +21,7 @@ scull-term = { path = "crates/scull-term" }
 scull-input = { path = "crates/scull-input" }
 scull-pty = { path = "crates/scull-pty" }
 scull-ffi = { path = "crates/scull-ffi" }
+scull-harness = { path = "crates/scull-harness" }
 
 # Error enums per library crate (rust.md: no anyhow below a binary).
 thiserror = "2.0.21"

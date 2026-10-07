@@ -6,7 +6,7 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 
 | # | Status | Priority | Complexity | Readiness | Agent |
 | --- | --- | --- | --- | --- | --- |
-| T3 | todo | P0 | 3 | 0% | |
+| T3 | in progress | P0 | 3 | 50% | Cursor / grok 4.7 |
 | T4 | in progress | P0 | 4 | 0% | Claude Code / claude-opus-5-5 |
 | T5 | in progress | P0 | 4 | 0% | Claude Code / claude-opus-5-5 |
 | T6 | todo | P0 | 5 | 0% | |
@@ -29,6 +29,10 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 ### T3. Conformance and benchmark harness
 
 Built before the features so every later task lands with tests. Recorded stream → expected grid ref tests, golden frame snapshots, fuzz targets, and a throughput and latency benchmark that runs the same input through Scull and the six reference terminals. Done when the harness runs in CI against a stub core and the benchmark produces a baseline table for the reference terminals. "Better than all of them" is measured here, not claimed.
+
+Execution plan:
+1. Conformance, on `t3-conformance`: `crates/scull-harness` is a stub grid so a recorded stream, golden fixtures, an in-crate seed corpus and a separate `fuzz/` libFuzzer target can run before the parser and grid exist. The existing `just check` workflow stays the CI gate.
+2. Benchmark, on the other branch: `crates/scull-bench` and `docs/benchmarks/`. Not this branch.
 
 ### T4. Parser
 

@@ -91,11 +91,11 @@ fn vs16_widens_a_text_default_emoji() {
 }
 
 #[test]
-fn vs15_narrows_an_emoji_default_base() {
+fn vs15_keeps_the_width_of_an_emoji_default_base() {
     assert_eq!(layout("\u{231A}", NARROW), one("\u{231A}", 2));
     assert_eq!(
         layout("\u{231A}\u{FE0E}", NARROW),
-        one("\u{231A}\u{FE0E}", 1)
+        one("\u{231A}\u{FE0E}", 2)
     );
 }
 

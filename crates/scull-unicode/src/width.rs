@@ -6,18 +6,18 @@
 //! Core specification (<https://github.com/contour-terminal/terminal-unicode-core>,
 //! `spec/terminal-unicode-core.tex`, commit `64f5385`, checked 2026-10-07):
 //! a cluster is one cell group, ZWJ emoji are two cells wide, and VS16 widens
-//! the cluster to two cells. For VS15 the specification keeps the width; we
-//! follow what kitty (`screen.c:1219-1231`), foot (`terminal.c:4397-4422`)
-//! and Contour's own implementation (libunicode `width.cpp:76-99`) do instead and narrow the cluster to one cell, so text
-//! presentation never leaves an empty cell beside a narrow glyph. Like foot
+//! the cluster to two cells. VS15 keeps the width, as the specification
+//! says, although kitty (`screen.c:1219-1231`), foot (`terminal.c:4397-4422`)
+//! and Contour's libunicode (`width.cpp:76-99`) narrow the cluster to one
+//! cell: applications that count cells with `wcwidth` give VS15 no width, so
+//! narrowing would move the cursor away from where they think it is, while
+//! keeping the width costs at most a blank cell beside a narrow glyph. Like foot
 //! and Contour, both selectors act only on a base that has an emoji variation
 //! sequence in `emoji-variation-sequences.txt`. Sources and line numbers are
 //! in `docs/research/kitty.md` and `docs/research/foot-contour.md`.
 
 use crate::props::{UnicodeVersion, WidthClass, lookup};
 
-/// Text-presentation selector (VS15).
-const VS15: char = '\u{FE0E}';
 /// Emoji-presentation selector (VS16).
 const VS16: char = '\u{FE0F}';
 const ZWJ: char = '\u{200D}';
@@ -115,7 +115,6 @@ impl ClusterWidth {
         } else if self.policy == ClusterPolicy::Grapheme {
             match cp {
                 VS16 if self.base_has_vs => self.width = WIDE,
-                VS15 if self.base_has_vs => self.width = NARROW,
                 _ if self.after_zwj && props.ext_pict => self.width = WIDE,
                 _ => {}
             }

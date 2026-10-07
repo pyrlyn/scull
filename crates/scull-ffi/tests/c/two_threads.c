@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Ivan Tugay
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * The C ABI as a host uses it, from two threads: one feeds output, images
- * and resizes, the other updates a frame and reads every byte the view
+ * The C ABI as a host uses it, from two threads: one feeds output, images,
+ * resizes and input, the other updates a frame and reads every byte the view
  * points to, image pixels included. One image is kept past the frame and
  * the terminal, as a texture cache would. Built and run under the
  * sanitizers by `just c-abi-test`; a sanitizer report or a wrong status
@@ -59,6 +59,33 @@ struct shared {
     tt_status feeder_status;
 };
 
+/* Input on a terminal with no child: encoded under the lock the drawer
+ * takes too, then refused for want of a child. */
+static tt_status send_input(tt_term *term) {
+    tt_key_event key;
+    memset(&key, 0, sizeof key);
+    key.struct_size = sizeof key;
+    key.key = 'a';
+    key.action = TT_KEY_PRESS;
+    key.text.ptr = (const uint8_t *)"a";
+    key.text.len = 1;
+    if (tt_term_key(term, &key) != TT_CLOSED)
+        return TT_INVALID;
+    tt_mouse_event wheel;
+    memset(&wheel, 0, sizeof wheel);
+    wheel.struct_size = sizeof wheel;
+    wheel.action = TT_MOUSE_PRESS;
+    wheel.button = TT_MOUSE_WHEEL_UP;
+    uint8_t taken = 1;
+    /* Untracked on the main screen: the host's to scroll with. */
+    CHECK(tt_term_mouse(term, &wheel, &taken));
+    if (taken != 0)
+        return TT_INVALID;
+    CHECK(tt_term_scroll_display(term, ROWS));
+    CHECK(tt_term_scroll_display(term, -ROWS));
+    return TT_OK;
+}
+
 static tt_status feed_all(tt_term *term) {
     char line[LINE_BYTES];
     for (int i = 0; i < FEEDS; i++) {
@@ -72,6 +99,7 @@ static tt_status feed_all(tt_term *term) {
             CHECK(tt_term_feed(term, (const uint8_t *)image, strlen(image)));
         }
         if (i % RESIZE_EVERY == 0) {
+            CHECK(send_input(term));
             uint16_t cols = (uint16_t)(COLS - (i / RESIZE_EVERY) % WIDTH_STEPS);
             CHECK(tt_term_resize_begin(term));
             CHECK(tt_term_resize(term, cols, ROWS, (uint16_t)(cols * CELL_W),

@@ -30,6 +30,7 @@
 mod event;
 mod frame;
 mod guard;
+mod input;
 mod spawn;
 mod term;
 
@@ -46,6 +47,15 @@ pub use frame::{
     tt_image_release, tt_image_retain, tt_placement, tt_row, tt_run, tt_scroll, tt_style,
 };
 pub use guard::tt_status;
+pub use input::{
+    TT_KEY_CAPS_LOCK, TT_KEY_END, TT_KEY_ESCAPE, TT_KEY_F1, TT_KEY_KP_0, TT_KEY_LEFT_SHIFT,
+    TT_KEY_MEDIA_PLAY, TT_KEY_PRESS, TT_KEY_RELEASE, TT_KEY_REPEAT, TT_MOD_ALT, TT_MOD_CAPS_LOCK,
+    TT_MOD_CTRL, TT_MOD_HYPER, TT_MOD_META, TT_MOD_NUM_LOCK, TT_MOD_SHIFT, TT_MOD_SUPER,
+    TT_MOUSE_LEFT, TT_MOUSE_MIDDLE, TT_MOUSE_MOTION, TT_MOUSE_NONE, TT_MOUSE_PRESS,
+    TT_MOUSE_RELEASE, TT_MOUSE_RIGHT, TT_MOUSE_WHEEL_DOWN, TT_MOUSE_WHEEL_LEFT,
+    TT_MOUSE_WHEEL_RIGHT, TT_MOUSE_WHEEL_UP, tt_key_event, tt_mouse_event, tt_term_focus,
+    tt_term_key, tt_term_mouse, tt_term_paste, tt_term_scroll_display, tt_term_text,
+};
 pub use spawn::{tt_str, tt_term_resize_begin, tt_term_spawn, tt_term_write, tt_wakeup_fn};
 pub use term::{tt_term, tt_term_feed, tt_term_free, tt_term_new, tt_term_options, tt_term_resize};
 
@@ -55,11 +65,11 @@ pub const TT_ABI_VERSION_MAJOR: u32 = 0;
 
 /// Additions (new functions, fields appended to a struct) bump the minor.
 /// While the major is 0 every minor may break, so the minor must match too.
-pub const TT_ABI_VERSION_MINOR: u32 = 2;
+pub const TT_ABI_VERSION_MINOR: u32 = 3;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = 0x0000_0002;
+pub const TT_ABI_VERSION: u32 = 0x0000_0003;
 
 const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 
@@ -88,7 +98,7 @@ mod tests {
         assert!(abi_compatible(TT_ABI_VERSION));
         assert!(abi_compatible(tt_abi_version()));
         assert!(!abi_compatible(TT_ABI_VERSION + 1));
-        assert!(!abi_compatible(TT_ABI_VERSION - 1), "a host without images");
+        assert!(!abi_compatible(TT_ABI_VERSION - 1), "a host without input");
         assert!(!abi_compatible(1 << MINOR_BITS | TT_ABI_VERSION_MINOR));
         assert!(!abi_compatible(0));
     }

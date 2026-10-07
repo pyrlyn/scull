@@ -29,15 +29,13 @@ thiserror = "2.0.21"
 cargo_metadata = "0.23.1"
 # scull-grid interning tables (clippy.toml bans std HashMap: SipHash is slow, order random).
 rustc-hash = "2.1.3"
-# scull-grid cell and SGR attribute flags.
+# scull-grid cell and SGR flags; scull-input modifier and kitty-flag sets.
 bitflags = "2.13.2"
 # tools/scull-ucd-gen: download and verify the pinned Unicode data files.
 anyhow = "1.0.104"
 sha2 = "0.11.0"
 ureq = "3.4.2"
 
-# scull-input: modifier and kitty-flag sets with set algebra and checked parsing.
-bitflags = "2.13.2"
 # scull-parser: memchr3 finds the end of a DCS/APC payload in bulk.
 memchr = "2.8.3"
 # Property tests (parser chunking, unicode width bounds) and benches.

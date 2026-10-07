@@ -23,9 +23,15 @@
 // The exported names are the C names; the header is the API.
 #![allow(non_camel_case_types)]
 
+mod event;
 mod frame;
 mod guard;
+mod spawn;
 mod term;
+
+pub use event::{
+    TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, TT_EXIT_CODE_UNKNOWN, tt_event, tt_term_poll_event,
+};
 
 pub use frame::{
     TT_ATTR_BLINK, TT_ATTR_BOLD, TT_ATTR_DIM, TT_ATTR_HIDDEN, TT_ATTR_INVERSE, TT_ATTR_ITALIC,
@@ -36,7 +42,8 @@ pub use frame::{
     tt_style,
 };
 pub use guard::tt_status;
-pub use term::{tt_term, tt_term_feed, tt_term_free, tt_term_new, tt_term_options};
+pub use spawn::{tt_str, tt_term_resize_begin, tt_term_spawn, tt_term_write, tt_wakeup_fn};
+pub use term::{tt_term, tt_term_feed, tt_term_free, tt_term_new, tt_term_options, tt_term_resize};
 
 /// Breaking changes bump the major version; a host refuses to run on
 /// another major.

@@ -25,6 +25,14 @@ pub enum tt_status {
     TT_POISONED = 3,
     /// This call panicked inside the core; the terminal is now poisoned.
     TT_PANIC = 4,
+    /// Nothing to report: the event queue is empty.
+    TT_EMPTY = 5,
+    /// The terminal has no child to talk to: it was made by
+    /// `tt_term_new`, or its child has gone.
+    TT_CLOSED = 6,
+    /// The operating system refused: no PTY, a program that does not
+    /// start, a size the PTY rejects.
+    TT_IO = 7,
 }
 
 /// Runs `body` with panics caught; a panic answers `TT_PANIC`.
@@ -64,6 +72,12 @@ pub(crate) unsafe fn with_term(
 /// all-zero bytes are a valid value.
 pub(crate) unsafe trait SizedStruct: Copy {}
 
+/// An all-zero `T`: every field a host does not set.
+pub(crate) fn zeroed<T: SizedStruct>() -> T {
+    // SAFETY: `T: SizedStruct` makes all-zero a valid value.
+    unsafe { std::mem::zeroed() }
+}
+
 /// Bytes of `struct_size` itself: the least a caller's struct can be.
 const SIZE_FIELD: usize = size_of::<u32>();
 
@@ -90,8 +104,7 @@ unsafe fn caller_size<T: SizedStruct>(at: *const T) -> Option<usize> {
 pub(crate) unsafe fn read_sized<T: SizedStruct>(src: *const T) -> Option<T> {
     // SAFETY: the caller's contract.
     let size = unsafe { caller_size(src) }?;
-    // SAFETY: `T: SizedStruct` makes all-zero a valid value.
-    let mut out: T = unsafe { std::mem::zeroed() };
+    let mut out: T = zeroed();
     let len = size.min(size_of::<T>());
     // SAFETY: `src` has `size` readable bytes and `out` has `size_of::<T>()`,
     // both at least `len`; they cannot overlap since `out` is a local.

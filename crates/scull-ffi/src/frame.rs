@@ -374,6 +374,7 @@ pub unsafe extern "C" fn tt_frame_update(
             *frame = tt_frame::default();
         }
         frame.torn = true;
+        t.rearm_wakeup();
         let updated = t
             .core()
             .lock()

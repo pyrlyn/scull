@@ -133,8 +133,9 @@ public final class TerminalView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.setFillColor(Palette.cgColor(palette.background))
         ctx.fill(bounds)
-        if let failure {
-            NSAttributedString(string: failure, attributes: [.font: font, .foregroundColor: NSColor.white])
+        // A crashed core terminal shows the notice in place of its stale grid.
+        if let notice = failure ?? (session?.isPoisoned == true ? "This terminal crashed. Close the pane to dismiss it." : nil) {
+            NSAttributedString(string: notice, attributes: [.font: font, .foregroundColor: NSColor.white])
                 .draw(at: NSPoint(x: cellWidth, y: cellHeight))
             return
         }

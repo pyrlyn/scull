@@ -29,6 +29,12 @@ thiserror = "2.0.21"
 cargo_metadata = "0.23.1"
 # Property tests (scull-unicode: width bound, grapheme state on arbitrary input).
 proptest = "1.11.0"
+# Benches (rust.md: divan is the default harness); scull-grid records bytes per scrollback row.
+divan = "0.1.21"
+# scull-grid interning tables (clippy.toml bans std HashMap: SipHash is slow, order random).
+rustc-hash = "2.1.3"
+# scull-grid cell and SGR attribute flags.
+bitflags = "2.13.2"
 # tools/scull-ucd-gen: download and verify the pinned Unicode data files.
 anyhow = "1.0.104"
 sha2 = "0.11.0"

@@ -12,3 +12,10 @@ workspace = true
 
 [dependencies]
 scull-unicode = { workspace = true }
+rustc-hash = { workspace = true }
+bitflags = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+

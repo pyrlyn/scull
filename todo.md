@@ -1,5 +1,4 @@
 - T3. Conformance and benchmark harness
-- T10. C ABI
 - T13. Selection, search, links, shell integration
 - T14. macOS app: first light
 - T15. macOS renderer

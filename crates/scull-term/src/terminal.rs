@@ -128,7 +128,7 @@ impl Terminal {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use proptest::prelude::*;
     use scull_grid::{Cell, CellFlags, Content};
 
@@ -206,7 +206,8 @@ mod tests {
         "\u{fe0f}".as_bytes(),
     ];
 
-    fn stream() -> impl Strategy<Value = Vec<u8>> {
+    /// Random PTY output that reaches deep into the dispatch table.
+    pub(crate) fn stream() -> impl Strategy<Value = Vec<u8>> {
         let piece = prop_oneof![
             any::<u8>().prop_map(|b| vec![b]),
             proptest::sample::select(FRAGMENTS).prop_map(<[u8]>::to_vec),

@@ -409,6 +409,9 @@ impl Terminal {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use proptest::prelude::*;
     use scull_grid::Color;
 
     use super::*;
@@ -565,5 +568,136 @@ mod tests {
         t.feed(b"\x1b[?25h\x1b[4H\r\n\r\n\r\n");
         t.scroll_display(1);
         assert_eq!(fresh(&mut t).cursor(), None);
+    }
+
+    /// A row as a UI would put it on screen: every cell with its style
+    /// resolved, and every run with its text.
+    #[derive(Clone, Debug, PartialEq)]
+    struct Painted {
+        cells: Vec<(u32, u8, u8, Option<Style>)>,
+        runs: Vec<(u16, u16, u8, Option<Style>, String)>,
+    }
+
+    fn paint(f: &Frame, r: u16) -> Painted {
+        let row = f.row(r).unwrap();
+        Painted {
+            cells: f
+                .row_cells(r)
+                .iter()
+                .map(|c| (c.codepoint, c.width, c.flags, f.style(c.style).copied()))
+                .collect(),
+            runs: row
+                .runs()
+                .iter()
+                .map(|run| {
+                    let style = f.style(run.style).copied();
+                    let text = row.run_text(run).to_owned();
+                    (run.col, run.cols, run.width, style, text)
+                })
+                .collect(),
+        }
+    }
+
+    fn paint_all(f: &Frame) -> Vec<Painted> {
+        (0..f.rows()).map(|r| paint(f, r)).collect()
+    }
+
+    /// What a UI does with the damage: blit the scrolls from its last
+    /// picture, then repaint the dirty rows.
+    fn repaint(canvas: &mut Vec<Painted>, f: &Frame) {
+        let d = f.damage();
+        if d.is_full() {
+            *canvas = paint_all(f);
+            return;
+        }
+        let last = canvas.clone();
+        for s in d.scrolls() {
+            for (r, from) in s.rows().zip(s.from..) {
+                canvas[usize::from(r)] = last[usize::from(from)].clone();
+            }
+        }
+        for &r in d.dirty() {
+            canvas[usize::from(r)] = paint(f, r);
+        }
+    }
+
+    /// Whole sequences the fragments rarely assemble: synchronized output,
+    /// screens, regions, colours, clusters and erases.
+    const SEQUENCES: &[&[u8]] = &[
+        b"\x1b[?2026h",
+        b"\x1b[?2026l",
+        b"\x1b[?1049h",
+        b"\x1b[?1049l",
+        b"\x1b[2;3r",
+        b"\x1b[r",
+        b"\x1b[31m",
+        b"\x1b[44m",
+        b"\x1b[m",
+        b"\x1b[?2027h",
+        b"\x1b[2J",
+        b"\x1b[3J",
+        b"\x1b[L",
+        b"\x1b[M",
+        b"\x1bM",
+        b"\r\n",
+    ];
+
+    #[derive(Clone, Debug)]
+    enum Step {
+        Feed(Vec<u8>),
+        View(i8),
+    }
+
+    fn step() -> impl Strategy<Value = Step> {
+        prop_oneof![
+            4 => crate::terminal::tests::stream().prop_map(Step::Feed),
+            4 => proptest::collection::vec(proptest::sample::select(SEQUENCES), 1..6)
+                .prop_map(|s| Step::Feed(s.concat())),
+            1 => any::<i8>().prop_map(Step::View),
+        ]
+    }
+
+    /// Longest pause between steps: past the hold cap, so some steps
+    /// release a hold by time.
+    const MAX_PAUSE_MS: u64 = 200;
+
+    proptest! {
+        #[test]
+        fn repainting_the_damage_over_the_last_picture_equals_a_full_repaint(
+            cols in 1u16..16,
+            rows in 1u16..7,
+            steps in proptest::collection::vec((step(), 0..MAX_PAUSE_MS), 1..24),
+        ) {
+            let mut now = Instant::now();
+            let mut t = Terminal::new(cols, rows, 6).unwrap();
+            let mut frame = Frame::new();
+            let mut canvas = Vec::new();
+            for (step, pause) in steps {
+                match step {
+                    Step::Feed(bytes) => t.feed(&bytes),
+                    Step::View(delta) => t.scroll_display(isize::from(delta)),
+                }
+                now += Duration::from_millis(pause);
+                let shown = paint_all(&frame);
+                if !t.update_frame(&mut frame, now) {
+                    prop_assert!(frame.damage().is_empty());
+                    prop_assert_eq!(paint_all(&frame), shown, "a held picture never changes");
+                    continue;
+                }
+                repaint(&mut canvas, &frame);
+                let mut full = Frame::new();
+                prop_assert!(t.update_frame(&mut full, now));
+                prop_assert_eq!(&canvas, &paint_all(&full));
+                prop_assert_eq!(&paint_all(&frame), &canvas);
+                prop_assert_eq!(frame.cursor(), full.cursor());
+                for c in frame.cells() {
+                    let truth = t.grid().styles().get(StyleId(c.style));
+                    prop_assert_eq!(frame.style(c.style), truth, "no stale style");
+                }
+                for r in 0..rows {
+                    prop_assert_eq!(frame.stamp(r), full.stamp(r));
+                }
+            }
+        }
     }
 }

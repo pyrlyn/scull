@@ -51,6 +51,16 @@ TSF text input and a UIA text provider, written in C#. Windows Terminal's C++ im
 
 A config file loaded and validated in the core, with font, colour scheme, scrollback and key binding settings, live reload, and a settings view on each platform. Done when a change applies without restart.
 
+Execution plan (split to fit the budget):
+- T20.1. `crates/scull-config` model: `Config` TOML types (font family and size, colour scheme with overrides, scrollback), defaults, built-in schemes, load with a size cap and `deny_unknown_fields`, errors that name the file, JSON Schema committed to `docs/config.schema.json` with a stale-schema test. Verify: unit tests for parsing, defaults, every validation error and caps.
+- T20.2. Key bindings in `scull-config`: `[[keybind]]` chord parsing over `scull_input::{Key, Modifiers}`, an action enum, default bindings merged with the user's, caps and duplicate checks. Verify: parsing and rejection tests.
+- T20.3. Editing and live reload in `scull-config`: `toml_edit` setter that validates before it writes and replaces the file atomically; `notify` watcher on the parent directory feeding a store with a generation counter and the last error (a bad edit keeps the last good settings). Verify: tests that edit a temp file and see the generation and values change, and a broken edit keep the old settings.
+- T20.4. C ABI in `scull-ffi`: `tt_config` handle (`new`, `poll` into a sized `tt_config_view`, `set`, `free`) behind the wakeup callback only; bump the ABI minor; `just bindings`; extend the C test under ASan and TSan. Verify: Rust tests, `just c-abi-test`, `just bindings-check`.
+- T20.5. macOS: new `ScullKit/Config.swift` wrapper and `Palette`/`TerminalView` reading it (font, colours, key bindings, scrollback for new terminals); live reload through the wakeup. Verify: `just macos`, `just macos-test`, and the `-ScullSnapshot` PNG before and after editing the file while the app runs.
+- T20.6. macOS settings view: new SwiftUI `Settings` scene in new files (family, size, scheme, scrollback) that writes through `tt_config_set`. Verify: `just macos`, a snapshot after a change made through the view.
+- T20.7. Windows settings view. Waiting for T17; it reuses T20.1 to T20.4 unchanged.
+- Scrollback note: the grid ring is sized when a terminal is created, so a changed scrollback applies to terminals opened afterwards, not to running ones.
+
 ### T21. Tabs, splits and windows
 
 Native tabs, split panes and multiple windows on both platforms over the same core handles. Done when a crashed terminal poisons one pane and the rest keep running.

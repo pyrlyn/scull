@@ -77,3 +77,18 @@ Execution plan:
 4. Verify with `just check`.
 
 Delivered: `Pty::spawn` over `portable-pty` 0.9.0 (the only maintained cross-platform crate with ConPTY) with a caller-supplied `Sink` behind a `parking_lot::Mutex`; separate reader, I/O-loop, writer and wait threads because the PTY handles block uninterruptibly. The loop feeds at most 64 KiB per lock hold and releases with `unlock_fair`; the reader blocks once 1 MiB is pending (back-pressure); replies and input share a 256 KiB write queue; child exit arrives last through the same loop, with an idle and drain timeout for ConPTY and orphaned children. Starvation test: with `yes` flooding, 809 frame reads in 2 s waited at most 163 us (13 ms with a plain unlock), 250 MB fed. 25 tests. Windows: `cargo check` and clippy pass for `x86_64-pc-windows-msvc`. Left open: no run on a Windows host, no SIGKILL escalation, no test for the post-exit drain cap.
+
+### T7. Terminal state
+
+`scull-term`: the handler for the typed actions. Cursor, SGR, modes, charsets, tab stops, scroll regions, left and right margins, alt screen, saved cursor, device reports. Done when the esctest and vttest subsets chosen in T3 pass.
+
+
+Execution plan:
+1. Pick the conformance subset: T3 has not chosen esctest and vttest cases yet, so T7 picks the subset that a headless core can check (recorded stream in, expected grid, cursor and replies out), lists it in `crates/scull-term/tests/README.md` with sources, and runs it through the `scull-harness` fixture format.
+2. `crates/scull-term`: a `Terminal` that implements `scull_parser::Handler` over `scull_grid::Grid`, using `scull_unicode` for widths and grapheme clusters (mode 2027).
+3. Split at claim. T7.1: print with wrap and wide characters, C0, cursor movement, ED/EL/ECH/ICH/DCH/IL/DL, SGR (16, 256, truecolour, underline styles and colour), scroll regions (DECSTBM), tab stops, IND/RI/NEL. T7.2: modes (ANSI and DEC private, DECRQM incl. 2027), charsets (G0-G3, DEC special graphics), left and right margins (DECLRMM, DECSLRM), alt screen 47/1047/1049, DECSC/DECRC, device reports (DA1, DA2, DSR, CPR) through a capped reply queue, RIS and DECSTR.
+4. Verify with `just check`.
+
+Delivered: `scull-term` drives `scull-grid` from `scull-parser` events. `Terminal::new(cols, rows, scrollback)`, `feed`, `grid`, `cursor`, `pen`, `modes`, `margins`, `is_alt_screen` and `take_replies` (capped at 4096 bytes). Covers print with wide and combining characters, cursor motion, erase, insert and delete, SGR, scroll regions with left and right margins, tabs, modes, G0–G3 charsets, the alt screen (its own grid with no scrollback), saved cursor, DSR/DA/DECRQM reports and soft and hard reset. REP is capped at cols × rows. 226 self-written conformance fixtures under `crates/scull-term/tests/fixtures/`; esctest2 is GPL-2.0-only, so nothing was copied from it.
+
+Left out: mouse and kitty keyboard modes are not stored yet, and DECSCUSR, XTSAVE/XTRESTORE, ?45, DECCOLM, DECSCA, DECRQCRA and resize are not implemented. Unknown ANSI modes answer 0 in DECRQM. No test covers REP inside margins.

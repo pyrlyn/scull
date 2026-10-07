@@ -1,0 +1,16 @@
+[package]
+name = "scull-ucd-gen"
+description = "Generates scull-unicode's width and grapheme-break tables from pinned Unicode data files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+sha2 = { workspace = true }
+ureq = { workspace = true }

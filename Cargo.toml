@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*"]
+members = ["crates/*", "tools/*"]
 # cargo-fuzz is its own workspace (nightly). CI gates the in-crate corpus instead.
 exclude = ["fuzz"]
 resolver = "3"
@@ -27,6 +27,12 @@ scull-harness = { path = "crates/scull-harness" }
 thiserror = "2.0.21"
 # Dependency-graph test in scull-ffi/tests/deps.rs.
 cargo_metadata = "0.23.1"
+# Property tests (scull-unicode: width bound, grapheme state on arbitrary input).
+proptest = "1.11.0"
+# tools/scull-ucd-gen: download and verify the pinned Unicode data files.
+anyhow = "1.0.104"
+sha2 = "0.11.0"
+ureq = "3.4.2"
 
 [workspace.lints.rust]
 # Only the C ABI and the PTY need unsafe; those crates opt out with a reason.

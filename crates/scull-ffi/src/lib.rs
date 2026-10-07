@@ -33,6 +33,8 @@ mod guard;
 mod input;
 mod spawn;
 mod term;
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
 
 pub use event::{
     TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, TT_EXIT_CODE_UNKNOWN, tt_event, tt_term_poll_event,

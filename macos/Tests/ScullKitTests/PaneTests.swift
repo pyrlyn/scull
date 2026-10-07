@@ -1,3 +1,4 @@
+import AppKit
 import CScull
 import Testing
 @testable import ScullKit
@@ -71,4 +72,17 @@ private func tt_term_test_panic(_ term: OpaquePointer?) -> tt_status
     #expect(!well.isPoisoned)
     #expect(well.runs(row: 0).map(\.text) == ["ok"])
     #expect(well.resize(cols: 5, rows: 3, widthPx: 0, heightPx: 0) == TT_OK)
+}
+
+@MainActor
+@Test func hostKeepsOneTerminalViewPerPaneThroughSplitsAndCloses() {
+    let host = PaneHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+    #expect(host.paneCount == 1)
+    host.splitRight(nil)
+    host.splitDown(nil)
+    #expect(host.paneCount == 3)
+    host.closePane(nil)
+    host.focusPreviousPane(nil)
+    host.closePane(nil)
+    #expect(host.paneCount == 1)
 }

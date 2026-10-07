@@ -1,5 +1,4 @@
 - T3. Conformance and benchmark harness
-- T4. Parser
 - T6. Grid and scrollback
 - T7. Terminal state
 - T8. PTY and I/O thread

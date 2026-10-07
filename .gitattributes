@@ -1,0 +1,6 @@
+# GitHub's Windows runners check out with autocrlf; the golden fixtures and
+# every source file must stay byte-exact LF or the snapshot tests read a
+# different file than the ones authored on macOS/Linux.
+* text=auto eol=lf
+*.png binary
+*.icns binary

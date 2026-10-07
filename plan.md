@@ -39,6 +39,12 @@ A Swift Metal renderer with a CoreText glyph atlas that has eviction, a shaped-r
 
 `NSTextInputClient` with preedit carried in the frame, and `NSAccessibility` text over the core's read-text calls. Done when CJK input and VoiceOver reading work.
 
+Execution plan (split to fit the budget):
+
+- T16.1 Preedit in the frame and `NSTextInputClient`. The frame (`scull-term`) holds the preedit text and caret the UI gives it, capped in size, and on update lays it over the cursor row: clusters and widths from `scull-unicode` with the terminal's width options, shifted left to fit the row, the cursor moved to the caret, and the row's overlay hash changed so damage repaints it and scroll damage never moves it. So any renderer draws composing text with no code of its own; `tt_frame_view.preedit` (row, col, cols) tells it where to underline. `scull-ffi` exports `tt_frame_preedit`; ABI minor bump, header and C# bindings regenerated. In `macos/`, `TextInput` (marked text, selection, what a key event turned into) and a `TerminalView` extension conforming to `NSTextInputClient` in new files; `keyDown` asks it whether the input method took the key, and committed text goes through `tt_term_text`. The CoreText pass underlines the preedit.
+- T16.2 Accessibility. `Terminal::read_text` gives viewport rows as text, one line per row, trailing blanks trimmed, hidden (SGR 8) cells blank; `tt_term_read_text` copies it into a caller buffer, answering the needed length when it is short. A `TerminalView` extension in a new file makes the view an `NSAccessibility` text area over it: value, line for index, range for line, string and frame for range, insertion point at the cursor, `valueChanged` posted on new output while VoiceOver runs.
+- Verify: Rust tests for every new export, cap and overlay case; `just check`, `just c-abi-test`, `just macos`, `just macos-test` with Swift tests for marked ranges, `insertText` after preedit, dead-key composition and the accessibility text model; a `-ScullSnapshot` PNG with a CJK preedit set by a debug hook. A real IME candidate window and VoiceOver speech need a human.
+
 ### T17. Windows app and renderer
 
 A C# WinUI 3 shell with a `SwapChainPanel` surface, a D3D11 renderer and a DirectWrite atlas. The first step evaluates the interop library that gives C# access to Direct3D and DirectWrite (maintenance, coverage, allocation cost per frame) and records the pick in `toolchain.md`; the research evaluated none. Done when a shell is usable and the T3 benchmark runs on Windows.

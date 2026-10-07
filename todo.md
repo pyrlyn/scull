@@ -8,7 +8,6 @@
 - T19. Images
 - T20. Configuration, fonts and themes
 - T21. Tabs, splits and windows
-- T22. Make no-op link clears generation-neutral in Row::set_link
 - T23. Guard the interner Marks/sweep contract against interleaved interns
 - T24. Reconcile harness eager-wrap with xterm's deferred DECAWM
 - T25. CI: run the fuzz targets and the UCD stale-table check

@@ -99,6 +99,19 @@ impl Damage {
     /// The damage that turns picture `old` into `new`. `full` (or a change
     /// in row count) repaints everything.
     pub fn compute(&mut self, old: &[RowStamp], new: &[RowStamp], full: bool) {
+        self.compute_with(old, new, full, |_, _| true);
+    }
+
+    /// [`Self::compute`] for pictures that hold more than the grid's rows:
+    /// new row `r` may reuse old row `from` only if `same(r, from)` too.
+    /// The frame passes whether the image slices on both rows match.
+    pub fn compute_with(
+        &mut self,
+        old: &[RowStamp],
+        new: &[RowStamp],
+        full: bool,
+        same: impl Fn(u16, u16) -> bool,
+    ) {
         self.clear();
         let rows = (0..=u16::MAX).zip(new);
         if full || old.len() != new.len() {
@@ -111,10 +124,10 @@ impl Damage {
             .extend(old.iter().map(|s| s.id).zip(0..=u16::MAX));
         self.index.sort_unstable();
         for (r, stamp) in rows {
-            if old.get(usize::from(r)) == Some(stamp) {
+            if old.get(usize::from(r)) == Some(stamp) && same(r, r) {
                 continue;
             }
-            match self.moved_from(old, *stamp) {
+            match self.moved_from(old, *stamp).filter(|&from| same(r, from)) {
                 Some(from) => self.push_scroll(r, from),
                 None => self.dirty.push(r),
             }
@@ -206,6 +219,19 @@ mod tests {
             }]
         );
         assert_eq!(d.dirty(), [3]);
+    }
+
+    #[test]
+    fn rows_whose_extras_differ_are_neither_kept_nor_moved() {
+        let mut d = Damage::default();
+        d.compute_with(&stamps(&[1, 2, 3]), &stamps(&[1, 2, 3]), false, |r, _| {
+            r != 1
+        });
+        assert_eq!(d.dirty(), [1]);
+        let (old, new) = (stamps(&[1, 2, 3, 4]), stamps(&[2, 3, 4, 5]));
+        d.compute_with(&old, &new, false, |r, from| (r, from) != (1, 2));
+        assert_eq!(d.dirty(), [1, 3]);
+        assert_eq!(d.scrolls().len(), 2, "the move splits around row 1");
     }
 
     #[test]

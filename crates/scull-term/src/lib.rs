@@ -30,7 +30,7 @@ mod terminal;
 
 pub use damage::{Damage, RowStamp, Scroll};
 pub use error::TermError;
-pub use frame::{Frame, FrameCell, FrameCursor, FrameRow, TextRun};
+pub use frame::{Frame, FrameCell, FrameCursor, FramePlacement, FrameRow, TextRun};
 pub use images::DEFAULT_CELL_PX;
 pub use modes::Modes;
 pub use scull_image::{Crop, Image, ImageId, ImageStore, Placement};

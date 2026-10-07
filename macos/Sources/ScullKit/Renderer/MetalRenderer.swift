@@ -16,9 +16,10 @@ struct Quad {
     var x: Float, y: Float, w: Float, h: Float
     var u: UInt16 = 0, v: UInt16 = 0
     var color: UInt32
-    /// 0 solid, 1 coverage tinted by `color`, 2 colour glyph.
+    /// 0 solid, 1 coverage tinted by `color`, 2 colour glyph, 3 image.
     var kind: UInt32 = 0
-    var pad: UInt32 = 0
+    /// Texels an image samples; others sample as many texels as pixels.
+    var su: UInt16 = 0, sv: UInt16 = 0
 }
 
 private struct Uniforms {
@@ -47,6 +48,7 @@ public final class MetalRenderer {
     private let font: CTFont
     private let cellSize: CGSize
     private let shaper: RunShaper
+    private let images: ImageLayer
     private var atlas: GlyphAtlas
     private var scale: CGFloat = 0
     private var metrics: CellMetrics
@@ -70,6 +72,7 @@ public final class MetalRenderer {
         cellSize = CGSize(width: cellWidth, height: cellHeight)
         metrics = CellMetrics(font: font, cellWidth: cellWidth, cellHeight: cellHeight, scale: 1)
         shaper = RunShaper(font: font, isSprite: Sprites.covers)
+        images = ImageLayer(device: device)
         layer.device = device
         layer.pixelFormat = .bgra8Unorm
         layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
@@ -298,6 +301,7 @@ public final class MetalRenderer {
         }
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentTexture(atlas.texture, index: 0)
+        encoder.setFragmentTexture(atlas.texture, index: 1)
         var uniforms = Uniforms(viewport: SIMD2(Float(target.width), Float(target.height)), origin: .zero)
         if !buffers.isEmpty {
             let index = nextBuffer
@@ -305,6 +309,7 @@ public final class MetalRenderer {
             upload(into: index)
             let stride = capacity.bg + capacity.fg
             let (cursor, overlay) = cursorQuads(session, focused: focused)
+            let placed = images.place(session.view, metrics: metrics)
             for layer in 0..<2 {
                 encoder.setVertexBuffer(buffers[index].buffer, offset: 0, index: 0)
                 for row in 0..<grid.rows {
@@ -316,8 +321,14 @@ public final class MetalRenderer {
                     encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: count,
                                            baseInstance: slot * stride + (layer == 0 ? 0 : capacity.bg))
                 }
-                // The block goes over the backgrounds; the glyph under it
-                // is drawn again on top in the background colour.
+                // Images with a negative z go under the text, the rest
+                // over it. The cursor block goes over the backgrounds; the
+                // glyph under it is drawn again on top in the background
+                // colour.
+                for image in placed where image.below == (layer == 0) {
+                    encoder.setFragmentTexture(image.texture, index: 1)
+                    draw([image.quad], encoder: encoder, uniforms: &uniforms)
+                }
                 draw(layer == 0 ? cursor : overlay, encoder: encoder, uniforms: &uniforms)
             }
         }

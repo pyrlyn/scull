@@ -98,3 +98,24 @@ private func renderer() throws -> MetalRenderer {
     #expect(rgb(pixels, cols: 3, row: 0, col: 0, dx: 4, dy: 4) == 0xE5E5E5)
     #expect(rgb(pixels, cols: 3, row: 1, col: 0, dx: 4, dy: 4) == 0x0000EE)
 }
+
+@MainActor
+@Test func rendererDrawsImagePlacementsAboveAndBelowText() throws {
+    let session = try TerminalSession(cols: 4, rows: 2)
+    let renderer = try renderer()
+    // The core sizes placements in cells from the cell's pixel size.
+    #expect(session.resize(cols: 4, rows: 2, widthPx: 64, heightPx: 64) == TT_OK)
+    let red = "/wAA//8AAP//AAD//wAA/w=="
+    // 2 x 2 red pixels scaled to one cell; then the same image under text
+    // on the next cell, which keeps showing the text over it.
+    _ = session.feed(Array("\u{1b}_Gf=32,s=2,v=2,a=T,i=1,c=1,r=1;\(red)\u{1b}\\".utf8))
+    _ = session.feed(Array("\u{1b}[1;2H\u{1b}_Ga=p,i=1,c=1,r=1,z=-1,C=1\u{1b}\\█".utf8))
+    let pixels = try render(session, renderer)
+    #expect(session.view.placements_len == 2)
+    #expect(rgb(pixels, cols: 4, row: 0, col: 0, dx: 8, dy: 16) == 0xFF0000)
+    #expect(rgb(pixels, cols: 4, row: 0, col: 1, dx: 8, dy: 16) == 0xE5E5E5)
+    // A deleted image is no longer drawn.
+    _ = session.feed(Array("\u{1b}_Ga=d,d=A\u{1b}\\".utf8))
+    let cleared = try render(session, renderer)
+    #expect(rgb(cleared, cols: 4, row: 0, col: 0, dx: 8, dy: 16) == 0x141414)
+}

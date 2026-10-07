@@ -1,6 +1,6 @@
 // The terminal surface: owns a TerminalSession, draws its frame through
 // the Metal renderer on a CAMetalLayer and turns AppKit events into the
-// core's input events. Image placements are not drawn yet.
+// core's input events.
 
 import AppKit
 import CoreText

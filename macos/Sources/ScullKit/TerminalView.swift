@@ -101,6 +101,12 @@ public final class TerminalView: NSView {
             zoom = 0
         }
         applyFont()
+        #if DEBUG
+        // Shows a scripted check that an edit of the file reached the view.
+        if initialInput == nil, let path = UserDefaults.standard.string(forKey: "ScullSnapshotOnConfig") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.snapshot(to: path) }
+        }
+        #endif
     }
 
     private func applyFont() {

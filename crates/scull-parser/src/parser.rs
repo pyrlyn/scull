@@ -23,10 +23,14 @@ use crate::scan::{C1_LEAD, find_c0, find_special, is_c1_tail, utf8_width};
 /// Most intermediate bytes kept; no standard sequence uses more than two.
 /// A sequence with more is ignored rather than misread.
 pub const MAX_INTERMEDIATES: usize = 2;
-/// Most OSC payload bytes kept. Enough for an OSC 52 copy of about 750 KiB
-/// of text. A longer OSC is dropped whole: a cut clipboard write or link is
-/// worse than none.
-pub const MAX_OSC_BYTES: usize = 1 << 20;
+/// Most OSC payload bytes kept. An iTerm2 inline image (`OSC 1337 File=`)
+/// arrives as one base64 OSC, so this matches the DCS cap and admits files
+/// of about 12 MiB, as that cap admits a full-screen sixel. A longer OSC is
+/// dropped whole: a cut image, clipboard write or link is worse than none.
+pub const MAX_OSC_BYTES: usize = 16 << 20;
+/// OSC buffer capacity kept from one sequence to the next, so one large
+/// image does not pin [`MAX_OSC_BYTES`] for the parser's lifetime.
+const OSC_KEPT_BYTES: usize = 64 << 10;
 /// Most DCS payload bytes streamed to the handler; room for a full-screen
 /// sixel image. Past it the payload is cut and the end says so.
 pub const MAX_DCS_BYTES: usize = 16 << 20;
@@ -350,6 +354,7 @@ impl Parser {
             b'P' => State::Header(Kind::Dcs, Phase::Entry),
             b']' => {
                 self.osc.clear();
+                self.osc.shrink_to(OSC_KEPT_BYTES);
                 self.osc_overflow = false;
                 State::Str(Str::Osc)
             }
@@ -947,6 +952,19 @@ mod tests {
     fn osc_exactly_at_the_cap_is_dispatched() {
         let (counter, _) = feed_long(b"\x1b]2;", MAX_OSC_BYTES - b"2;".len(), b"\x07");
         assert_eq!(counter.osc, 1);
+    }
+
+    #[test]
+    fn a_large_osc_does_not_pin_its_buffer() {
+        let (mut counter, mut parser) = feed_long(
+            b"\x1b]1337;File=:",
+            MAX_OSC_BYTES - b"1337;File=:".len(),
+            b"\x07",
+        );
+        assert_eq!(counter.osc, 1);
+        parser.feed(b"\x1b]2;title\x07", &mut counter);
+        assert_eq!(counter.osc, 2);
+        assert!(parser.osc.capacity() < MAX_OSC_BYTES);
     }
 
     #[test]

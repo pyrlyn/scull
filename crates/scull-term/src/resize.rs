@@ -7,11 +7,14 @@
 //! screen is cut or padded, because its application redraws on `SIGWINCH`
 //! anyway (kitty and WezTerm do the same, T11). The grid moves every
 //! tracked point with its cell (`Grid::resize`); this module only says
-//! which points those are and brings them back onto the screen.
+//! which points those are and brings them back onto the screen. Image
+//! placements are tracked by their top-left cell (T11's `TrackPoint`s), so
+//! an image stays with the line it was drawn on.
 
 use scull_grid::{Grid, GridError, Reflow, TrackPoint};
 
 use crate::error::TermError;
+use crate::images::{self, ScreenImages};
 use crate::state::{Cursor, Margins, State};
 
 impl State {
@@ -30,6 +33,11 @@ impl State {
             (&mut self.alt, &mut self.grid)
         } else {
             (&mut self.grid, &mut self.alt)
+        };
+        let (main_images, alt_images) = if alt_active {
+            (&mut self.alt_images, &mut self.images)
+        } else {
+            (&mut self.images, &mut self.alt_images)
         };
         let [main_saved, alt_saved] = &mut self.saved;
         // A hidden screen has no live cursor. The main screen's is what
@@ -53,14 +61,14 @@ impl State {
         let main_saved = main_saved.as_mut().map(|s| &mut s.cursor);
         let alt_saved = alt_saved.as_mut().map(|s| &mut s.cursor);
         resize_screen(
-            main,
+            (main, main_images),
             (cols, rows),
             Reflow::Rewrap,
             &mut main_cursor,
             main_saved,
         )?;
         resize_screen(
-            alt,
+            (alt, alt_images),
             (cols, rows),
             Reflow::Truncate,
             &mut alt_cursor,
@@ -76,10 +84,11 @@ impl State {
     }
 }
 
-/// Resizes `grid` and moves `cursor` and `saved` (screen positions) with
-/// their cells, then clamps both onto the screen.
+/// Resizes `grid` and moves `cursor`, `saved` (screen positions) and the
+/// image placements with their cells, then clamps both cursors onto the
+/// screen.
 fn resize_screen(
-    grid: &mut Grid,
+    (grid, images): (&mut Grid, &mut ScreenImages),
     (cols, rows): (u16, u16),
     reflow: Reflow,
     cursor: &mut Cursor,
@@ -89,7 +98,11 @@ fn resize_screen(
     let base = grid.history_len();
     let mut at = point(cursor, base);
     let mut points: Vec<TrackPoint> = saved.iter().map(|s| point(s, base)).collect();
+    images.prune();
+    let first_anchor = points.len();
+    points.extend(images::anchors(images));
     grid.resize(cols, rows, reflow, &mut at, &mut points)?;
+    images::reanchor(images, points.get(first_anchor..).unwrap_or_default());
     let base = grid.history_len();
     let onto_screen = |p: TrackPoint, c: &mut Cursor| {
         let row = p.row.saturating_sub(base).min(usize::from(rows - 1));

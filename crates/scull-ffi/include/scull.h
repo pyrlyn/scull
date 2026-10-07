@@ -21,11 +21,11 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 1
+#define TT_ABI_VERSION_MINOR 2
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 1
+#define TT_ABI_VERSION 2
 
 // `tt_event.kind`: the program rang the bell, once or more since the last
 // poll.
@@ -137,6 +137,10 @@ typedef int32_t tt_status;
 // thread at a time.
 typedef struct tt_frame tt_frame;
 
+// An image's pixels, shared and immutable. Opaque to the host: read it
+// with `tt_image_pixels`.
+typedef struct tt_image tt_image;
+
 // One terminal. Opaque to the host.
 typedef struct tt_term tt_term;
 
@@ -234,6 +238,41 @@ typedef struct tt_scroll {
   uint16_t from;
 } tt_scroll;
 
+// One image in the viewport. Draw the source rectangle of `image` scaled
+// to `cols` x `rows` cells whose top-left cell is (`row`, `col`), moved by
+// the pixel offset. Placements come lowest `z` first; a negative `z`
+// draws below the text.
+typedef struct tt_placement {
+  // The pixels; valid until the next update or free of the frame, or
+  // until `tt_image_release` after a `tt_image_retain`.
+  const struct tt_image *image;
+  // Changes whenever the pixels behind `image` may have; a texture cache
+  // keys on `image` and `generation`.
+  uint64_t generation;
+  // Viewport row of the top-left cell; negative above the viewport.
+  int32_t row;
+  // Column of the top-left cell.
+  uint32_t col;
+  // Width in cells.
+  uint32_t cols;
+  // Height in cells.
+  uint32_t rows;
+  // Pixel offset inside the top-left cell.
+  uint32_t offset_x;
+  // Pixel offset inside the top-left cell.
+  uint32_t offset_y;
+  // Source rectangle in image pixels: left edge.
+  uint32_t src_x;
+  // Top edge.
+  uint32_t src_y;
+  // Width.
+  uint32_t src_w;
+  // Height.
+  uint32_t src_h;
+  // Stacking order.
+  int32_t z;
+} tt_placement;
+
 // What `tt_frame_update` hands back. Set `struct_size` before the call.
 typedef struct tt_frame_view {
   // `sizeof(tt_frame_view)` as the host knows it; on return, the bytes
@@ -271,6 +310,11 @@ typedef struct tt_frame_view {
   const uint16_t *dirty;
   // Number of dirty rows.
   size_t dirty_len;
+  // The images in the viewport, lowest `z` first. The rows they cover
+  // are in `dirty` whenever a placement over them changed.
+  const struct tt_placement *placements;
+  // Number of placements.
+  size_t placements_len;
 } tt_frame_view;
 
 // UTF-8 text the host owns: `len` bytes at `ptr`, no terminator. `ptr`
@@ -363,6 +407,36 @@ tt_status tt_frame_update(struct tt_frame *frame,
 // `frame` is `NULL` or live, and not used again.
 void tt_frame_free(struct tt_frame *frame);
 
+// Takes a reference to `image`, so its pixels outlive the frame update
+// that handed it out. `NULL` is a no-op.
+//
+// # Safety
+//
+// `image` is `NULL`, a `tt_placement.image` whose view is still valid, or
+// an image retained and not yet released. Any thread may call this.
+void tt_image_retain(const struct tt_image *image);
+
+// Drops a reference taken by `tt_image_retain`. `NULL` is a no-op.
+//
+// # Safety
+//
+// `image` is `NULL` or was retained, and each retain is released once.
+void tt_image_release(const struct tt_image *image);
+
+// The pixels of `image`: `height` rows of `stride` bytes, each `width`
+// RGBA pixels of 4 bytes, straight (not premultiplied) alpha. Valid while
+// `image` is. Each out pointer may be `NULL`; a `NULL` image answers
+// `NULL` and zeroes them.
+//
+// # Safety
+//
+// `image` is as for `tt_image_retain`; each out pointer is `NULL` or
+// writable.
+const uint8_t *tt_image_pixels(const struct tt_image *image,
+                               uint32_t *width,
+                               uint32_t *height,
+                               size_t *stride);
+
 // Creates a terminal running a child on a new PTY: `options.program`
 // with its arguments, or the user's shell. Output is parsed on core
 // threads; `options.wakeup` says when to look. On `TT_OK` `*out` holds
@@ -418,7 +492,8 @@ tt_status tt_term_feed(const struct tt_term *term, const uint8_t *bytes, size_t 
 // Resizes the terminal to `cols` x `rows` cells: the primary screen and
 // its history are rewrapped, the alternate screen is cut or padded. The
 // child, if any, is told the new size (`width_px` and `height_px` are the
-// view's size in pixels, 0 if unknown) and output paused by
+// view's size in pixels, 0 if unknown; they also give the cell size that
+// image sizes are measured with) and output paused by
 // `tt_term_resize_begin` flows again, whatever the outcome.
 //
 // # Safety

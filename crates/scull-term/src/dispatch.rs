@@ -5,9 +5,10 @@
 //! Sequence names and defaults are xterm's ctlseqs. A parameter of 0 means
 //! the default (1 for counts and positions), as in ECMA-48; out-of-range
 //! values are clamped by the callee, never rejected. Sequences outside this
-//! table, OSC included (T13), are ignored.
+//! table are ignored; of OSC, DCS and APC only the image protocols are
+//! handled so far (`images.rs`).
 
-use scull_parser::{Csi, Esc, Handler, Params};
+use scull_parser::{Csi, End, Esc, Handler, Osc, Params};
 
 use crate::charset::{Charset, Charsets};
 use crate::edit::Erase;
@@ -120,6 +121,34 @@ impl Handler for State {
             (None, [b'!'], b'p') => self.soft_reset(),
             _ => {}
         }
+    }
+
+    fn osc_dispatch(&mut self, osc: &Osc<'_>) {
+        self.osc(osc.data);
+    }
+
+    fn dcs_hook(&mut self, header: &Csi<'_>) {
+        self.sixel_start(header);
+    }
+
+    fn dcs_put(&mut self, data: &[u8]) {
+        self.sixel_put(data);
+    }
+
+    fn dcs_unhook(&mut self, end: End) {
+        self.sixel_end(end);
+    }
+
+    fn apc_start(&mut self) {
+        self.kitty_start();
+    }
+
+    fn apc_put(&mut self, data: &[u8]) {
+        self.kitty_put(data);
+    }
+
+    fn apc_end(&mut self, end: End) {
+        self.kitty_end(end);
     }
 }
 

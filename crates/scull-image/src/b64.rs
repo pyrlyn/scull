@@ -21,7 +21,7 @@ const ENGINE: GeneralPurpose = GeneralPurpose::new(
 );
 
 /// Decodes base64 incrementally into a buffer capped at `max` bytes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Base64Sink {
     carry: Vec<u8>,
     out: Vec<u8>,

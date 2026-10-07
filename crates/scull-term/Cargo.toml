@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 scull-parser = { workspace = true }
 scull-grid = { workspace = true }
+scull-image = { workspace = true }
 scull-unicode = { workspace = true }
 thiserror = { workspace = true }
 

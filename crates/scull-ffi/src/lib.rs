@@ -18,7 +18,8 @@
 //!   `TT_PANIC` and the terminal is poisoned, answering `TT_POISONED` to
 //!   every later call until it is freed. Other terminals are unaffected.
 //! - Pointers in a `tt_frame_view` stay valid until the next
-//!   `tt_frame_update` or `tt_frame_free` on that frame.
+//!   `tt_frame_update` or `tt_frame_free` on that frame. An image in it
+//!   lives on while the host holds a `tt_image_retain` on it.
 
 // The exported names are the C names; the header is the API.
 #![allow(non_camel_case_types)]
@@ -41,8 +42,8 @@ pub use frame::{
     TT_ATTR_OVERLINE, TT_ATTR_STRIKE, TT_CELL_CLUSTER, TT_COLOR_DEFAULT, TT_COLOR_INDEXED,
     TT_COLOR_KIND_MASK, TT_COLOR_RGB, TT_UNDERLINE_CURLY, TT_UNDERLINE_DASHED, TT_UNDERLINE_DOTTED,
     TT_UNDERLINE_DOUBLE, TT_UNDERLINE_NONE, TT_UNDERLINE_SINGLE, tt_cell, tt_cursor, tt_frame,
-    tt_frame_free, tt_frame_new, tt_frame_update, tt_frame_view, tt_row, tt_run, tt_scroll,
-    tt_style,
+    tt_frame_free, tt_frame_new, tt_frame_update, tt_frame_view, tt_image, tt_image_pixels,
+    tt_image_release, tt_image_retain, tt_placement, tt_row, tt_run, tt_scroll, tt_style,
 };
 pub use guard::tt_status;
 pub use spawn::{tt_str, tt_term_resize_begin, tt_term_spawn, tt_term_write, tt_wakeup_fn};
@@ -54,11 +55,11 @@ pub const TT_ABI_VERSION_MAJOR: u32 = 0;
 
 /// Additions (new functions, fields appended to a struct) bump the minor.
 /// While the major is 0 every minor may break, so the minor must match too.
-pub const TT_ABI_VERSION_MINOR: u32 = 1;
+pub const TT_ABI_VERSION_MINOR: u32 = 2;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = 0x0000_0001;
+pub const TT_ABI_VERSION: u32 = 0x0000_0002;
 
 const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 
@@ -87,6 +88,7 @@ mod tests {
         assert!(abi_compatible(TT_ABI_VERSION));
         assert!(abi_compatible(tt_abi_version()));
         assert!(!abi_compatible(TT_ABI_VERSION + 1));
+        assert!(!abi_compatible(TT_ABI_VERSION - 1), "a host without images");
         assert!(!abi_compatible(1 << MINOR_BITS | TT_ABI_VERSION_MINOR));
         assert!(!abi_compatible(0));
     }

@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 1;
+        internal const uint TT_ABI_VERSION_MINOR = 2;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 1;
+        internal const uint TT_ABI_VERSION = 2;
         /// <summary>
         ///  `tt_event.kind`: the program rang the bell, once or more since the last
         ///  poll.
@@ -163,7 +163,8 @@ namespace Scull.Native
         ///  Resizes the terminal to `cols` x `rows` cells: the primary screen and
         ///  its history are rewrapped, the alternate screen is cut or padded. The
         ///  child, if any, is told the new size (`width_px` and `height_px` are the
-        ///  view's size in pixels, 0 if unknown) and output paused by
+        ///  view's size in pixels, 0 if unknown; they also give the cell size that
+        ///  image sizes are measured with) and output paused by
         ///  `tt_term_resize_begin` flows again, whatever the outcome.
         ///
         ///  # Safety
@@ -267,6 +268,42 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_frame_free", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern void tt_frame_free(tt_frame* frame);
+
+        /// <summary>
+        ///  Takes a reference to `image`, so its pixels outlive the frame update
+        ///  that handed it out. `NULL` is a no-op.
+        ///
+        ///  # Safety
+        ///
+        ///  `image` is `NULL`, a `tt_placement.image` whose view is still valid, or
+        ///  an image retained and not yet released. Any thread may call this.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_image_retain", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void tt_image_retain(tt_image* image);
+
+        /// <summary>
+        ///  Drops a reference taken by `tt_image_retain`. `NULL` is a no-op.
+        ///
+        ///  # Safety
+        ///
+        ///  `image` is `NULL` or was retained, and each retain is released once.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_image_release", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void tt_image_release(tt_image* image);
+
+        /// <summary>
+        ///  The pixels of `image`: `height` rows of `stride` bytes, each `width`
+        ///  RGBA pixels of 4 bytes, straight (not premultiplied) alpha. Valid while
+        ///  `image` is. Each out pointer may be `NULL`; a `NULL` image answers
+        ///  `NULL` and zeroes them.
+        ///
+        ///  # Safety
+        ///
+        ///  `image` is as for `tt_image_retain`; each out pointer is `NULL` or
+        ///  writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_image_pixels", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* tt_image_pixels(tt_image* image, uint* width, uint* height, nuint* stride);
 
 
     }
@@ -543,6 +580,80 @@ namespace Scull.Native
     }
 
     /// <summary>
+    ///  An image's pixels, shared and immutable. Opaque to the host: read it
+    ///  with `tt_image_pixels`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_image
+    {
+    }
+
+    /// <summary>
+    ///  One image in the viewport. Draw the source rectangle of `image` scaled
+    ///  to `cols` x `rows` cells whose top-left cell is (`row`, `col`), moved by
+    ///  the pixel offset. Placements come lowest `z` first; a negative `z`
+    ///  draws below the text.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_placement
+    {
+        /// <summary>
+        ///  The pixels; valid until the next update or free of the frame, or
+        ///  until `tt_image_release` after a `tt_image_retain`.
+        /// </summary>
+        public tt_image* image;
+        /// <summary>
+        ///  Changes whenever the pixels behind `image` may have; a texture cache
+        ///  keys on `image` and `generation`.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  Viewport row of the top-left cell; negative above the viewport.
+        /// </summary>
+        public int row;
+        /// <summary>
+        ///  Column of the top-left cell.
+        /// </summary>
+        public uint col;
+        /// <summary>
+        ///  Width in cells.
+        /// </summary>
+        public uint cols;
+        /// <summary>
+        ///  Height in cells.
+        /// </summary>
+        public uint rows;
+        /// <summary>
+        ///  Pixel offset inside the top-left cell.
+        /// </summary>
+        public uint offset_x;
+        /// <summary>
+        ///  Pixel offset inside the top-left cell.
+        /// </summary>
+        public uint offset_y;
+        /// <summary>
+        ///  Source rectangle in image pixels: left edge.
+        /// </summary>
+        public uint src_x;
+        /// <summary>
+        ///  Top edge.
+        /// </summary>
+        public uint src_y;
+        /// <summary>
+        ///  Width.
+        /// </summary>
+        public uint src_w;
+        /// <summary>
+        ///  Height.
+        /// </summary>
+        public uint src_h;
+        /// <summary>
+        ///  Stacking order.
+        /// </summary>
+        public int z;
+    }
+
+    /// <summary>
     ///  What `tt_frame_update` hands back. Set `struct_size` before the call.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -615,6 +726,15 @@ namespace Scull.Native
         ///  Number of dirty rows.
         /// </summary>
         public nuint dirty_len;
+        /// <summary>
+        ///  The images in the viewport, lowest `z` first. The rows they cover
+        ///  are in `dirty` whenever a placement over them changed.
+        /// </summary>
+        public tt_placement* placements;
+        /// <summary>
+        ///  Number of placements.
+        /// </summary>
+        public nuint placements_len;
     }
 
     /// <summary>

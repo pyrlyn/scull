@@ -219,7 +219,8 @@ pub unsafe extern "C" fn tt_term_feed(
 /// Resizes the terminal to `cols` x `rows` cells: the primary screen and
 /// its history are rewrapped, the alternate screen is cut or padded. The
 /// child, if any, is told the new size (`width_px` and `height_px` are the
-/// view's size in pixels, 0 if unknown) and output paused by
+/// view's size in pixels, 0 if unknown; they also give the cell size that
+/// image sizes are measured with) and output paused by
 /// `tt_term_resize_begin` flows again, whatever the outcome.
 ///
 /// # Safety
@@ -234,7 +235,15 @@ pub unsafe extern "C" fn tt_term_resize(
     height_px: u16,
 ) -> tt_status {
     let body = |t: &tt_term| {
-        let resized = size_ok(cols, rows) && t.core().lock().term.resize(cols, rows).is_ok();
+        let resized = size_ok(cols, rows) && {
+            let term = &mut t.core().lock().term;
+            // The view's pixels per cell turn image sizes into cells; a
+            // size of 0 (unknown) leaves the last one, which the core checks.
+            if width_px != 0 && height_px != 0 {
+                term.set_cell_size(u32::from(width_px / cols), u32::from(height_px / rows));
+            }
+            term.resize(cols, rows).is_ok()
+        };
         let Some(pty) = t.pty() else {
             return if resized {
                 tt_status::TT_OK

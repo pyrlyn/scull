@@ -6,7 +6,7 @@
 //! Usage: `scull-ucd-gen [--check]`. Missing data files are downloaded into
 //! the gitignored `target/ucd/<version>/` cache; every file is verified
 //! against its SHA-256 before use. `--check` fails if a committed output
-//! differs from what the data files produce.
+//! differs from what the data files produce (CRLF read as LF).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -14,6 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
+use bless_check::Mode;
 use sha2::{Digest, Sha256};
 
 const VERSION: (u8, u8, u8) = (18, 0, 0);
@@ -116,18 +117,13 @@ fn main() -> Result<()> {
                 .with_context(|| format!("writing {}", dest.display()))?;
         }
     }
+    let mode = if check { Mode::Check } else { Mode::Bless };
     let mut stale = Vec::new();
     for (rel, content) in render(&cache)? {
-        let dest = root.join(rel);
-        if check {
-            if fs::read(&dest).ok().as_deref() != Some(content.as_slice()) {
-                stale.push(rel);
-            }
-        } else {
-            if let Some(dir) = dest.parent() {
-                fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-            }
-            fs::write(&dest, content).with_context(|| format!("writing {}", dest.display()))?;
+        match bless_check::check_or_bless(root.join(rel), content, mode) {
+            Ok(_) => {}
+            Err(e) if e.is_stale() => stale.push(rel),
+            Err(e) => return Err(e.into()),
         }
     }
     ensure!(
@@ -396,10 +392,7 @@ mod tests {
             return;
         }
         for (rel, want) in render(&cache).unwrap() {
-            assert!(
-                fs::read(root.join(rel)).unwrap() == want,
-                "{rel} is stale; run `just ucd`"
-            );
+            bless_check::assert_fresh(root.join(rel), want, Mode::Check, "run `just ucd`");
         }
     }
 

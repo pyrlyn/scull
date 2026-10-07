@@ -17,6 +17,7 @@ scull-input = { workspace = true }
 scull-pty = { workspace = true }
 
 [dev-dependencies]
+bless-check = { workspace = true }
 cbindgen = { workspace = true }
 csbindgen = { workspace = true }
 workspace-graph = { workspace = true }

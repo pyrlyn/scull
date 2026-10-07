@@ -13,6 +13,7 @@ mod image;
 mod iterm;
 mod placement;
 mod raster;
+mod sixel;
 mod store;
 
 pub use error::ImageError;
@@ -20,6 +21,7 @@ pub use image::{Image, ImageId};
 pub use iterm::{Dimension, ItermArgs, ItermImage};
 pub use placement::{Crop, Placement};
 pub use raster::decode as decode_file;
+pub use sixel::{MAX_SIXEL_COLORS, MAX_SIXEL_SIDE, SixelDecoder};
 pub use store::ImageStore;
 
 /// Bytes per decoded pixel: every image is RGBA8.

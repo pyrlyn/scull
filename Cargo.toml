@@ -72,6 +72,10 @@ csbindgen = "1.9.8"
 # scull-config: the config file is TOML; serde types carry the constraints.
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.6"
+# scull-config: the settings view edits single keys in place, keeping the user's comments.
+toml_edit = "0.25.15"
+# scull-config: live reload watches the config directory (stable 8.x; 9 is still a release candidate).
+notify = "8.2.0"
 # scull-config: the committed JSON Schema is generated from the config types (rust.md: our
 # configs have a schema); test-only.
 schemars = "1.2.2"

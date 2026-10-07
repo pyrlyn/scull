@@ -13,8 +13,10 @@ workspace = true
 [dependencies]
 scull-input = { workspace = true }
 serde = { workspace = true }
+notify = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
+toml_edit = { workspace = true }
 
 [dev-dependencies]
 schemars = { workspace = true }

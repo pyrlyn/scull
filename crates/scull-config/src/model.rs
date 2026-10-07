@@ -268,6 +268,11 @@ impl Config {
 impl Settings {
     /// Parses and validates `text`; `origin` only names the file in errors.
     pub fn parse(text: &str, origin: &Path) -> Result<Self, ConfigError> {
+        if text.len() as u64 > MAX_FILE_BYTES {
+            return Err(ConfigError::TooLarge {
+                path: origin.to_owned(),
+            });
+        }
         let config: Config = toml::from_str(text).map_err(|e| ConfigError::Invalid {
             path: origin.to_owned(),
             message: e.to_string(),
@@ -289,7 +294,7 @@ impl Settings {
 }
 
 /// The file's text, never more than [`MAX_FILE_BYTES`] of it in memory.
-fn read_capped(path: &Path) -> Result<String, ConfigError> {
+pub(crate) fn read_capped(path: &Path) -> Result<String, ConfigError> {
     let io = |source| ConfigError::Io {
         path: path.to_owned(),
         source,

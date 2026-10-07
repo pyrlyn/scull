@@ -7,18 +7,23 @@
 //! every value has a range that lives in its type; the committed
 //! `docs/config.schema.json` is generated from those same types.
 
+mod edit;
 mod error;
 mod keybind;
+mod live;
 mod model;
 mod theme;
 
 pub use error::ConfigError;
 pub use keybind::{Action, Binding, Chord, MAX_KEYBINDS};
+pub use live::{LiveConfig, Snapshot};
 pub use model::{
     Font, MAX_ANSI_OVERRIDES, MAX_FAMILY_BYTES, MAX_FILE_BYTES, MAX_FONT_SIZE, MAX_SCROLLBACK,
     MIN_FONT_SIZE, Settings,
 };
 pub use theme::{Rgb, Scheme, Theme};
 
+#[cfg(test)]
+mod live_tests;
 #[cfg(test)]
 mod tests;

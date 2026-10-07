@@ -12,3 +12,13 @@ workspace = true
 
 [dependencies]
 scull-unicode = { workspace = true }
+memchr = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+divan = { workspace = true }
+vte = { workspace = true }
+
+[[bench]]
+name = "throughput"
+harness = false

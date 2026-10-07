@@ -12,7 +12,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T9 | todo | P0 | 4 | 0% | |
 | T10 | todo | P0 | 4 | 0% | |
 | T11 | todo | P1 | 4 | 0% | |
-| T12 | in progress | P1 | 4 | 0% | Claude Code / claude-opus-5-5 |
 | T13 | todo | P1 | 3 | 0% | |
 | T14 | todo | P1 | 3 | 0% | |
 | T15 | todo | P1 | 5 | 0% | |
@@ -57,16 +56,6 @@ Row dirty bits plus scroll damage; mode 2026 with byte and time caps; a UI-owned
 
 One-pass reflow with tracking points for cursor, saved cursor, viewport and selection. The alt screen is not rewrapped. Interactive resize pauses the PTY and reflows once at the end. Done when no anchor is lost in the reflow golden tests.
 
-### T12. Input encoding
-
-`scull-input`: pure encoders for legacy keys, the kitty keyboard protocol with a flag stack per screen, win32-input-mode, all mouse modes including SGR-pixel, bracketed paste with end-marker stripping, and focus events. Done when the table-driven tests match xterm and the kitty specification.
-
-
-Execution plan:
-1. Look for reusable encoders in the workspace and upstream (Alacritty, WezTerm `termwiz` input encoding, Windows Terminal win32-input-mode spec); port with notices or reimplement from the kitty keyboard protocol and xterm ctlseqs specifications.
-2. `crates/scull-input`: a platform-neutral key struct (physical key, modifiers, consumed modifiers, text, unshifted code point, composing flag); pure encoders for legacy xterm keys (cursor/keypad application modes, modifyOtherKeys), the kitty keyboard protocol with a per-screen flag stack (push/pop/query, capped depth), win32-input-mode, mouse in X10, normal, button, any-event, UTF-8, SGR, urxvt and SGR-pixel modes, bracketed paste with end-marker stripping, and focus events.
-3. Table-driven tests against xterm and the kitty specification; a proptest that no encoder panics.
-4. Verify with `just check`. Split at claim: T12.1 keys (legacy + kitty + win32); T12.2 mouse, paste and focus.
 ### T13. Selection, search, links, shell integration
 
 Selection and scrollback search in the core. OSC 8 links as per-row ranges. OSC 52 as an event the UI may deny. OSC 7 and OSC 133. Title, bell and notification events. Done when each has a golden test and an event in the queue.

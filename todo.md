@@ -4,7 +4,6 @@
 - T9. Damage, synchronized output, frame snapshot
 - T10. C ABI
 - T11. Resize and reflow
-- T12. Input encoding
 - T13. Selection, search, links, shell integration
 - T14. macOS app: first light
 - T15. macOS renderer

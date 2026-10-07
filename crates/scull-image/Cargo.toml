@@ -1,0 +1,21 @@
+[package]
+name = "scull-image"
+description = "Inline images: RGBA store with placements, iTerm2, sixel and kitty graphics decoders"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rustc-hash = { workspace = true }
+thiserror = { workspace = true }
+base64 = { workspace = true }
+png = { workspace = true }
+zune-jpeg = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

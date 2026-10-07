@@ -22,6 +22,7 @@ scull-input = { path = "crates/scull-input" }
 scull-pty = { path = "crates/scull-pty" }
 scull-ffi = { path = "crates/scull-ffi" }
 scull-harness = { path = "crates/scull-harness" }
+scull-image = { path = "crates/scull-image" }
 
 # Error enums per library crate (rust.md: no anyhow below a binary).
 thiserror = "2.0.21"
@@ -42,6 +43,13 @@ portable-pty = "0.9.0"
 # scull-pty: the caller-supplied terminal lock; unlock_fair hands the lock to a waiting frame
 # read so a flooding child cannot starve it (std Mutex has no fair unlock).
 parking_lot = "0.12.5"
+
+# scull-image: payload decoding for iTerm2 inline images and kitty graphics.
+base64 = "0.23.1"
+# scull-image: the image formats iTerm2 sends (kitty needs only PNG); direct crates rather than
+# `image`, which adds colour management (moxcms) the core does not use.
+png = "0.18.1"
+zune-jpeg = "0.5.15"
 
 # scull-parser: memchr3 finds the end of a DCS/APC payload in bulk.
 memchr = "2.8.3"

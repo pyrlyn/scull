@@ -14,25 +14,48 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The shared pyrlyn/ci Rust workflow, pinned by commit: fmt once, then per host clippy and
+  # check, then `just check` as the test step. `just check` is the repository's gate (fmt-check,
+  # clippy --locked -D warnings, nextest), including the drift check of the committed C header
+  # and C# bindings (scull-ffi/tests/bindings.rs, `just bindings-check`).
+  # Rust, nextest and just come from mise.toml, so CI runs the pinned versions.
   rust:
+    uses: pyrlyn/ci/.github/workflows/ci-rust.yml@c875cd763ad0c4abbd936e480be5752330d3b66b # main 2026-10-07
+    # ci-rust cancels the whole run when a job fails (cancel-run-on-failure), which needs
+    # `actions: write` on the calling job.
+    permissions:
+      contents: read
+      actions: write
+    with:
+      # The same three hosts as before: macOS is Apple Silicon only; Windows is the second
+      # host the core ships on. No Linux arm64 entry yet.
+      matrix: >-
+        [
+        {"os": "ubuntu-latest", "target": "x86_64-unknown-linux-gnu"},
+        {"os": "xcode-27", "target": "aarch64-apple-darwin"},
+        {"os": "windows-latest", "target": "x86_64-pc-windows-msvc"}
+        ]
+      mise-install-args: rust cargo:cargo-nextest just
+      # `just lint` flags: no --all-features, --locked.
+      feature-args: ""
+      clippy-args: --locked
+      test-command: just check
+      # nextest (inside `just check`) does not run doctests and the gate never did.
+      doc-tests: false
+
+  # The C ABI driven from C under ASan+UBSan and TSan (`just c-abi-test`). Repository-specific:
+  # not part of the shared workflow. The Windows runner's cc has no sanitizer runtimes.
+  c-abi:
     strategy:
       fail-fast: false
       matrix:
-        # macOS is Apple Silicon only; Windows is the second host the core ships on.
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Rust, nextest and just come from mise.toml, so CI runs the pinned versions.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-      # Includes the drift check of the committed C header and C# bindings
-      # (scull-ffi/tests/bindings.rs, `just bindings-check`).
-      - run: just check
       # Ubuntu's kernel randomises mmap with more bits than the sanitizer
       # runtimes of the runner's compilers can map around.
       - if: runner.os == 'Linux'
         run: sudo sysctl vm.mmap_rnd_bits=28
-      # The C ABI driven from C under ASan+UBSan and TSan. The Windows
-      # runner's cc has no sanitizer runtimes.
-      - if: runner.os != 'Windows'
-        run: just c-abi-test
+      - run: just c-abi-test

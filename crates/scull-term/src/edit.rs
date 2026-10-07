@@ -59,11 +59,15 @@ impl State {
             Erase::ToStart => 0..self.cursor.row,
             Erase::All => 0..self.rows(),
             Erase::Scrollback => {
+                let history = u64::try_from(self.grid.history_len()).unwrap_or(u64::MAX);
+                self.images.evicted = self.images.evicted.saturating_add(history);
                 self.grid.clear_history();
                 return;
             }
         };
-        if which != Erase::All {
+        if which == Erase::All {
+            self.erase_screen_images();
+        } else {
             self.erase_line(which);
         }
         self.cursor.pending_wrap = false;
@@ -156,7 +160,13 @@ impl State {
         let blank = self.blank();
         if self.full_width(region) {
             let rows = region.top..region.bottom.saturating_add(1);
+            let whole = region.top == 0 && region.bottom >= self.last_row();
+            let history = self.grid.history_len();
             self.grid.scroll_region_up(rows, n, blank);
+            // Only a scroll of the whole screen feeds (and evicts) history.
+            if whole {
+                self.count_evicted(n, history);
+            }
         } else {
             self.scroll_columns(region, n, true, blank);
         }

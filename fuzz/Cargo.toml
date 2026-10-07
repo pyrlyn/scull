@@ -1,6 +1,6 @@
 [package]
 name = "scull-fuzz"
-description = "libFuzzer targets for the parser, the conformance stub and the image decoders"
+description = "libFuzzer targets for the parser, the conformance stub, the image decoders and images on the terminal"
 version = "0.0.0"
 # Own workspace, so this cannot inherit the root package table.
 edition = "2024"
@@ -17,6 +17,7 @@ libfuzzer-sys = "0.4.13"
 scull-harness = { path = "../crates/scull-harness" }
 scull-image = { path = "../crates/scull-image" }
 scull-parser = { path = "../crates/scull-parser" }
+scull-term = { path = "../crates/scull-term" }
 
 [workspace]
 
@@ -51,6 +52,13 @@ bench = false
 [[bin]]
 name = "kitty"
 path = "fuzz_targets/kitty.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "term_images"
+path = "fuzz_targets/term_images.rs"
 test = false
 doc = false
 bench = false

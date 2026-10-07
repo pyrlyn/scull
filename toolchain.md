@@ -12,6 +12,12 @@
 | Xcode (Swift 6.4, SwiftPM, AppKit/SwiftUI SDK) | Mac App Store or developer.apple.com (27.0) | `just macos`, `just macos-test`: build and test the macOS app in `macos/` (arm64 only) | https://developer.apple.com/xcode/ |
 | codesign | system (Xcode) | `just macos`: ad-hoc signs `target/macos/Scull.app` so it launches locally | https://developer.apple.com/documentation/security/code-signing-services |
 
+## Bundled files
+
+| Package | Where | Source | Why here |
+| --- | --- | --- | --- |
+| Symbols Nerd Font Mono 3.5.1 (MIT, `NerdFontsSymbolsOnly.tar.xz`) | local (`macos/Resources/`) | https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1 | Powerline separators and Nerd Font icons in shell prompts when the face lacks them |
+
 ## cargo
 
 | Package | Where | Source | Why here |

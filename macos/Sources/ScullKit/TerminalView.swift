@@ -17,6 +17,7 @@ public final class TerminalView: NSView {
                                      size: font.pointSize) ?? font
     private lazy var boldItalic = NSFont(descriptor: bold.fontDescriptor.withSymbolicTraits(.italic),
                                          size: font.pointSize) ?? bold
+    private lazy var symbols = SymbolFont(size: font.pointSize)
     private let cellWidth: CGFloat
     private let cellHeight: CGFloat
     private var grid = (cols: UInt16(80), rows: UInt16(24))
@@ -189,7 +190,7 @@ public final class TerminalView: NSView {
         // cells, so each one is placed on its own cell instead.
         let pieces = width == 2 ? text.map { String($0) } : [text]
         for (i, piece) in pieces.enumerated() {
-            let string = NSAttributedString(string: piece, attributes: [
+            let string = symbols.string(piece, face: face, attributes: [
                 NSAttributedString.Key(kCTFontAttributeName as String): face,
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String): cg,
             ])

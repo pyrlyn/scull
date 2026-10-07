@@ -58,3 +58,31 @@ import Testing
     #expect(session.text("x") == TT_CLOSED)
     #expect(session.scrollDisplay(1) == TT_OK)
 }
+
+// The fonts CTLine draws a string with, in run order: the path the view
+// takes, where a cascade list on the system font is ignored.
+private func drawingFonts(_ string: NSAttributedString) -> [String] {
+    let runs = CTLineGetGlyphRuns(CTLineCreateWithAttributedString(string)) as? [CTRun] ?? []
+    return runs.map { run in
+        let attributes = CTRunGetAttributes(run) as NSDictionary
+        return CTFontCopyPostScriptName(attributes[kCTFontAttributeName] as! CTFont) as String
+    }
+}
+
+@Test func powerlineAndNerdFontIconsDrawWithTheBundledSymbols() {
+    let url = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().appendingPathComponent("../../Resources/\(SymbolFont.file).ttf")
+    #expect(SymbolFont.register(url))
+    #expect(SymbolFont.register(url), "a second registration still reports the font usable")
+    let face = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    let symbols = SymbolFont(size: face.pointSize)
+    let key = NSAttributedString.Key(kCTFontAttributeName as String)
+    // U+E0B0 is the Powerline arrow, U+F07C a Font Awesome folder and
+    // U+F0001 a Material Design icon outside the BMP.
+    for icon in ["\u{E0B0}", "\u{F07C}", "\u{F0001}"] {
+        #expect(drawingFonts(NSAttributedString(string: icon, attributes: [key: face])) != [SymbolFont.name])
+        let fonts = drawingFonts(symbols.string("a\(icon)b", face: face, attributes: [key: face]))
+        #expect(fonts.count == 3 && fonts[1] == SymbolFont.name && fonts[0] == fonts[2])
+    }
+    #expect(drawingFonts(symbols.string("~ é", face: face, attributes: [key: face])).count == 1)
+}

@@ -14,3 +14,7 @@ workspace = true
 scull-parser = { workspace = true }
 scull-grid = { workspace = true }
 scull-unicode = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

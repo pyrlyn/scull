@@ -1,4 +1,3 @@
-- T2. Workspace scaffold
 - T3. Conformance and benchmark harness
 - T4. Parser
 - T5. Unicode tables

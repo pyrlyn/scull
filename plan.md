@@ -6,7 +6,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 
 | # | Status | Priority | Complexity | Readiness | Agent |
 | --- | --- | --- | --- | --- | --- |
-| T2 | todo | P0 | 2 | 0% | |
 | T3 | todo | P0 | 3 | 0% | |
 | T4 | todo | P0 | 4 | 0% | |
 | T5 | todo | P0 | 4 | 0% | |
@@ -26,10 +25,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T19 | todo | P2 | 5 | 0% | |
 | T20 | todo | P2 | 3 | 0% | |
 | T21 | todo | P2 | 3 | 0% | |
-
-### T2. Workspace scaffold
-
-Cargo workspace with the seven crates of `research.md` §7, a pinned toolchain, clippy with `-D warnings`, a disallowed-types list, rustfmt, CI, and `toolchain.md` filled in. Done when an empty workspace builds and lints clean on macOS and Windows.
 
 ### T3. Conformance and benchmark harness
 

@@ -29,6 +29,8 @@ thiserror = "2.0.21"
 cargo_metadata = "0.23.1"
 # Property tests (scull-unicode: width bound, grapheme state on arbitrary input).
 proptest = "1.11.0"
+# Throughput bench for the stub (rust.md: divan is the default harness).
+divan = "0.1.21"
 # tools/scull-ucd-gen: download and verify the pinned Unicode data files.
 anyhow = "1.0.104"
 sha2 = "0.11.0"

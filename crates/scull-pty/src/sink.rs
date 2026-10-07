@@ -2,6 +2,8 @@
 //! Separate so this crate stays a leaf: the terminal crate never sees a PTY and
 //! this crate never sees a grid.
 
+use std::time::Instant;
+
 use crate::limits::UNKNOWN_EXIT_CODE;
 
 /// How the child ended.
@@ -54,4 +56,18 @@ pub trait Sink: Send + 'static {
 
     /// The child ended and all its output has been fed. Called once, last.
     fn child_exited(&mut self, status: ExitStatus);
+
+    /// Whether the UI should be woken for what the sink holds now. Asked at
+    /// the end of every hold and once [`Self::deadline`] passes; false skips
+    /// the wakeup, as while synchronized output holds the picture.
+    fn wants_wakeup(&mut self, now: Instant) -> bool {
+        let _ = now;
+        true
+    }
+
+    /// When to ask [`Self::wants_wakeup`] again although no output came: the
+    /// end of a hold the sink keeps. Asked right after it.
+    fn deadline(&self) -> Option<Instant> {
+        None
+    }
 }

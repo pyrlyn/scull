@@ -12,6 +12,7 @@ use crate::ImageError;
 const QUAD: usize = 4;
 /// Bytes a full quad decodes to.
 const QUAD_BYTES: usize = 3;
+const PAD: u8 = b'=';
 
 /// Clients often drop the final padding; accepting it costs nothing.
 const ENGINE: GeneralPurpose = GeneralPurpose::new(
@@ -25,6 +26,9 @@ pub(crate) struct Base64Sink {
     carry: Vec<u8>,
     out: Vec<u8>,
     max: usize,
+    /// Padding ends the stream; data after it must fail however the input
+    /// was sliced, as it does when decoded in one piece.
+    padded: bool,
 }
 
 impl Base64Sink {
@@ -33,6 +37,7 @@ impl Base64Sink {
             carry: Vec::with_capacity(QUAD),
             out: Vec::new(),
             max,
+            padded: false,
         }
     }
 
@@ -64,6 +69,10 @@ impl Base64Sink {
         if input.is_empty() {
             return Ok(());
         }
+        if self.padded {
+            return Err(ImageError::Base64);
+        }
+        self.padded = input.last() == Some(&PAD);
         let room = self.max.saturating_sub(self.out.len());
         if input.len().div_ceil(QUAD) * QUAD_BYTES > room.saturating_add(QUAD_BYTES) {
             return Err(ImageError::PayloadTooLarge(self.max));
@@ -107,6 +116,13 @@ mod tests {
     #[test]
     fn missing_padding_is_accepted() {
         assert_eq!(decode_in(&[b"aGk"], 8).unwrap(), b"hi");
+    }
+
+    #[test]
+    fn data_after_padding_is_an_error_in_any_slicing() {
+        assert_eq!(decode_in(&[b"BA==AAAA"], 16), Err(ImageError::Base64));
+        assert_eq!(decode_in(&[b"BA==", b"AAAA"], 16), Err(ImageError::Base64));
+        assert_eq!(decode_in(&[b"BA==", b"AA"], 16), Err(ImageError::Base64));
     }
 
     #[test]

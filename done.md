@@ -199,3 +199,14 @@ Delivered: skipping ids past the marks' length would not have closed the hazard,
 
 Delivered: three unit tests in `crates/scull-term/src/terminal.rs` check the cells the `unicode.txt` fixture does not: a wide character past the last column leaves an empty `LEADING_SPACER`, marks the row wrapped, lands whole on the next row and `read_text` reads `abcd` then the character; with autowrap off it overwrites the last two columns and nothing wraps; from the pending wrap it wraps with no spacer. `time_stub` in `crates/scull-bench` now runs one untimed warm-up and returns the median of nine feeds, and the table text says so. `docs/benchmarks/baseline.md` was not regenerated: the machine ran at load average about 109, and medians still ranged 1.9–4.6 ms, so a new table would record the load. Regenerate it with `just bench` on an idle machine. `just check` passes (543 tests).
 
+### T24. Reconcile harness eager-wrap with xterm's deferred DECAWM
+
+`crates/scull-harness` wrapped eagerly at the last column while xterm DECAWM defers the wrap until the next printable. The golden fixtures encoded that eager wrap and would diverge from `scull-term`. Done means the wrap semantics the fixtures assert are the ones the real core has, or the divergence is documented as intentional for the stub.
+
+Execution plan:
+1. Read `scull-term` DECAWM (`pending_wrap`) and the harness stub. Search the workspace for an existing wrap helper before writing one.
+2. Make the stub defer the wrap the way the core does, and update the golden fixture so it fails under an eager wrap.
+3. Add a test named for the xterm rule: CR stays on the same line, and only the next printable wraps.
+4. Leave `scull-term` unchanged. Verify with `mise exec` fmt, clippy `-D warnings`, and nextest for `scull-harness`.
+
+Delivered: `Stub` arms a pending wrap on the last column and leaves the cursor there. The next printable wraps to column 0 of the next row; `\r` and `\n` clear the flag. `fixtures/wrap.txt` records `abcd\rX\nabcdY` on a 4 by 3 grid (`Xbcd`, `abcd`, `Y`). The test is `xterm_decawm_defers_wrap_until_the_next_printable`. No shared helper was reused: `State::wrap` in `scull-term` scrolls and marks the row wrapped, and `write_styled` in `scull-grid` tests is a private fixture. The stub still does not scroll.

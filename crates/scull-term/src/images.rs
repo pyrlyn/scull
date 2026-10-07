@@ -14,6 +14,7 @@
 //! kitty right of its bottom-right cell. Leaving the alternate screen drops
 //! its images, as foot does.
 
+use scull_grid::TrackPoint;
 use scull_image::{
     BYTES_PER_PIXEL, Crop, DEFAULT_QUOTA_BYTES, Dimension, Image, ImageStore, ItermArgs,
     ItermImage, KittyContext, KittyDecoder, MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, Placement,
@@ -337,6 +338,38 @@ impl State {
         let lines = self.line_of(0)..self.line_of(self.rows());
         self.images.remove_lines(lines);
     }
+}
+
+/// Anchors of `images`' placements as tracking points for a resize, in
+/// placement order. A placement whose top already left the grid is
+/// anchored at logical row 0 and keeps its distance above it.
+pub(crate) fn anchors(images: &ScreenImages) -> Vec<TrackPoint> {
+    let first = images.evicted;
+    let point = |p: &Placement| {
+        let row = usize::try_from(p.row.saturating_sub(first)).unwrap_or(usize::MAX);
+        TrackPoint::new(row, u16::try_from(p.col).unwrap_or(u16::MAX))
+    };
+    images.store.placements().iter().map(point).collect()
+}
+
+/// Re-anchors `images` after its grid was resized, from the `anchors`
+/// the grid's reflow moved. A placement whose cell did not survive goes.
+pub(crate) fn reanchor(images: &mut ScreenImages, anchors: &[TrackPoint]) {
+    let first = images.evicted;
+    let mut lost = Vec::with_capacity(anchors.len());
+    for (p, a) in images.store.placements_mut().iter_mut().zip(anchors) {
+        let above = first.saturating_sub(p.row);
+        let row = u64::try_from(a.row).unwrap_or(u64::MAX);
+        p.row = first.saturating_add(row).saturating_sub(above);
+        p.col = u32::from(a.col);
+        lost.push(a.clamped);
+    }
+    let mut at = 0;
+    images.store.retain_placements(|_| {
+        at += 1;
+        !lost.get(at - 1).copied().unwrap_or(false)
+    });
+    images.store.prune_unplaced(|id| id.as_kitty().is_none());
 }
 
 #[cfg(test)]

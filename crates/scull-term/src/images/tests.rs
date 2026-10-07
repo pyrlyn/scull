@@ -303,6 +303,37 @@ fn erasing_the_screen_drops_its_images_and_keeps_the_history_s() {
 }
 
 #[test]
+fn a_reflow_moves_images_with_their_cell() {
+    let mut t = term(10, 3, 10);
+    t.feed(b"abcdefghij\x1b[1;8H");
+    t.feed(&iterm(";doNotMoveCursor=1"));
+    assert_eq!(placed(&t), [(0, 7, 1, 1)]);
+    t.resize(5, 3).unwrap();
+    assert_eq!(placed(&t), [(1, 2, 1, 1)], "on the h, now the second row");
+    t.resize(10, 3).unwrap();
+    assert_eq!(placed(&t), [(0, 7, 1, 1)]);
+}
+
+#[test]
+fn a_reflow_keeps_an_image_partly_above_the_ring() {
+    let mut t = term(4, 2, 1);
+    t.feed(b"\x1b_Gi=1,f=24,s=2,v=2,a=T,C=1,c=1,r=2,q=2;AAAAAAAAAAAAAAAA\x1b\\");
+    t.feed(b"\r\n\r\n\r\n");
+    assert_eq!(placed(&t), [(-2, 0, 1, 2)]);
+    t.resize(6, 2).unwrap();
+    assert_eq!(placed(&t), [(-2, 0, 1, 2)]);
+}
+
+#[test]
+fn a_reflow_of_the_alternate_screen_moves_its_images() {
+    let mut t = term(10, 3, 10);
+    t.feed(b"\x1b[?1049h\x1b[3;4H");
+    t.feed(&iterm(";doNotMoveCursor=1"));
+    t.resize(10, 2).unwrap();
+    assert_eq!(placed(&t), [(1, 3, 1, 1)], "the cut is at the top");
+}
+
+#[test]
 fn leaving_the_alternate_screen_drops_its_images() {
     let mut t = term(10, 3, 10);
     t.feed(&iterm(""));

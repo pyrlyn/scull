@@ -123,6 +123,11 @@ impl ImageStore {
         &self.placements
     }
 
+    /// The placements, for the terminal to re-anchor after a reflow.
+    pub fn placements_mut(&mut self) -> &mut [Placement] {
+        &mut self.placements
+    }
+
     /// Keeps the placements for which `keep` is true; the images stay.
     pub fn retain_placements(&mut self, keep: impl FnMut(&Placement) -> bool) {
         self.placements.retain(keep);

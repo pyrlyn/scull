@@ -4,6 +4,11 @@
 /// Power-on tab stops fall every eight columns (VT100 and xterm).
 const DEFAULT_TAB_WIDTH: usize = 8;
 
+/// Whether column `c` has a stop at power-on.
+fn power_on_stop(c: usize) -> bool {
+    c > 0 && c.is_multiple_of(DEFAULT_TAB_WIDTH)
+}
+
 /// One flag per column: a tab stop is set there.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TabStops(Vec<bool>);
@@ -11,11 +16,15 @@ pub(crate) struct TabStops(Vec<bool>);
 impl TabStops {
     /// Stops every eight columns, the first at column 8.
     pub(crate) fn new(cols: u16) -> Self {
-        Self(
-            (0..usize::from(cols))
-                .map(|c| c > 0 && c % DEFAULT_TAB_WIDTH == 0)
-                .collect(),
-        )
+        Self((0..usize::from(cols)).map(power_on_stop).collect())
+    }
+
+    /// Keeps the stops of the columns that remain; new columns get the
+    /// power-on stops, so a widened screen tabs as a fresh one would there.
+    pub(crate) fn resize(&mut self, cols: u16) {
+        let (old, cols) = (self.0.len(), usize::from(cols));
+        self.0.truncate(cols);
+        self.0.extend((old..cols).map(power_on_stop));
     }
 
     /// HTS: a stop at `col`.

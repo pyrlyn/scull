@@ -88,6 +88,18 @@ impl Terminal {
         self.state.grid.scroll_display(delta);
     }
 
+    /// Resizes both screens to `cols` x `rows`: the primary screen and its
+    /// scrollback are rewrapped, the alternate screen is cut or padded, and
+    /// the cursor and saved cursors follow their cells. Margins reset to the
+    /// whole screen. Zero is refused and changes nothing.
+    ///
+    /// During an interactive resize call this once with the final size,
+    /// with PTY output paused meanwhile (the contract on
+    /// `scull_grid::Grid::resize`).
+    pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), TermError> {
+        self.state.resize(cols, rows)
+    }
+
     /// The grid being drawn.
     pub fn grid(&self) -> &Grid {
         &self.state.grid
@@ -116,6 +128,12 @@ impl Terminal {
     /// Whether the alternate screen is shown.
     pub fn is_alt_screen(&self) -> bool {
         self.state.alt_active
+    }
+
+    /// Whether BEL arrived since the last call. Bells in between are one
+    /// bell: a host rings once per look, however fast a program beeps.
+    pub fn take_bell(&mut self) -> bool {
+        std::mem::take(&mut self.state.bell)
     }
 
     /// Takes the replies queued for the program (device attributes, status
@@ -265,6 +283,17 @@ pub(crate) mod tests {
         assert!(!term.is_alt_screen());
         let first = term.grid().screen_row(0).unwrap().cell(0).unwrap();
         assert_eq!(first.content(), Content::Char('m'));
+    }
+
+    #[test]
+    fn bells_are_taken_once_however_many_arrived() {
+        let mut term = Terminal::new(10, 5, 0).unwrap();
+        assert!(!term.take_bell());
+        term.feed(b"a\x07b\x07\x07");
+        assert!(term.take_bell());
+        assert!(!term.take_bell());
+        term.feed(b"\x1b]0;title\x07");
+        assert!(!term.take_bell(), "BEL ending an OSC is no bell");
     }
 
     const BSU: &[u8] = b"\x1b[?2026h";

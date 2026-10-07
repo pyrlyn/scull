@@ -14,6 +14,7 @@ use crate::edit::Erase;
 use crate::sgr;
 use crate::state::State;
 
+const BEL: u8 = 0x07;
 const BS: u8 = 0x08;
 const HT: u8 = 0x09;
 const LF: u8 = 0x0A;
@@ -67,6 +68,7 @@ impl Handler for State {
     fn execute(&mut self, byte: u8) {
         self.end_cluster();
         match byte {
+            BEL => self.bell = true,
             BS => self.back(1),
             HT => self.tab(1),
             LF | VT | FF => self.linefeed(),

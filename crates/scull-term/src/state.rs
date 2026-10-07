@@ -74,6 +74,8 @@ pub(crate) struct State {
     pub(crate) grapheme: GraphemeState,
     /// The last character printed, for REP.
     pub(crate) last_char: Option<char>,
+    /// BEL arrived since the host last asked.
+    pub(crate) bell: bool,
 }
 
 impl State {
@@ -95,6 +97,7 @@ impl State {
             width,
             grapheme: GraphemeState::new(width.version),
             last_char: None,
+            bell: false,
         }
     }
 

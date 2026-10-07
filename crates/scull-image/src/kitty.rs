@@ -75,7 +75,7 @@ type Payload = Result<Vec<u8>, ImageError>;
 type Done = Result<Option<(u32, u32)>, ImageError>;
 
 /// An upload spanning one or more APCs (`m=1` on all but the last).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Transfer {
     cmd: Command,
     /// The first error sticks: later chunks are swallowed and the final one
@@ -86,7 +86,7 @@ struct Transfer {
 
 /// Decodes kitty graphics commands for one screen buffer. It lives as long
 /// as the buffer, since uploads span APCs and image numbers outlive commands.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct KittyDecoder {
     phase: Phase,
     control: Vec<u8>,

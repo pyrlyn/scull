@@ -3,9 +3,11 @@
 //! as its handler while the public type owns both.
 
 use scull_grid::{Cell, Grid, Row};
+use scull_image::{BYTES_PER_PIXEL, SixelDecoder};
 use scull_unicode::{ClusterPolicy, GraphemeState, WidthOptions};
 
 use crate::charset::Charsets;
+use crate::images::{DEFAULT_BACKGROUND, DEFAULT_CELL_PX, ScreenImages};
 use crate::modes::Modes;
 use crate::pen::Pen;
 use crate::reply::Replies;
@@ -76,6 +78,17 @@ pub(crate) struct State {
     pub(crate) last_char: Option<char>,
     /// BEL arrived since the host last asked.
     pub(crate) bell: bool,
+    /// Images of the screen shown, and of the other one; they switch with
+    /// the grids.
+    pub(crate) images: ScreenImages,
+    pub(crate) alt_images: ScreenImages,
+    /// The sixel image a DCS is streaming, if any.
+    pub(crate) sixel: Option<SixelDecoder>,
+    /// Width and height of a cell in pixels, as the host last reported.
+    pub(crate) cell_px: (u32, u32),
+    /// What unpainted sixel pixels show unless the image asks for
+    /// transparency.
+    pub(crate) background: [u8; BYTES_PER_PIXEL],
 }
 
 impl State {
@@ -98,6 +111,11 @@ impl State {
             grapheme: GraphemeState::new(width.version),
             last_char: None,
             bell: false,
+            images: ScreenImages::default(),
+            alt_images: ScreenImages::default(),
+            sixel: None,
+            cell_px: DEFAULT_CELL_PX,
+            background: DEFAULT_BACKGROUND,
         }
     }
 

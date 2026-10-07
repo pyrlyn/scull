@@ -1,0 +1,19 @@
+# Tests may unwrap; library code returns errors (rust.md).
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true
+
+disallowed-types = [
+  # SipHash is slow for the hot interning tables and iteration order is
+  # random; terminal output must be reproducible for the golden tests.
+  { path = "std::collections::HashMap", reason = "use rustc_hash::FxHashMap (fast, deterministic)" },
+  { path = "std::collections::HashSet", reason = "use rustc_hash::FxHashSet (fast, deterministic)" },
+  # The core owns its threads and blocking I/O; an async runtime has no place there.
+  { path = "tokio::runtime::Runtime", reason = "the core is synchronous: one reader thread per terminal" },
+]
+
+disallowed-methods = [
+  # A process spawned anywhere but the PTY crate escapes back-pressure and child-exit handling.
+  { path = "std::process::Command::new", reason = "spawn children only through scull-pty" },
+]

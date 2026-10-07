@@ -1,0 +1,19 @@
+[package]
+name = "scull-ffi"
+description = "C ABI over the core: handles, frame snapshot, event queue, panic guard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+scull-term = { workspace = true }
+scull-input = { workspace = true }
+scull-pty = { workspace = true }
+
+[dev-dependencies]
+cargo_metadata = { workspace = true }

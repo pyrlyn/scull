@@ -1,0 +1,5 @@
+# The one Rust version for local work and CI; bump it here and nowhere else.
+[tools]
+rust = { version = "1.99.0", components = "rustfmt,clippy" }
+"cargo:cargo-nextest" = "0.9.146" # `just test`
+just = "1.58.0" # task runner (Justfile)

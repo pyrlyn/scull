@@ -1,0 +1,16 @@
+[package]
+name = "scull-term"
+description = "Terminal state: the handler for parsed actions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+scull-parser = { workspace = true }
+scull-grid = { workspace = true }
+scull-unicode = { workspace = true }

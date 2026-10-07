@@ -1,0 +1,13 @@
+[package]
+name = "scull-unicode"
+description = "Generated Unicode width and grapheme-break tables shared by the scanner and the grid"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

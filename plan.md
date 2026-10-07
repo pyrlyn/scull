@@ -45,6 +45,8 @@ Execution plan (split to fit the budget). All new code lives in `macos/Sources/S
 - T15.6 Measurements: throughput (the T3 fixed 1,000,000-byte input fed through the real core, with frames updated and rendered offscreen) and input latency (key event to presented drawable through the shell's echo, `-ScullLatencyProbe`), written to `docs/benchmarks/macos-renderer.md` beside the T3 baseline.
 - Verify: `just check`, `just macos`, `just macos-test`; a `-ScullSnapshot` PNG showing text, colours, wide characters, emoji, box drawing and the cursor drawn by Metal.
 
+Landed on the branch: T15.1–T15.6, the preedit underline from `tt_frame_view.preedit`, atlas rebuild on a config font change, the crash notice over the Metal layer. Throughput and the key-to-rendered-frame latency are in `docs/benchmarks/macos-renderer.md` (`just macos-bench`). Left: the key-to-screen line, which needs an uncovered window during the probe run; the T3 reference terminals, which are not installed (T3); Powerline and Nerd Font private-use glyphs, which the system font lacks.
+
 ### T16. macOS input method and accessibility
 
 `NSTextInputClient` with preedit carried in the frame, and `NSAccessibility` text over the core's read-text calls. Done when CJK input and VoiceOver reading work.

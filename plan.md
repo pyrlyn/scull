@@ -18,6 +18,7 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T24 | todo | P2 | 2 | 0% | |
 | T25 | todo | P2 | 2 | 0% | |
 | T26 | todo | P3 | 2 | 0% | |
+| T27 | in progress | P1 | 2 | 0% | Claude Code / claude-opus-5-5 |
 
 ### T3. Conformance and benchmark harness
 
@@ -76,3 +77,13 @@ The `fuzz/` workspace is excluded from CI (`Cargo.toml:4`) with a gitignored cor
 ### T26. Close grid-layer test gaps
 
 `LEADING_SPACER` (`crates/scull-grid/src/cell.rs:36-38`) has no test for the end-of-row wide-wrap path; `scull-bench` measures a single pass (`src/lib.rs:56-62`) so baseline numbers are noisy. Done means: both covered or averaged.
+
+### T27. Powerline and Nerd Font symbols on macOS
+
+Prompts such as oh-my-posh and powerlevel10k print Powerline separators and Nerd Font icons from the Private Use Area. SF Mono has none of them and the system fallback finds none, so they show as `?` boxes unless the user installed a Nerd Font. Done when they draw with no font installed, as in Ghostty and Warp.
+
+Execution plan:
+1. Ship `SymbolsNerdFontMono-Regular.ttf` and its MIT licence from Nerd Fonts v3.5.1 in `macos/Resources/`; `just macos` copies them into `Contents/Resources`. The Mono cut keeps every icon one cell wide.
+2. `ScullKit/SymbolFont.swift`: register the bundled font for the process and add it to the cascade list of every face `TerminalView` draws with. A missing or broken font file is skipped, never fatal.
+3. Test in `ScullKitTests`: with the cascade, U+E0B0 and a Nerd Font icon resolve to the symbols font; plain SF Mono does not.
+4. Verify with `just macos-test` and a scripted launch snapshot of an oh-my-posh prompt; add the asset to `toolchain.md`.

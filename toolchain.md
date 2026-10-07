@@ -9,6 +9,8 @@
 | just | mise | Task runner: `just check` is the merge gate | https://github.com/casey/just |
 | cargo-fuzz | `cargo install cargo-fuzz`, runs on nightly | `cargo +nightly fuzz run parser` | https://github.com/rust-fuzz/cargo-fuzz |
 | cc (clang or gcc) | system (Xcode Command Line Tools, distro package) | `just c-abi-test`: the C ABI test under ASan, UBSan and TSan (Unix only) | https://github.com/llvm/llvm-project |
+| Xcode (Swift 6.4, SwiftPM, AppKit/SwiftUI SDK) | Mac App Store or developer.apple.com (27.0) | `just macos`, `just macos-test`: build and test the macOS app in `macos/` (arm64 only) | https://developer.apple.com/xcode/ |
+| codesign | system (Xcode) | `just macos`: ad-hoc signs `target/macos/Scull.app` so it launches locally | https://developer.apple.com/documentation/security/code-signing-services |
 
 ## cargo
 

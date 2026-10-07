@@ -897,6 +897,7 @@ dependencies = [
  "proptest",
  "scull-grid",
  "scull-image",
+ "scull-input",
  "scull-parser",
  "scull-unicode",
  "thiserror 2.0.21",

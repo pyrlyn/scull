@@ -116,6 +116,10 @@ impl Handler for State {
             (None, [], _) => self.csi_ansi(csi),
             (Some(b'?'), [], _) => self.csi_dec(csi),
             (Some(b'>'), [], b'c') if arg(p, 0, 0) == 0 => self.secondary_attributes(),
+            // The kitty keyboard flag stack: push, pop, set.
+            (Some(b'>'), [], b'u') => self.kitty_stack().push(arg(p, 0, 0)),
+            (Some(b'<'), [], b'u') => self.kitty_stack().pop(arg(p, 0, 1)),
+            (Some(b'='), [], b'u') => self.kitty_stack().set(arg(p, 0, 0), arg(p, 1, 1)),
             (None, [b'$'], b'p') => self.report_ansi_mode(arg(p, 0, 0)),
             (Some(b'?'), [b'$'], b'p') => self.report_dec_mode(arg(p, 0, 0)),
             (None, [b'!'], b'p') => self.soft_reset(),
@@ -242,6 +246,7 @@ impl State {
                 }
             }
             b'n' => self.device_status(arg(p, 0, 0), true),
+            b'u' => self.kitty_query(),
             _ => {}
         }
     }

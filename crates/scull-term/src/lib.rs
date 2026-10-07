@@ -14,6 +14,7 @@ mod edit;
 mod error;
 mod frame;
 mod images;
+mod input;
 mod modes;
 mod motion;
 mod pen;

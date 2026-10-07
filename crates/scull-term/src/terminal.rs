@@ -22,7 +22,7 @@ pub const MAX_CELL_PX: u32 = 4096;
 #[derive(Debug, Clone)]
 pub struct Terminal {
     parser: Parser,
-    state: State,
+    pub(crate) state: State,
     sync: SyncGate,
 }
 

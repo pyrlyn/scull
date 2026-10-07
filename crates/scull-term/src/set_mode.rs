@@ -5,7 +5,13 @@
 //!
 //! Side effects follow xterm's ctlseqs: DECOM homes the cursor both ways;
 //! resetting DECAWM drops a pending wrap (DEC STD 070 "last column flag");
-//! resetting DECLRMM removes the left and right margins.
+//! resetting DECLRMM removes the left and right margins. Resetting any
+//! mouse tracking mode turns tracking off and resetting any encoding goes
+//! back to the default one, whichever was set: xterm and Ghostty do the
+//! same, so a program that leaves with the wrong reset still frees the
+//! mouse.
+
+use scull_input::{MouseEncoding, MouseTracking};
 
 use crate::modes::{AnsiMode, DecMode};
 use crate::state::State;
@@ -52,6 +58,18 @@ impl State {
                     self.margins.right = self.last_col();
                 }
             }
+            DecMode::X10Mouse | DecMode::NormalMouse | DecMode::ButtonMouse | DecMode::AnyMouse => {
+                let tracking = mode.mouse_tracking().filter(|_| on);
+                self.modes.mouse.tracking = tracking.unwrap_or(MouseTracking::Off);
+            }
+            DecMode::Utf8Mouse
+            | DecMode::SgrMouse
+            | DecMode::UrxvtMouse
+            | DecMode::SgrPixelMouse => {
+                let encoding = mode.mouse_encoding().filter(|_| on);
+                self.modes.mouse.encoding = encoding.unwrap_or(MouseEncoding::Default);
+            }
+            DecMode::AlternateScroll => self.modes.alternate_scroll = on,
             DecMode::FocusEvents => self.modes.focus_events = on,
             DecMode::AltScreenClear => {
                 if on {
@@ -97,6 +115,14 @@ impl State {
                 self.alt_active
             }
             DecMode::LeftRightMargins => m.left_right_margins,
+            DecMode::X10Mouse | DecMode::NormalMouse | DecMode::ButtonMouse | DecMode::AnyMouse => {
+                mode.mouse_tracking() == Some(m.mouse.tracking)
+            }
+            DecMode::Utf8Mouse
+            | DecMode::SgrMouse
+            | DecMode::UrxvtMouse
+            | DecMode::SgrPixelMouse => mode.mouse_encoding() == Some(m.mouse.encoding),
+            DecMode::AlternateScroll => m.alternate_scroll,
             DecMode::FocusEvents => m.focus_events,
             DecMode::SaveCursor => false,
             DecMode::BracketedPaste => m.bracketed_paste,

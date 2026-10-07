@@ -81,3 +81,9 @@ macos: macos-lib
 macos-test:
     just macos-lib test-hooks
     cd macos && swift test --arch arm64
+
+# Renderer throughput on the T3 input, in a release build; the table goes
+# to target/macos-renderer-bench.md.
+macos-bench: macos-lib
+    cd macos && SCULL_RENDER_BENCH="$PWD/../target/macos-renderer-bench.md" swift test --arch arm64 -c release -Xswiftc -enable-testing --filter rendererThroughput
+    cat target/macos-renderer-bench.md

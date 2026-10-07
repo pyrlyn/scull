@@ -29,6 +29,8 @@ public final class TerminalSession {
     private let frame: OpaquePointer
     private let waker: Unmanaged<Waker>?
     public private(set) var view = tt_frame_view()
+    /// Damage of every update since the renderer last took it.
+    private var damage = FrameDamage()
     /// True once a call answered `TT_POISONED` or `TT_PANIC`: the core hit a
     /// bug in this terminal, and only freeing it is left. Other sessions are
     /// untouched, so the pane shows a notice and its siblings keep running.
@@ -131,8 +133,15 @@ public final class TerminalSession {
             return isPoisoned && !wasPoisoned
         }
         view = next
+        damage.absorb(next)
         if next.updated != 0 { screenCache = nil }
         return next.updated != 0
+    }
+
+    /// The damage since the last call, composed over every update.
+    public func takeDamage() -> FrameDamage {
+        defer { damage = FrameDamage(clean: Int(view.rows)) }
+        return damage
     }
 
     /// The viewport's text, a line per row (see `tt_term_read_text`).

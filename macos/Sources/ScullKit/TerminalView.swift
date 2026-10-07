@@ -1,7 +1,6 @@
-// The terminal surface: owns a TerminalSession, draws its frame with
-// CoreText and turns AppKit events into the core's input events. A plain
-// CoreText pass is the first light; the Metal renderer with a glyph
-// atlas replaces `draw` later. Image placements are not drawn yet.
+// The terminal surface: owns a TerminalSession, draws its frame through
+// the Metal renderer on a CAMetalLayer and turns AppKit events into the
+// core's input events.
 
 import AppKit
 import CoreText
@@ -11,17 +10,17 @@ public final class TerminalView: NSView {
     var session: TerminalSession?
     private var failure: String?
     private let config = ScullConfig.shared
-    private(set) var palette: Palette
-    private var fonts: FontSet
+    private(set) var palette: Palette { didSet { renderer?.palette = palette } }
+    private var fonts: FontSet {
+        didSet { renderer?.setFont(fonts.regular, cellWidth: fonts.cellWidth, cellHeight: fonts.cellHeight) }
+    }
+    private var renderer: MetalRenderer?
     /// Points the font-larger and font-smaller actions added; a changed
     /// font in the file starts from its own size again.
     private var zoom = 0.0
     private var appliedFont: (family: String, size: Double)
     private var configObserver: (any NSObjectProtocol)?
     var font: NSFont { fonts.regular }
-    private var bold: NSFont { fonts.bold }
-    private var italic: NSFont { fonts.italic }
-    private var boldItalic: NSFont { fonts.boldItalic }
     var cellWidth: CGFloat { fonts.cellWidth }
     var cellHeight: CGFloat { fonts.cellHeight }
     private var grid = (cols: UInt16(80), rows: UInt16(24))
@@ -38,6 +37,7 @@ public final class TerminalView: NSView {
     private var scrollRemainder: CGFloat = 0
     #if DEBUG
     private var initialInput = UserDefaults.standard.string(forKey: "ScullInitialInput")
+    private var probe: LatencyProbe?
     #endif
 
     public override init(frame: NSRect) {
@@ -56,6 +56,11 @@ public final class TerminalView: NSView {
         } catch {
             failure = "Could not start the shell: \(error)"
         }
+        guard session != nil else { return }
+        renderer = MetalRenderer(font: font, cellWidth: cellWidth, cellHeight: cellHeight, palette: palette)
+        if renderer == nil { failure = "Metal is not available" }
+        wantsLayer = true
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     @available(*, unavailable)
@@ -74,7 +79,18 @@ public final class TerminalView: NSView {
             if let onChildExit { onChildExit() } else { window?.close() }
             return
         }
-        if session.update() { needsDisplay = true; screenChanged() }
+        if session.update() {
+            needsDisplay = true
+            screenChanged()
+            #if DEBUG
+            if let renderer, let probe {
+                probe.frameUpdated(renderer)
+                // AppKit skips drawing a covered window; the probe still
+                // wants the render time.
+                if window?.occlusionState.contains(.visible) == false { updateLayer() }
+            }
+            #endif
+        }
         #if DEBUG
         // Lets a scripted launch type a command once the shell is there.
         if let input = initialInput {
@@ -83,7 +99,16 @@ public final class TerminalView: NSView {
             composeDebugPreedit()
             send(key: UInt32(TT_KEY_ESCAPE) + 1, action: UInt8(TT_KEY_PRESS), mods: 0, text: "")
             if let path = UserDefaults.standard.string(forKey: "ScullSnapshot") {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.snapshot(to: path) }
+                // A shell with heavy startup needs longer than the default.
+                let delay = max(2, UserDefaults.standard.double(forKey: "ScullSnapshotDelay"))
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.snapshot(to: path) }
+            }
+            if let path = UserDefaults.standard.string(forKey: "ScullLatencyProbe") {
+                probe = LatencyProbe(path: path) { [weak self] in
+                    self?.send(key: 0x78, action: UInt8(TT_KEY_PRESS), mods: 0, text: "x")
+                }
+                let delay = max(2, UserDefaults.standard.double(forKey: "ScullSnapshotDelay"))
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.probe?.next() }
             }
         }
         #endif
@@ -93,9 +118,11 @@ public final class TerminalView: NSView {
     // The view draws itself into a PNG, so a scripted check needs no
     // screen-recording permission.
     private func snapshot(to path: String) {
-        guard let rep = bitmapImageRepForCachingDisplay(in: bounds) else { return }
-        cacheDisplay(in: bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        guard let session, let image = renderer?.snapshot(session, size: bounds.size,
+                                                           scale: window?.backingScaleFactor ?? 1, focused: focused)
+        else { return }
+        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
+            .write(to: URL(fileURLWithPath: path))
     }
     #endif
 
@@ -203,100 +230,38 @@ public final class TerminalView: NSView {
 
     // MARK: Drawing
 
+    public override func makeBackingLayer() -> CALayer { renderer?.layer ?? super.makeBackingLayer() }
+
+    public override var wantsUpdateLayer: Bool { renderer != nil }
+
+    public override func updateLayer() {
+        guard let session else { return }
+        guard !session.isPoisoned else { return showCrashNotice() }
+        renderer?.draw(session, size: bounds.size, scale: window?.backingScaleFactor ?? 1, focused: focused)
+    }
+
+    // A crashed core terminal shows the notice in place of its stale grid.
+    // The Metal layer has no text of its own, so the notice is a label on
+    // top.
+    private func showCrashNotice() {
+        guard !subviews.contains(where: { $0.identifier == Self.crashNotice }) else { return }
+        let label = NSTextField(labelWithString: "This terminal crashed. Close the pane to dismiss it.")
+        (label.identifier, label.font, label.textColor) = (Self.crashNotice, font, .white)
+        (label.drawsBackground, label.backgroundColor) = (true, NSColor(cgColor: Palette.cgColor(palette.background)))
+        label.frame = bounds
+        label.autoresizingMask = [.width, .height]
+        addSubview(label)
+    }
+
+    private static let crashNotice = NSUserInterfaceItemIdentifier("crashNotice")
+
+    // Only a terminal that failed to start draws here.
     public override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.setFillColor(Palette.cgColor(palette.background))
         ctx.fill(bounds)
-        // A crashed core terminal shows the notice in place of its stale grid.
-        if let notice = failure ?? (session?.isPoisoned == true ? "This terminal crashed. Close the pane to dismiss it." : nil) {
-            NSAttributedString(string: notice, attributes: [.font: font, .foregroundColor: NSColor.white])
-                .draw(at: NSPoint(x: cellWidth, y: cellHeight))
-            return
-        }
-        guard let session else { return }
-        let view = session.view
-        ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        for row in 0..<Int(view.rows) {
-            drawBackgrounds(session, row: row, in: ctx)
-            for (run, text) in session.runs(row: row) {
-                drawRun(text, style: session.style(run.style), col: Int(run.col), cols: Int(run.cols),
-                        width: Int(run.width), row: row, in: ctx)
-            }
-        }
-        drawPreedit(in: ctx)
-        drawCursor(session, in: ctx)
-    }
-
-    private func cellRect(row: Int, col: Int, cols: Int = 1) -> CGRect {
-        CGRect(x: CGFloat(col) * cellWidth, y: CGFloat(row) * cellHeight,
-               width: CGFloat(cols) * cellWidth, height: cellHeight)
-    }
-
-    private func drawBackgrounds(_ session: TerminalSession, row: Int, in ctx: CGContext) {
-        for col in 0..<Int(session.view.cols) {
-            guard let cell = session.cell(row: row, col: col) else { return }
-            let bg = palette.colors(of: session.style(cell.style)).bg
-            guard bg != palette.background else { continue }
-            ctx.setFillColor(Palette.cgColor(bg))
-            ctx.fill(cellRect(row: row, col: col).integral)
-        }
-    }
-
-    private func drawRun(_ text: String, style: tt_style, col: Int, cols: Int, width: Int,
-                         row: Int, in ctx: CGContext, color: UInt32? = nil) {
-        let attrs = style.attrs
-        guard attrs & UInt16(TT_ATTR_HIDDEN) == 0 else { return }
-        let fg = color ?? palette.colors(of: style).fg
-        let dim = attrs & UInt16(TT_ATTR_DIM) != 0
-        let cg = Palette.cgColor(fg, alpha: dim ? 0.5 : 1)
-        let isBold = attrs & UInt16(TT_ATTR_BOLD) != 0
-        let isItalic = attrs & UInt16(TT_ATTR_ITALIC) != 0
-        let face = isBold ? (isItalic ? boldItalic : bold) : (isItalic ? italic : font)
-        let baseline = CGFloat(row) * cellHeight + font.ascender
-        // A wide character's fallback glyph rarely advances exactly two
-        // cells, so each one is placed on its own cell instead.
-        let pieces = width == 2 ? text.map { String($0) } : [text]
-        for (i, piece) in pieces.enumerated() {
-            let string = NSAttributedString(string: piece, attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): face,
-                NSAttributedString.Key(kCTForegroundColorAttributeName as String): cg,
-            ])
-            ctx.textPosition = CGPoint(x: CGFloat(col + i * width) * cellWidth, y: baseline)
-            CTLineDraw(CTLineCreateWithAttributedString(string), ctx)
-        }
-        // Lines are drawn by hand: CTLineDraw ignores strikethrough, and all
-        // underline kinds share one line until the renderer draws them.
-        let span = cellRect(row: row, col: col, cols: cols)
-        var lines: [(y: CGFloat, color: CGColor)] = []
-        if style.underline != UInt8(TT_UNDERLINE_NONE) {
-            let color = style.underline_color == UInt32(TT_COLOR_DEFAULT) ? cg
-                : Palette.cgColor(palette.rgb(style.underline_color, fallback: fg))
-            lines.append((baseline - font.underlinePosition, color))
-        }
-        if attrs & UInt16(TT_ATTR_STRIKE) != 0 { lines.append((baseline - font.xHeight / 2, cg)) }
-        if attrs & UInt16(TT_ATTR_OVERLINE) != 0 { lines.append((span.minY, cg)) }
-        for (y, color) in lines {
-            ctx.setFillColor(color)
-            ctx.fill(CGRect(x: span.minX, y: y, width: span.width, height: max(1, font.underlineThickness)))
-        }
-    }
-
-    private func drawCursor(_ session: TerminalSession, in ctx: CGContext) {
-        let cursor = session.view.cursor
-        let (row, col) = (Int(cursor.row), Int(cursor.col))
-        guard cursor.visible != 0, let cell = session.cell(row: row, col: col) else { return }
-        let rect = cellRect(row: row, col: col, cols: max(1, Int(cell.width)))
-        let color = Palette.cgColor(palette.cursor)
-        guard focused else {
-            ctx.setStrokeColor(color)
-            ctx.stroke(rect.insetBy(dx: 0.5, dy: 0.5), width: 1)
-            return
-        }
-        ctx.setFillColor(color)
-        ctx.fill(rect)
-        guard cell.codepoint != 0, let scalar = Unicode.Scalar(cell.codepoint) else { return }
-        drawRun(String(scalar), style: session.style(cell.style), col: col, cols: Int(cell.width),
-                width: Int(cell.width), row: row, in: ctx, color: palette.background)
+        NSAttributedString(string: failure ?? "", attributes: [.font: font, .foregroundColor: NSColor.white])
+            .draw(at: NSPoint(x: cellWidth, y: cellHeight))
     }
 
     // MARK: Keyboard

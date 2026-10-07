@@ -705,6 +705,7 @@ name = "scull-ffi"
 version = "0.0.0"
 dependencies = [
  "cargo_metadata",
+ "scull-grid",
  "scull-input",
  "scull-pty",
  "scull-term",

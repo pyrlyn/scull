@@ -48,3 +48,13 @@ c-abi-test:
     ./{{c_abi_out}}/two_threads-asan
     {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/two_threads.c {{c_abi_link}} -o {{c_abi_out}}/two_threads-tsan
     ./{{c_abi_out}}/two_threads-tsan
+
+# The core as a static library for the Swift package to link; arm64 only.
+# `cargo rustc` picks the crate type here so the manifest stays as is.
+[private]
+macos-lib:
+    mise exec -- cargo rustc -p scull-ffi --lib --crate-type staticlib --release --target aarch64-apple-darwin --locked
+
+# The Swift package's tests, against the same static library.
+macos-test: macos-lib
+    cd macos && swift test --arch arm64

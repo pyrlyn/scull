@@ -264,13 +264,26 @@ impl Shared {
     /// Queue input for the child. Returns how many bytes were taken, which is
     /// fewer than offered when the queue is full; the caller keeps the rest.
     pub(crate) fn push_input(&self, bytes: &[u8]) -> Result<usize, PtyError> {
+        self.push(bytes, false)
+    }
+
+    /// Queue input only if all of it fits: a key or mouse report cut in two
+    /// would reach the child as a broken escape sequence. False, queueing
+    /// nothing, when it does not fit.
+    pub(crate) fn push_input_whole(&self, bytes: &[u8]) -> Result<bool, PtyError> {
+        Ok(self.push(bytes, true)? == bytes.len())
+    }
+
+    fn push(&self, bytes: &[u8], whole: bool) -> Result<usize, PtyError> {
         let mut state = self.state.lock();
         if state.stopped || state.writer_failed {
             return Err(PtyError::Closed);
         }
-        let take = bytes
-            .len()
-            .min(MAX_PENDING_WRITE_BYTES - state.outbox.len());
+        let room = MAX_PENDING_WRITE_BYTES - state.outbox.len();
+        if whole && bytes.len() > room {
+            return Ok(0);
+        }
+        let take = bytes.len().min(room);
         state.outbox.extend(&bytes[..take]);
         if take > 0 {
             self.write_wake.notify_one();
@@ -467,6 +480,26 @@ mod tests {
         assert_eq!(chunk.as_ref().map(Vec::len), Some(WRITE_CHUNK_BYTES));
         shared.output_written(WRITE_CHUNK_BYTES);
         assert!(matches!(shared.push_input(&offered), Ok(n) if n == WRITE_CHUNK_BYTES));
+    }
+
+    #[test]
+    fn whole_input_is_queued_entirely_or_not_at_all() {
+        let shared = Shared::new();
+        let most = vec![b'k'; MAX_PENDING_WRITE_BYTES - 2];
+        assert!(matches!(shared.push_input_whole(&most), Ok(true)));
+        assert!(matches!(shared.push_input_whole(b"abc"), Ok(false)));
+        assert_eq!(
+            shared.state.lock().outbox.len(),
+            most.len(),
+            "nothing of it"
+        );
+        assert!(matches!(shared.push_input_whole(b"ab"), Ok(true)));
+        assert!(matches!(shared.push_input_whole(b""), Ok(true)));
+        shared.stop();
+        assert!(matches!(
+            shared.push_input_whole(b"x"),
+            Err(PtyError::Closed)
+        ));
     }
 
     #[test]

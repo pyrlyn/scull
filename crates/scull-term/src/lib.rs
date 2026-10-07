@@ -18,6 +18,7 @@ mod motion;
 mod pen;
 mod print;
 mod reply;
+mod resize;
 mod screen;
 mod set_mode;
 mod sgr;

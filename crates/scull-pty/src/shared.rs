@@ -46,6 +46,8 @@ pub(crate) enum Work {
     Exited(ExitStatus),
     /// The terminal is shutting down.
     Stop,
+    /// The sink's deadline passed with no output to feed.
+    Tick,
 }
 
 struct State {
@@ -59,6 +61,9 @@ struct State {
     outbox: VecDeque<u8>,
     writer_failed: bool,
     stopped: bool,
+    /// Output stays queued, as during an interactive resize: the reader
+    /// fills the queue and then blocks, so the child blocks too.
+    paused: bool,
     /// Bits of [`Worker`] whose thread has returned.
     finished: u8,
 }
@@ -88,6 +93,7 @@ impl Shared {
                 outbox: VecDeque::new(),
                 writer_failed: false,
                 stopped: false,
+                paused: false,
                 finished: 0,
             }),
             loop_wake: Condvar::new(),
@@ -135,30 +141,50 @@ impl Shared {
 
     // I/O loop side.
 
-    /// Block until there is something for the loop to do. Output always comes
-    /// before the exit, and the exit is held back until the output is drained:
-    /// EOF, or quiet for [`EXIT_IDLE`], or [`EXIT_DRAIN_MAX`] after the exit.
-    pub(crate) fn wait_for_work(&self) -> Work {
+    /// Block until there is something for the loop to do, or `deadline`
+    /// (the sink's) passes. Output always comes before the exit, and the
+    /// exit is held back until the output is drained: EOF, or quiet for
+    /// [`EXIT_IDLE`], or [`EXIT_DRAIN_MAX`] after the exit. While paused,
+    /// output and the exit behind it wait.
+    pub(crate) fn wait_for_work(&self, deadline: Option<Instant>) -> Work {
         let mut state = self.state.lock();
         loop {
             if state.stopped {
                 return Work::Stop;
             }
-            if state.queued > 0 {
+            if state.queued > 0 && !state.paused {
                 return Work::Data;
             }
-            let Some(exit_at) = state.exit_at else {
-                self.loop_wake.wait(&mut state);
-                continue;
-            };
-            let deadline = (state.last_data.max(exit_at) + EXIT_IDLE).min(exit_at + EXIT_DRAIN_MAX);
-            if (state.reader_done || Instant::now() >= deadline)
-                && let Some(status) = state.exit.clone()
-            {
-                return Work::Exited(status);
+            let now = Instant::now();
+            if deadline.is_some_and(|d| now >= d) {
+                return Work::Tick;
             }
-            self.loop_wake.wait_until(&mut state, deadline);
+            let exit_by = match state.exit_at {
+                Some(exit_at) if state.queued == 0 => {
+                    let by =
+                        (state.last_data.max(exit_at) + EXIT_IDLE).min(exit_at + EXIT_DRAIN_MAX);
+                    if (state.reader_done || now >= by)
+                        && let Some(status) = state.exit.clone()
+                    {
+                        return Work::Exited(status);
+                    }
+                    Some(by)
+                }
+                _ => None,
+            };
+            match exit_by.into_iter().chain(deadline).min() {
+                Some(by) => {
+                    self.loop_wake.wait_until(&mut state, by);
+                }
+                None => self.loop_wake.wait(&mut state),
+            }
         }
+    }
+
+    /// Hold output back (`true`) or let it flow again.
+    pub(crate) fn set_paused(&self, paused: bool) {
+        self.state.lock().paused = paused;
+        self.loop_wake.notify_one();
     }
 
     /// Take queued output for one lock hold: whole chunks, at most
@@ -458,10 +484,13 @@ mod tests {
         let shared = Shared::new();
         assert!(shared.push_chunk(b"last words".to_vec()));
         shared.set_exit(ExitStatus::unknown());
-        assert_eq!(shared.wait_for_work(), Work::Data);
+        assert_eq!(shared.wait_for_work(None), Work::Data);
         assert_eq!(shared.take_batch().len(), 1);
         shared.reader_done();
-        assert_eq!(shared.wait_for_work(), Work::Exited(ExitStatus::unknown()));
+        assert_eq!(
+            shared.wait_for_work(None),
+            Work::Exited(ExitStatus::unknown())
+        );
     }
 
     #[test]
@@ -469,7 +498,10 @@ mod tests {
         let shared = Shared::new();
         let started = Instant::now();
         shared.set_exit(ExitStatus::unknown());
-        assert_eq!(shared.wait_for_work(), Work::Exited(ExitStatus::unknown()));
+        assert_eq!(
+            shared.wait_for_work(None),
+            Work::Exited(ExitStatus::unknown())
+        );
         assert!(started.elapsed() >= EXIT_IDLE);
         assert!(started.elapsed() < EXIT_DRAIN_MAX);
     }
@@ -479,7 +511,54 @@ mod tests {
         let shared = Shared::new();
         assert!(shared.push_chunk(vec![1]));
         shared.stop();
-        assert_eq!(shared.wait_for_work(), Work::Stop);
+        assert_eq!(shared.wait_for_work(None), Work::Stop);
+    }
+
+    #[test]
+    fn paused_output_waits_and_the_sink_deadline_still_ticks() {
+        let shared = Shared::new();
+        assert!(shared.push_chunk(vec![1]));
+        shared.set_paused(true);
+        assert_eq!(shared.wait_for_work(Some(Instant::now())), Work::Tick);
+        shared.set_paused(false);
+        assert_eq!(shared.wait_for_work(None), Work::Data);
+    }
+
+    #[test]
+    fn the_exit_waits_behind_paused_output() {
+        let shared = Shared::new();
+        assert!(shared.push_chunk(vec![1]));
+        shared.reader_done();
+        shared.set_exit(ExitStatus::unknown());
+        shared.set_paused(true);
+        let soon = Instant::now() + NEGATIVE_WAIT;
+        assert_eq!(shared.wait_for_work(Some(soon)), Work::Tick);
+        shared.set_paused(false);
+        assert_eq!(shared.wait_for_work(None), Work::Data);
+        shared.take_batch();
+        assert_eq!(
+            shared.wait_for_work(None),
+            Work::Exited(ExitStatus::unknown())
+        );
+    }
+
+    #[test]
+    fn resuming_wakes_a_waiting_loop() {
+        let shared = Shared::new();
+        assert!(shared.push_chunk(vec![1]));
+        shared.set_paused(true);
+        let (tx, rx) = mpsc::channel();
+        let waiter = {
+            let shared = Arc::clone(&shared);
+            thread::spawn(move || tx.send(shared.wait_for_work(None)).unwrap())
+        };
+        assert!(
+            rx.recv_timeout(NEGATIVE_WAIT).is_err(),
+            "paused output waits"
+        );
+        shared.set_paused(false);
+        assert_eq!(rx.recv_timeout(GENEROUS).unwrap(), Work::Data);
+        waiter.join().unwrap();
     }
 
     #[test]

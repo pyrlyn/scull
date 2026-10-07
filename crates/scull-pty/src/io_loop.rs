@@ -4,6 +4,7 @@
 //! hold, fair release, wakeup outside the lock) is stated once.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use parking_lot::{Mutex, MutexGuard};
 
@@ -11,15 +12,17 @@ use crate::shared::{Shared, Work};
 use crate::sink::Sink;
 
 /// Drive the sink until the child has exited and its output is delivered, or
-/// the terminal stops. `wakeup` is called after each hold, never under the lock.
+/// the terminal stops. `wakeup` is called after a hold the sink wants shown,
+/// never under the lock.
 pub(crate) fn run<S: Sink>(
     shared: &Shared,
     sink: &Arc<Mutex<S>>,
     wakeup: &(dyn Fn() + Send + Sync),
 ) {
     let mut scratch = Vec::new();
+    let mut deadline = None;
     loop {
-        match shared.wait_for_work() {
+        match shared.wait_for_work(deadline) {
             Work::Stop => return,
             Work::Data => {
                 // Wait for the lock first, take the output after: whatever the
@@ -32,11 +35,9 @@ pub(crate) fn run<S: Sink>(
                     guard.feed(&chunk);
                 }
                 shared.queue_replies(&mut *guard, &mut scratch);
-                // A plain unlock lets this thread take the lock again before a
-                // waiting frame read wakes; the fair one hands it over.
-                MutexGuard::unlock_fair(guard);
-                wakeup();
+                deadline = release(guard, wakeup);
             }
+            Work::Tick => deadline = release(sink.lock(), wakeup),
             Work::Exited(status) => {
                 let mut guard = sink.lock();
                 guard.child_exited(status);
@@ -46,6 +47,23 @@ pub(crate) fn run<S: Sink>(
             }
         }
     }
+}
+
+/// Ends a hold: asks the sink whether to wake the UI and when to ask again,
+/// unlocks, then wakes. Returns the sink's next deadline.
+fn release<S: Sink>(
+    mut guard: MutexGuard<'_, S>,
+    wakeup: &(dyn Fn() + Send + Sync),
+) -> Option<Instant> {
+    let wake = guard.wants_wakeup(Instant::now());
+    let deadline = guard.deadline();
+    // A plain unlock lets this thread take the lock again before a waiting
+    // frame read wakes; the fair one hands it over.
+    MutexGuard::unlock_fair(guard);
+    if wake {
+        wakeup();
+    }
+    deadline
 }
 
 #[cfg(test)]
@@ -151,5 +169,46 @@ mod tests {
         assert!(looper.join().is_err(), "the panic is the point");
         assert!(shared.is_stopped());
         assert!(!shared.push_chunk(vec![0]), "a blocked reader is released");
+    }
+
+    /// Holds the picture until `until`, as synchronized output does.
+    struct Holder {
+        until: Instant,
+    }
+
+    impl Sink for Holder {
+        fn feed(&mut self, _bytes: &[u8]) {}
+        fn drain_replies(&mut self, _out: &mut Vec<u8>, _limit: usize) {}
+        fn child_exited(&mut self, _status: ExitStatus) {}
+        fn wants_wakeup(&mut self, now: Instant) -> bool {
+            now >= self.until
+        }
+        fn deadline(&self) -> Option<Instant> {
+            Some(self.until)
+        }
+    }
+
+    #[test]
+    fn a_held_picture_wakes_the_ui_at_the_sink_deadline_not_before() {
+        const HOLD: std::time::Duration = std::time::Duration::from_millis(100);
+        let shared = Shared::new();
+        let start = Instant::now();
+        let sink = Arc::new(Mutex::new(Holder {
+            until: start + HOLD,
+        }));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let looper = {
+            let shared = Arc::clone(&shared);
+            thread::spawn(move || run(&shared, &sink, &move || tx.send(Instant::now()).unwrap()))
+        };
+        assert!(shared.push_chunk(b"held".to_vec()));
+        let woke = rx.recv_timeout(HOLD * 50).unwrap();
+        assert!(
+            woke >= start + HOLD,
+            "woken {:?} early",
+            start + HOLD - woke
+        );
+        shared.stop();
+        looper.join().unwrap();
     }
 }

@@ -218,6 +218,19 @@ impl Pty {
         }
     }
 
+    /// Hold the child's output back, as during an interactive resize: the UI
+    /// keeps drawing the last frame, the reader fills its capped queue and
+    /// then blocks, and the child blocks in `write`. Resize once at the final
+    /// size, then [`Self::resume_output`].
+    pub fn pause_output(&self) {
+        self.shared.set_paused(true);
+    }
+
+    /// Let output flow again after [`Self::pause_output`].
+    pub fn resume_output(&self) {
+        self.shared.set_paused(false);
+    }
+
     /// Ask the child to end (`SIGHUP`, or termination on Windows). The exit
     /// still arrives through the sink.
     ///

@@ -92,7 +92,7 @@ mod tests {
         let mut drained = 0;
         let deadline = Instant::now() + GENEROUS;
         while drained <= MAX_PENDING_READ_BYTES * 2 && Instant::now() < deadline {
-            if shared.wait_for_work() == Work::Data {
+            if shared.wait_for_work(None) == Work::Data {
                 drained += shared.take_batch().iter().map(Vec::len).sum::<usize>();
             }
         }
@@ -105,10 +105,13 @@ mod tests {
     fn eof_marks_the_reader_done_after_the_last_chunk_is_queued() {
         let shared = Shared::new();
         read_loop(&shared, Cursor::new(b"abc".to_vec()));
-        assert_eq!(shared.wait_for_work(), Work::Data);
+        assert_eq!(shared.wait_for_work(None), Work::Data);
         assert_eq!(shared.take_batch(), vec![b"abc".to_vec()]);
         shared.set_exit(ExitStatus::unknown());
-        assert_eq!(shared.wait_for_work(), Work::Exited(ExitStatus::unknown()));
+        assert_eq!(
+            shared.wait_for_work(None),
+            Work::Exited(ExitStatus::unknown())
+        );
     }
 
     /// Records writes; fails after `ok_writes`.

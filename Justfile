@@ -22,3 +22,29 @@ ucd-check:
 # Baseline table for the stub and the reference terminals.
 bench:
     mise exec -- cargo run -p scull-bench --release --locked
+
+# Rewrite the committed C header and C# bindings from the exports.
+bindings:
+    SCULL_BLESS=1 mise exec -- cargo nextest run -p scull-ffi --test bindings --locked
+
+# Fail when the committed C header or C# bindings are stale (also part of `test`).
+bindings-check:
+    mise exec -- cargo nextest run -p scull-ffi --test bindings --locked
+
+c_abi_out := "target/c-abi"
+c_abi_cc := "cc -std=c11 -g -O1 -fno-omit-frame-pointer -Wall -Wextra -Werror -Icrates/scull-ffi/include"
+c_abi_link := "-Ltarget/debug -lscull_ffi -Wl,-rpath," + justfile_directory() + "/target/debug -lpthread"
+
+# Build the C ABI as a shared library and drive it from C on two threads,
+# under AddressSanitizer with UndefinedBehaviorSanitizer, then under
+# ThreadSanitizer. Unix only: the sanitizers instrument the C side, which
+# is where a host's misuse of the ABI would show. A just recipe, not a
+# test, because building C means running a compiler, and only scull-pty
+# may spawn processes (clippy.toml).
+c-abi-test:
+    mise exec -- cargo rustc -p scull-ffi --lib --crate-type cdylib --locked
+    mkdir -p {{c_abi_out}}
+    {{c_abi_cc}} -fsanitize=address,undefined -fno-sanitize-recover=all crates/scull-ffi/tests/c/two_threads.c {{c_abi_link}} -o {{c_abi_out}}/two_threads-asan
+    ./{{c_abi_out}}/two_threads-asan
+    {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/two_threads.c {{c_abi_link}} -o {{c_abi_out}}/two_threads-tsan
+    ./{{c_abi_out}}/two_threads-tsan

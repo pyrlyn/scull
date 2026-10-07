@@ -11,9 +11,12 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+scull-grid = { workspace = true }
 scull-term = { workspace = true }
 scull-input = { workspace = true }
 scull-pty = { workspace = true }
 
 [dev-dependencies]
 cargo_metadata = { workspace = true }
+cbindgen = { workspace = true }
+csbindgen = { workspace = true }

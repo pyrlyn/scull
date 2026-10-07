@@ -52,6 +52,12 @@ divan = "0.1.21"
 # Baseline the parser bench is measured against.
 vte = "0.15.0"
 
+# scull-ffi drift tests: the committed C header and C# bindings are what these generate from
+# the hand-written exports (docs/research/ffi-native-ui.md Part 4). No default features: the
+# library API only, without cbindgen's CLI.
+cbindgen = { version = "0.29.4", default-features = false }
+csbindgen = "1.9.8"
+
 [workspace.lints.rust]
 # Only the C ABI and the PTY need unsafe; those crates opt out with a reason.
 unsafe_code = "deny"

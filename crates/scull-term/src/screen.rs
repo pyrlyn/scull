@@ -20,7 +20,7 @@ use crate::tabs::TabStops;
 /// What DECSC remembers.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct SavedCursor {
-    cursor: Cursor,
+    pub(crate) cursor: Cursor,
     style: Style,
     origin: bool,
     charsets: Charsets,

@@ -7,7 +7,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | # | Status | Priority | Complexity | Readiness | Agent |
 | --- | --- | --- | --- | --- | --- |
 | T3 | in progress | P0 | 3 | 80% | Cursor / grok 4.7 |
-| T9 | in progress | P0 | 4 | 0% | Claude Code / claude-opus-5-5 |
 | T10 | todo | P0 | 4 | 0% | |
 | T13 | todo | P1 | 3 | 0% | |
 | T14 | todo | P1 | 3 | 0% | |
@@ -31,16 +30,6 @@ Built before the features so every later task lands with tests. Recorded stream 
 Execution plan:
 1. Conformance is on main: `crates/scull-harness` stub grid, golden fixtures, an in-crate seed corpus and a separate `fuzz/` libFuzzer target. `just check` remains the CI gate.
 2. Benchmark is on main: `crates/scull-bench` times `Stub` and writes `docs/benchmarks/baseline.md`. On this machine kitty, WezTerm, Alacritty, foot and Contour were not installed, and Warp has no headless stdin feed, so those rows have no throughput. The task stays open until the same input is timed on the six reference terminals.
-
-### T9. Damage, synchronized output, frame snapshot
-
-Row dirty bits plus scroll damage; mode 2026 with byte and time caps; a UI-owned frame that copies only changed rows into flat buffers under a short lock, with text runs for platform shaping. Done when the property test holds: repainting dirty rows over the previous frame equals a full repaint.
-
-Execution plan (split to fit the 500-line budget):
-
-- T9.1 Damage and synchronized output in `scull-term`. Dirty rows come from the existing per-row generation counters in `scull-grid` (no new dirty bits unless a counter cannot express it); scrolls are recorded as scroll damage (region, count) so the UI can blit instead of repainting. Mode 2026 (BSU/ESU via `CSI ? 2026 h/l` and DECRQM) holds damage back, released by ESU, a byte cap or a time cap; caps are named constants, the clock is injected so tests are deterministic.
-- T9.2 Frame snapshot in a new `frame` module of `scull-term`. A UI-owned `Frame` with flat per-row buffers (codepoints or cluster ids, style ids, widths) and text runs split on style and width for platform shaping. `Terminal::update_frame(&mut Frame)` copies only rows whose generation changed, under one short borrow, and applies scroll damage by moving rows inside the frame.
-- Verify: unit tests per module, and a proptest that feeds random byte streams in chunks and checks that repainting dirty rows over the previous frame equals a full repaint after every chunk. Gate: `just check` exit 0. Grid changes stay minimal because T11 is editing `scull-grid` in parallel.
 
 ### T10. C ABI
 

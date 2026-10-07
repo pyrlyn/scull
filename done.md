@@ -64,3 +64,16 @@ Execution plan:
 4. Verify with `just check`. Split at claim: T12.1 keys (legacy + kitty + win32); T12.2 mouse, paste and focus.
 
 Delivered (T12.1 and T12.2): our own encoders (`wezterm-input-types` drags window types and allocates; `termwiz` is a TUI toolkit). `KeyEvent` with key, action, modifiers, consumed modifiers, text, unshifted code point and composing flag; `encode_key` with precedence composing, win32-input-mode, kitty, legacy; legacy xterm with application cursor and keypad modes and modifyOtherKeys 1 and 2; the kitty keyboard protocol from its specification with all enhancement flags and a per-screen `KittyFlagStack` capped at 8 entries (oldest evicted); win32-input-mode records after the ConPTY #4999 spec; `encode_mouse` for X10, normal, button and any-event tracking in default, UTF-8, SGR, urxvt and SGR-pixel encodings, following xterm for out-of-range coordinates; bracketed paste that strips start and end markers including C1 and reassembled forms; focus events. 67 tests including proptests for no panic, stack cap and marker stripping. Left open: wiring `CSI = > < ? u` into the stack (scull-term), DECBKM, formatOtherKeys, modes 1001, 1007 and 5522, no comparison run against a real xterm; T12.1 is about 970 lines of non-test code, about 300 of them key tables, over the 500-line budget.
+
+### T8. PTY and I/O thread
+
+`scull-pty`: a reader thread per terminal on top of a PTY crate, bounded work per lock hold, `try_lock` with back-pressure, replies written from the same thread, child exit through the same loop. ConPTY on Windows. Done when a flooding child cannot starve a frame read and a shell runs on both platforms.
+
+
+Execution plan:
+1. Re-check `portable-pty` maintenance (research.md §6) against alternatives on crates.io; pick one and record why.
+2. `crates/scull-pty`: spawn a child on a PTY (ConPTY on Windows), a reader thread per terminal that hands bounded chunks to a caller-supplied sink, `try_lock`-style back-pressure through a trait so the crate stays independent of scull-term, replies written from the same thread through a capped queue, resize, and child exit delivered through the same loop.
+3. Tests: a flooding child (`yes`) cannot starve a concurrent reader of the shared state; a shell runs `echo` and exits with its status; resize reaches the child; on Windows the same tests through ConPTY.
+4. Verify with `just check`.
+
+Delivered: `Pty::spawn` over `portable-pty` 0.9.0 (the only maintained cross-platform crate with ConPTY) with a caller-supplied `Sink` behind a `parking_lot::Mutex`; separate reader, I/O-loop, writer and wait threads because the PTY handles block uninterruptibly. The loop feeds at most 64 KiB per lock hold and releases with `unlock_fair`; the reader blocks once 1 MiB is pending (back-pressure); replies and input share a 256 KiB write queue; child exit arrives last through the same loop, with an idle and drain timeout for ConPTY and orphaned children. Starvation test: with `yes` flooding, 809 frame reads in 2 s waited at most 163 us (13 ms with a plain unlock), 250 MB fed. 25 tests. Windows: `cargo check` and clippy pass for `x86_64-pc-windows-msvc`. Left open: no run on a Windows host, no SIGKILL escalation, no test for the post-exit drain cap.

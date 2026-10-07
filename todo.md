@@ -1,6 +1,5 @@
 - T3. Conformance and benchmark harness
 - T7. Terminal state
-- T8. PTY and I/O thread
 - T9. Damage, synchronized output, frame snapshot
 - T10. C ABI
 - T11. Resize and reflow

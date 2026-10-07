@@ -26,3 +26,5 @@
 | vte | local | https://github.com/alacritty/vte | Baseline parser in the throughput bench (dev-dependency) |
 | rustc-hash | local | https://github.com/rust-lang/rustc-hash | Fast, deterministic hash maps for the interning tables (clippy.toml bans std HashMap) |
 | bitflags | local | https://github.com/bitflags/bitflags | Cell flags and SGR attribute bits in scull-grid; modifier and kitty flag sets in scull-input |
+| portable-pty | local | https://github.com/wezterm/wezterm/tree/main/pty | PTY and ConPTY for scull-pty |
+| parking_lot | local | https://github.com/Amanieu/parking_lot | Terminal lock with `unlock_fair` so a frame read is not starved |

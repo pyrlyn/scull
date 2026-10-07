@@ -24,10 +24,15 @@ private final class Waker: Sendable {
 
 @MainActor
 public final class TerminalSession {
-    private let term: OpaquePointer
+    // Not private so tests can hand the raw handle to the core's test hook.
+    let term: OpaquePointer
     private let frame: OpaquePointer
     private let waker: Unmanaged<Waker>?
     public private(set) var view = tt_frame_view()
+    /// True once a call answered `TT_POISONED` or `TT_PANIC`: the core hit a
+    /// bug in this terminal, and only freeing it is left. Other sessions are
+    /// untouched, so the pane shows a notice and its siblings keep running.
+    public private(set) var isPoisoned = false
 
     /// Runs the user's shell. `onWake` runs on the main actor whenever
     /// there is output or an event to look at.
@@ -89,13 +94,19 @@ public final class TerminalSession {
         return options
     }
 
+    @discardableResult
+    private func track(_ status: tt_status) -> tt_status {
+        if status == TT_POISONED || status == TT_PANIC { isPoisoned = true }
+        return status
+    }
+
     /// Takes every pending event; true once the child has exited. Rings the
     /// bell through `bell`.
     public func drainEvents(bell: () -> Void) -> Bool {
         var event = tt_event()
         event.struct_size = UInt32(MemoryLayout<tt_event>.size)
         var exited = false
-        while tt_term_poll_event(term, &event) == TT_OK {
+        while track(tt_term_poll_event(term, &event)) == TT_OK {
             switch Int32(event.kind) {
             case TT_EVENT_BELL: bell()
             case TT_EVENT_CHILD_EXITED: exited = true
@@ -110,7 +121,11 @@ public final class TerminalSession {
     public func update() -> Bool {
         var next = tt_frame_view()
         next.struct_size = UInt32(MemoryLayout<tt_frame_view>.size)
-        guard tt_frame_update(frame, term, &next) == TT_OK else { return false }
+        let wasPoisoned = isPoisoned
+        guard track(tt_frame_update(frame, term, &next)) == TT_OK else {
+            // The notice replaces the grid, so the view has to redraw once.
+            return isPoisoned && !wasPoisoned
+        }
         view = next
         return next.updated != 0
     }
@@ -148,40 +163,40 @@ public final class TerminalSession {
         var text = text
         return text.withUTF8 { bytes in
             event.text = tt_str(ptr: bytes.baseAddress, len: bytes.count)
-            return tt_term_key(term, &event)
+            return track(tt_term_key(term, &event))
         }
     }
 
     public func text(_ text: String) -> tt_status {
         var text = text
-        return text.withUTF8 { tt_term_text(term, $0.baseAddress, $0.count) }
+        return text.withUTF8 { track(tt_term_text(term, $0.baseAddress, $0.count)) }
     }
 
     public func paste(_ text: String) -> tt_status {
         var text = text
-        return text.withUTF8 { tt_term_paste(term, $0.baseAddress, $0.count) }
+        return text.withUTF8 { track(tt_term_paste(term, $0.baseAddress, $0.count)) }
     }
 
-    public func focus(_ focused: Bool) -> tt_status { tt_term_focus(term, focused ? 1 : 0) }
+    public func focus(_ focused: Bool) -> tt_status { track(tt_term_focus(term, focused ? 1 : 0)) }
 
     /// Sends a mouse event; true when the program took it.
     public func mouse(_ event: tt_mouse_event) -> Bool {
         var event = event
         event.struct_size = UInt32(MemoryLayout<tt_mouse_event>.size)
         var taken: UInt8 = 0
-        return tt_term_mouse(term, &event, &taken) == TT_OK && taken != 0
+        return track(tt_term_mouse(term, &event, &taken)) == TT_OK && taken != 0
     }
 
-    public func scrollDisplay(_ delta: Int32) -> tt_status { tt_term_scroll_display(term, delta) }
+    public func scrollDisplay(_ delta: Int32) -> tt_status { track(tt_term_scroll_display(term, delta)) }
 
-    public func resizeBegin() -> tt_status { tt_term_resize_begin(term) }
+    public func resizeBegin() -> tt_status { track(tt_term_resize_begin(term)) }
 
     public func resize(cols: UInt16, rows: UInt16, widthPx: UInt16, heightPx: UInt16) -> tt_status {
-        tt_term_resize(term, cols, rows, widthPx, heightPx)
+        track(tt_term_resize(term, cols, rows, widthPx, heightPx))
     }
 
     public func feed(_ bytes: [UInt8]) -> tt_status {
-        bytes.withUnsafeBufferPointer { tt_term_feed(term, $0.baseAddress, $0.count) }
+        bytes.withUnsafeBufferPointer { track(tt_term_feed(term, $0.baseAddress, $0.count)) }
     }
 }
 

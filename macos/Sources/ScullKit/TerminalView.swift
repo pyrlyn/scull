@@ -21,6 +21,13 @@ public final class TerminalView: NSView {
     private let cellHeight: CGFloat
     private var grid = (cols: UInt16(80), rows: UInt16(24))
     private var focused = false
+    /// Set by a pane host: the child's exit closes the pane, not the window.
+    public var onChildExit: (() -> Void)?
+    /// Runs when this view becomes the first responder, so a host can track
+    /// which pane has the keyboard.
+    public var onFocus: (() -> Void)?
+    /// A host with several panes picks the focused one itself.
+    public var takesFocusOnAttach = true
     private var keyText: String?
     private var lastMotionCell: (Int, Int)?
     private var scrollRemainder: CGFloat = 0
@@ -51,7 +58,7 @@ public final class TerminalView: NSView {
     private func wake() {
         guard let session else { return }
         if session.drainEvents(bell: { NSSound.beep() }) {
-            window?.close()
+            if let onChildExit { onChildExit() } else { window?.close() }
             return
         }
         if session.update() { needsDisplay = true }
@@ -84,8 +91,8 @@ public final class TerminalView: NSView {
         super.viewDidMoveToWindow()
         NotificationCenter.default.removeObserver(self)
         guard let window else { return }
-        window.makeFirstResponder(self)
-        focused = window.isKeyWindow
+        if takesFocusOnAttach { window.makeFirstResponder(self) }
+        focused = window.isKeyWindow && window.firstResponder === self
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(keyChanged),
                                                    name: name, object: window)
@@ -133,8 +140,9 @@ public final class TerminalView: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.setFillColor(Palette.cgColor(palette.background))
         ctx.fill(bounds)
-        if let failure {
-            NSAttributedString(string: failure, attributes: [.font: font, .foregroundColor: NSColor.white])
+        // A crashed core terminal shows the notice in place of its stale grid.
+        if let notice = failure ?? (session?.isPoisoned == true ? "This terminal crashed. Close the pane to dismiss it." : nil) {
+            NSAttributedString(string: notice, attributes: [.font: font, .foregroundColor: NSColor.white])
                 .draw(at: NSPoint(x: cellWidth, y: cellHeight))
             return
         }
@@ -226,8 +234,26 @@ public final class TerminalView: NSView {
     // MARK: Keyboard
 
     @objc private func keyChanged(_ note: Notification) {
-        focused = note.name == NSWindow.didBecomeKeyNotification
-        _ = session?.focus(focused)
+        setFocused(note.name == NSWindow.didBecomeKeyNotification && window?.firstResponder === self)
+    }
+
+    // Focus is per pane: the key window alone does not say which of its
+    // panes has the keyboard.
+    public override func becomeFirstResponder() -> Bool {
+        setFocused(window?.isKeyWindow ?? false)
+        onFocus?()
+        return true
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        setFocused(false)
+        return true
+    }
+
+    private func setFocused(_ value: Bool) {
+        guard value != focused else { return }
+        focused = value
+        _ = session?.focus(value)
         needsDisplay = true
     }
 

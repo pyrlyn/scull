@@ -71,8 +71,9 @@ macos-lib features="":
 macos: macos-lib
     cd macos && swift build --arch arm64
     rm -rf {{macos_app}}
-    mkdir -p {{macos_app}}/Contents/MacOS
+    mkdir -p {{macos_app}}/Contents/MacOS {{macos_app}}/Contents/Resources
     cp macos/Info.plist {{macos_app}}/Contents/
+    cp macos/Resources/* {{macos_app}}/Contents/Resources/
     cp "$(cd macos && swift build --arch arm64 --show-bin-path)/Scull" {{macos_app}}/Contents/MacOS/
     codesign --force --sign - {{macos_app}}
 

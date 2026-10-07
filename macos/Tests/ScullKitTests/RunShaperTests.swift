@@ -1,3 +1,4 @@
+import AppKit
 import CoreText
 import Testing
 @testable import ScullKit
@@ -60,4 +61,14 @@ private func fonts(_ shaper: RunShaper, _ glyphs: [ShapedGlyph]) -> [CTFont] {
     for i in 0..<20 { _ = shaper.shape("run \(i)", face: 0, width: 1) }
     #expect(shaper.cachedRuns <= 8)
     #expect(shaper.shape("hello", face: 0, width: 1) == first)
+}
+
+@Test func shaperDrawsPowerlineWithTheBundledSymbols() {
+    let url = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().appendingPathComponent("../../Resources/\(SymbolFont.file).ttf")
+    #expect(SymbolFont.register(url))
+    let shaper = RunShaper(font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular))
+    let names = fonts(shaper, shaper.shape("a\u{E0B0}b", face: 0, width: 1))
+        .map { CTFontCopyPostScriptName($0) as String }
+    #expect(names.count == 3 && names[1] == SymbolFont.name && names[0] == names[2])
 }

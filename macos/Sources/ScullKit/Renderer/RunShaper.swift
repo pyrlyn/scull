@@ -42,6 +42,8 @@ public final class RunShaper {
     private let faces: [CTFont]
     /// Characters drawn from geometry rather than from the font.
     private let isSprite: (Unicode.Scalar) -> Bool
+    /// Powerline and Nerd Font glyphs the faces lack.
+    private let symbols: SymbolFont
     private struct Key: Hashable {
         var text: String, face: UInt8, width: UInt8
     }
@@ -57,6 +59,7 @@ public final class RunShaper {
         let italic = CTFontCreateCopyWithSymbolicTraits(font, 0, nil, .traitItalic, .traitItalic) ?? font
         let both = CTFontCreateCopyWithSymbolicTraits(bold, 0, nil, .traitItalic, .traitItalic) ?? bold
         faces = [font, bold, italic, both]
+        symbols = SymbolFont(size: CTFontGetSize(font))
         (self.cacheLimit, self.isSprite) = (max(1, cacheLimit), isSprite)
         faces.forEach { _ = registry.id(of: $0) }
     }
@@ -99,7 +102,7 @@ public final class RunShaper {
             }
             offset += count
         }
-        let string = NSAttributedString(string: text, attributes: [
+        let string = symbols.string(text, face: face, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): face,
             NSAttributedString.Key(kCTLigatureAttributeName as String): 1,
         ])

@@ -11,3 +11,4 @@ Not approved. Nothing here moves to `roadmap.md` or `plan.md` without the creato
 - Session persistence and a detachable server process.
 - A fallback 2D renderer on Windows for remote desktop and machines without a GPU.
 - Publishing the core as a standalone library for other terminals to embed.
+- Powerline separators (U+E0B0–U+E0BF, U+E0B4–U+E0B6 caps) drawn from cell geometry like the T15 box sprites, so prompt segments meet the cell edges with no seams whatever the font.

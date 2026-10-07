@@ -28,6 +28,9 @@ public final class TerminalSession {
     private let frame: OpaquePointer
     private let waker: Unmanaged<Waker>?
     public private(set) var view = tt_frame_view()
+    /// The screen's text, read once per changed frame: an accessibility
+    /// client asks for it many times per query.
+    private var screenCache: ScreenText?
 
     /// Runs the user's shell. `onWake` runs on the main actor whenever
     /// there is output or an event to look at.
@@ -112,7 +115,33 @@ public final class TerminalSession {
         next.struct_size = UInt32(MemoryLayout<tt_frame_view>.size)
         guard tt_frame_update(frame, term, &next) == TT_OK else { return false }
         view = next
+        if next.updated != 0 { screenCache = nil }
         return next.updated != 0
+    }
+
+    /// The viewport's text, a line per row (see `tt_term_read_text`).
+    func screenText() -> ScreenText {
+        if let screenCache { return screenCache }
+        let read = ScreenText(readText() ?? "")
+        screenCache = read
+        return read
+    }
+
+    private func readText() -> String? {
+        var cap = 0
+        // The child can print between asking for the length and reading,
+        // so a few tries; past them the reader gets nothing this frame.
+        for _ in 0..<4 {
+            var bytes = [UInt8](repeating: 0, count: cap)
+            var len = 0
+            let status = bytes.withUnsafeMutableBufferPointer {
+                tt_term_read_text(term, 0, UInt16.max, $0.baseAddress, cap, &len)
+            }
+            if status == TT_OK { return String(decoding: bytes.prefix(len), as: UTF8.self) }
+            guard status == TT_FULL else { return nil }
+            cap = len + len / 8
+        }
+        return nil
     }
 
     public func cell(row: Int, col: Int) -> tt_cell? {

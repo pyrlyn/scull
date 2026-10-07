@@ -54,7 +54,7 @@ public final class TerminalView: NSView {
             window?.close()
             return
         }
-        if session.update() { needsDisplay = true }
+        if session.update() { needsDisplay = true; screenChanged() }
         #if DEBUG
         // Lets a scripted launch type a command once the shell is there.
         if let input = initialInput {

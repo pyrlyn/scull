@@ -70,11 +70,8 @@ extension TerminalView: @preconcurrency NSTextInputClient {
     /// in screen coordinates: the candidate window opens beside it.
     public func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         actualRange?.pointee = range
-        guard let session, let window else { return .zero }
-        let cursor = session.view.cursor
-        let rect = NSRect(x: CGFloat(cursor.col) * cellWidth, y: CGFloat(cursor.row) * cellHeight,
-                          width: cellWidth, height: cellHeight)
-        return window.convertToScreen(convert(rect, to: nil))
+        guard let cursor = session?.view.cursor else { return .zero }
+        return screenRect(row: Int(cursor.row), col: Int(cursor.col), cols: 1)
     }
 
     public func characterIndex(for point: NSPoint) -> Int { NSNotFound }

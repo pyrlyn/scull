@@ -755,6 +755,26 @@ tt_status tt_term_resize(const struct tt_term *term,
 // `term` is `NULL` or live, and not used again.
 void tt_term_free(struct tt_term *term);
 
+// Copies the text of `rows` viewport rows from `row` into `buf`: UTF-8,
+// one line per row joined by `\n` (line N is row `row + N`), wide
+// characters once, blank and concealed (SGR 8) cells as spaces, trailing
+// spaces trimmed, no NUL. `*len` becomes the text's length. When that is
+// more than `cap`, nothing is copied and the answer is `TT_FULL`: call
+// again with a larger buffer (pass `cap` 0 to ask for the length). Rows
+// past the viewport are not read. `TT_INVALID` for a `NULL` `len`, or a
+// `NULL` `buf` with a `cap`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+// bytes; `len` is `NULL` or writable.
+tt_status tt_term_read_text(const struct tt_term *term,
+                            uint16_t row,
+                            uint16_t rows,
+                            uint8_t *buf,
+                            size_t cap,
+                            size_t *len);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

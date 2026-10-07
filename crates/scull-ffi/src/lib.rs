@@ -33,6 +33,7 @@ mod guard;
 mod input;
 mod spawn;
 mod term;
+mod text;
 
 pub use event::{
     TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, TT_EXIT_CODE_UNKNOWN, tt_event, tt_term_poll_event,
@@ -59,6 +60,7 @@ pub use input::{
 };
 pub use spawn::{tt_str, tt_term_resize_begin, tt_term_spawn, tt_term_write, tt_wakeup_fn};
 pub use term::{tt_term, tt_term_feed, tt_term_free, tt_term_new, tt_term_options, tt_term_resize};
+pub use text::tt_term_read_text;
 
 /// Breaking changes bump the major version; a host refuses to run on
 /// another major.

@@ -191,6 +191,13 @@ static tt_status draw_until_done(struct shared *shared, const tt_image **kept) {
         status = tt_frame_preedit(frame, (const uint8_t *)COMPOSING, len, 3);
         if (status == TT_OK)
             status = update(frame, shared->term, &view, &sum);
+        /* A screen reader reads the text while output streams in. */
+        char text[ROWS * LINE_BYTES];
+        size_t text_len = 0;
+        tt_status read = tt_term_read_text(shared->term, 0, ROWS, (uint8_t *)text,
+                                           sizeof text, &text_len);
+        if (status == TT_OK && read != TT_OK && read != TT_FULL)
+            status = read;
         frames++;
     }
     /* The last line fed is on the screen once the feeder is done. */

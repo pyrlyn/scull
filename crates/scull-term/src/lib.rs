@@ -29,6 +29,7 @@ mod state;
 mod sync;
 mod tabs;
 mod terminal;
+mod text;
 
 pub use damage::{Damage, RowStamp, Scroll};
 pub use error::TermError;

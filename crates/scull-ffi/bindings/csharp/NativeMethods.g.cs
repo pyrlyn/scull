@@ -530,6 +530,24 @@ namespace Scull.Native
         [DllImport(__DllName, EntryPoint = "tt_term_scroll_display", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_term_scroll_display(tt_term* term, int delta);
 
+        /// <summary>
+        ///  Copies the text of `rows` viewport rows from `row` into `buf`: UTF-8,
+        ///  one line per row joined by `\n` (line N is row `row + N`), wide
+        ///  characters once, blank and concealed (SGR 8) cells as spaces, trailing
+        ///  spaces trimmed, no NUL. `*len` becomes the text's length. When that is
+        ///  more than `cap`, nothing is copied and the answer is `TT_FULL`: call
+        ///  again with a larger buffer (pass `cap` 0 to ask for the length). Rows
+        ///  past the viewport are not read. `TT_INVALID` for a `NULL` `len`, or a
+        ///  `NULL` `buf` with a `cap`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+        ///  bytes; `len` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_read_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_read_text(tt_term* term, ushort row, ushort rows, byte* buf, nuint cap, nuint* len);
+
 
     }
 

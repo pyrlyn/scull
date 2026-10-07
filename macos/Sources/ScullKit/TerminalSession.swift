@@ -28,6 +28,8 @@ public final class TerminalSession {
     private let frame: OpaquePointer
     private let waker: Unmanaged<Waker>?
     public private(set) var view = tt_frame_view()
+    /// Damage of every update since the renderer last took it.
+    private var damage = FrameDamage()
 
     /// Runs the user's shell. `onWake` runs on the main actor whenever
     /// there is output or an event to look at.
@@ -112,7 +114,14 @@ public final class TerminalSession {
         next.struct_size = UInt32(MemoryLayout<tt_frame_view>.size)
         guard tt_frame_update(frame, term, &next) == TT_OK else { return false }
         view = next
+        damage.absorb(next)
         return next.updated != 0
+    }
+
+    /// The damage since the last call, composed over every update.
+    public func takeDamage() -> FrameDamage {
+        defer { damage = FrameDamage(clean: Int(view.rows)) }
+        return damage
     }
 
     public func cell(row: Int, col: Int) -> tt_cell? {

@@ -62,6 +62,12 @@ public final class MetalRenderer {
     private var needsRebuild = true
     private var capacity = (bg: 0, fg: 0)
     private let inFlight = DispatchSemaphore(value: 3)
+    private var offscreen: MTLTexture?
+    /// Called twice for the next drawn frame, on any thread: with false
+    /// and the host time the GPU finished it, then with true and the host
+    /// time it reached the screen (zero if it never did). The latency
+    /// probe's end marks.
+    var onNextFrame: (@Sendable (_ presented: Bool, _ time: CFTimeInterval) -> Void)?
 
     /// `cellWidth` and `cellHeight` are the view's cell size in points.
     public init?(font: CTFont, cellWidth: CGFloat, cellHeight: CGFloat, palette: Palette) {
@@ -103,21 +109,40 @@ public final class MetalRenderer {
         if layer.drawableSize != pixels { layer.drawableSize = pixels }
         layer.contentsScale = scale
         guard let drawable = layer.nextDrawable() else { return }
-        _ = encode(session, into: drawable.texture, focused: focused) { $0.present(drawable) }
+        let handler = onNextFrame
+        onNextFrame = nil
+        _ = encode(session, into: drawable.texture, focused: focused) { commands in
+            if let handler {
+                commands.addCompletedHandler { _ in handler(false, CACurrentMediaTime()) }
+                drawable.addPresentedHandler { handler(true, $0.presentedTime) }
+            }
+            commands.present(drawable)
+        }
+    }
+
+    /// Renders offscreen and waits for the GPU, as a benchmark and the
+    /// snapshot need; the texture is kept while the size holds.
+    func renderOffscreen(_ session: TerminalSession, size: CGSize, scale: CGFloat, focused: Bool) -> MTLTexture? {
+        prepare(session, scale: scale)
+        let (w, h) = (Int((size.width * scale).rounded()), Int((size.height * scale).rounded()))
+        guard w > 0, h > 0 else { return nil }
+        if offscreen?.width != w || offscreen?.height != h {
+            let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h,
+                                                                mipmapped: false)
+            (desc.usage, desc.storageMode) = (.renderTarget, .shared)
+            offscreen = device.makeTexture(descriptor: desc)
+        }
+        guard let texture = offscreen,
+              let commands = encode(session, into: texture, focused: focused, beforeCommit: { _ in }) else { return nil }
+        commands.waitUntilCompleted()
+        return texture
     }
 
     /// The same picture rendered offscreen, for tests and the debug
     /// snapshot.
     public func snapshot(_ session: TerminalSession, size: CGSize, scale: CGFloat, focused: Bool) -> CGImage? {
-        prepare(session, scale: scale)
-        let (w, h) = (Int((size.width * scale).rounded()), Int((size.height * scale).rounded()))
-        guard w > 0, h > 0 else { return nil }
-        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h,
-                                                            mipmapped: false)
-        (desc.usage, desc.storageMode) = (.renderTarget, .shared)
-        guard let texture = device.makeTexture(descriptor: desc),
-              let commands = encode(session, into: texture, focused: focused, beforeCommit: { _ in }) else { return nil }
-        commands.waitUntilCompleted()
+        guard let texture = renderOffscreen(session, size: size, scale: scale, focused: focused) else { return nil }
+        let (w, h) = (texture.width, texture.height)
         var pixels = [UInt8](repeating: 0, count: w * h * 4)
         texture.getBytes(&pixels, bytesPerRow: w * 4, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
         let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue

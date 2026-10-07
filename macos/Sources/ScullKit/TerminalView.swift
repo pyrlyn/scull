@@ -21,6 +21,7 @@ public final class TerminalView: NSView {
     private var scrollRemainder: CGFloat = 0
     #if DEBUG
     private var initialInput = UserDefaults.standard.string(forKey: "ScullInitialInput")
+    private var probe: LatencyProbe?
     #endif
 
     public override init(frame: NSRect) {
@@ -54,7 +55,17 @@ public final class TerminalView: NSView {
             window?.close()
             return
         }
-        if session.update() { needsDisplay = true }
+        if session.update() {
+            needsDisplay = true
+            #if DEBUG
+            if let renderer, let probe {
+                probe.frameUpdated(renderer)
+                // AppKit skips drawing a covered window; the probe still
+                // wants the render time.
+                if window?.occlusionState.contains(.visible) == false { updateLayer() }
+            }
+            #endif
+        }
         #if DEBUG
         // Lets a scripted launch type a command once the shell is there.
         if let input = initialInput {
@@ -65,6 +76,13 @@ public final class TerminalView: NSView {
                 // A shell with heavy startup needs longer than the default.
                 let delay = max(2, UserDefaults.standard.double(forKey: "ScullSnapshotDelay"))
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.snapshot(to: path) }
+            }
+            if let path = UserDefaults.standard.string(forKey: "ScullLatencyProbe") {
+                probe = LatencyProbe(path: path) { [weak self] in
+                    self?.send(key: 0x78, action: UInt8(TT_KEY_PRESS), mods: 0, text: "x")
+                }
+                let delay = max(2, UserDefaults.standard.double(forKey: "ScullSnapshotDelay"))
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.probe?.next() }
             }
         }
         #endif

@@ -762,7 +762,7 @@ dependencies = [
  "scull-grid",
  "scull-parser",
  "scull-unicode",
- "thiserror",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

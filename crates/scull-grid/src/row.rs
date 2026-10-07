@@ -299,7 +299,10 @@ impl Row {
         if start == end {
             return;
         }
-        self.drop_links(usize::from(start), usize::from(end));
+        // Clearing a range that holds no links changes nothing: without
+        // this, every plain cell write that calls `set_link(.., None)`
+        // would bump the generation and force a repaint (T22).
+        let dropped = self.drop_links(usize::from(start), usize::from(end));
         if let Some(link) = link {
             let spans = &mut self.extra.get_or_insert_default().links;
             let at = spans.partition_point(|s| s.start < start);
@@ -311,8 +314,10 @@ impl Row {
                 }
                 joins
             });
+            self.touch();
+        } else if dropped {
+            self.touch();
         }
-        self.touch();
     }
 
     /// Heap and inline bytes this row holds: what one scrollback row costs.
@@ -441,8 +446,10 @@ impl Row {
             let lost = self.stored_len() > cut || !self.fill_is_blank();
             self.break_wide_edges(cut, cut);
             self.cells.truncate(cut);
-            self.drop_links(cut, usize::from(self.cols));
-            if lost {
+            // Links dropped off the tail are a visible change even when no
+            // stored cell was lost (T22).
+            let dropped = self.drop_links(cut, usize::from(self.cols));
+            if lost || dropped {
                 self.touch();
             }
         }
@@ -469,6 +476,9 @@ impl Row {
     }
 
     fn touch(&mut self) {
+        // Wraps at `u32::MAX`: a frame cache keyed on `(RowId, generation)`
+        // can miss one change after exactly 2^32 bumps of a single row —
+        // accepted; T9's damage tracking must not rely on more.
         self.generation = self.generation.wrapping_add(1);
     }
 
@@ -500,19 +510,21 @@ impl Row {
         }
     }
 
-    fn drop_links(&mut self, start: usize, end: usize) {
+    fn drop_links(&mut self, start: usize, end: usize) -> bool {
         let Some(extra) = &mut self.extra else {
-            return;
+            return false;
         };
         let (Ok(start), Ok(end)) = (u16::try_from(start), u16::try_from(end)) else {
-            return;
+            return false;
         };
         let mut kept = Vec::with_capacity(extra.links.len() + 1);
+        let mut dropped = false;
         for s in extra.links.drain(..) {
             if s.end <= start || s.start >= end {
                 kept.push(s);
                 continue;
             }
+            dropped = true;
             if s.start < start {
                 kept.push(LinkSpan { end: start, ..s });
             }
@@ -525,6 +537,7 @@ impl Row {
         } else {
             extra.links = kept;
         }
+        dropped
     }
 }
 
@@ -597,6 +610,36 @@ mod tests {
         r.set_link(0..1, Some(LinkId(1)));
         assert_ne!(r.generation(), g1);
         assert_eq!(r.id(), RowId(1), "edits keep the id");
+    }
+
+    /// T22: clearing a range that holds no links is not a visible change —
+    /// every plain cell write clears links, and a bump per write would
+    /// force a repaint per keystroke once T9 keys damage on generations.
+    #[test]
+    fn clearing_links_where_none_exist_is_generation_neutral() {
+        let mut r = row();
+        let g0 = r.generation();
+        r.set_link(0..5, None);
+        assert_eq!(r.generation(), g0, "nothing was linked");
+
+        r.set_link(0..5, Some(LinkId(1)));
+        let g1 = r.generation();
+        assert_ne!(g1, g0, "a link was added");
+
+        r.set_link(2..9, None);
+        assert_ne!(r.generation(), g1, "the link was cut short");
+    }
+
+    /// T22: narrowing a row that loses only links (no stored cells, blank
+    /// fill) is a visible change — the link is gone from the frame.
+    #[test]
+    fn narrowing_away_links_bumps_the_generation() {
+        let mut r = row();
+        r.set_link(8..COLS, Some(LinkId(1)));
+        let g0 = r.generation();
+        r.set_cols(COLS - 2);
+        assert!(r.link_at(COLS - 2).is_none(), "the link is gone");
+        assert_ne!(r.generation(), g0, "a link was lost off the tail");
     }
 
     #[test]

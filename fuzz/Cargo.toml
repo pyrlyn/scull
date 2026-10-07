@@ -1,6 +1,6 @@
 [package]
 name = "scull-fuzz"
-description = "libFuzzer targets for the parser and the conformance stub"
+description = "libFuzzer targets for the parser, the conformance stub and the image decoders"
 version = "0.0.0"
 # Own workspace, so this cannot inherit the root package table.
 edition = "2024"
@@ -15,6 +15,7 @@ cargo-fuzz = true
 # Same resolved pin as apps/cox/fuzz. Nightly-only; CI runs the in-crate corpus.
 libfuzzer-sys = "0.4.13"
 scull-harness = { path = "../crates/scull-harness" }
+scull-image = { path = "../crates/scull-image" }
 scull-parser = { path = "../crates/scull-parser" }
 
 [workspace]
@@ -29,6 +30,27 @@ bench = false
 [[bin]]
 name = "parser"
 path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "iterm"
+path = "fuzz_targets/iterm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sixel"
+path = "fuzz_targets/sixel.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kitty"
+path = "fuzz_targets/kitty.rs"
 test = false
 doc = false
 bench = false

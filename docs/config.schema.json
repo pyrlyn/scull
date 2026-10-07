@@ -18,6 +18,11 @@
         "size": 13.0
       }
     },
+    "keybind": {
+      "description": "Key bindings laid over the defaults.",
+      "$ref": "#/$defs/Keybinds",
+      "default": []
+    },
     "scrollback": {
       "description": "History rows kept per terminal; applies to terminals opened afterwards.",
       "$ref": "#/$defs/Scrollback",
@@ -26,6 +31,56 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "Action": {
+      "description": "What a binding does. The numbers are the C ABI's `TT_ACTION_*` values and\nnever change.",
+      "oneOf": [
+        {
+          "description": "Removes a default binding of the same chord; never in [`crate::Settings::bindings`].",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "Paste the clipboard.",
+          "type": "string",
+          "const": "paste"
+        },
+        {
+          "description": "Make the font one point larger.",
+          "type": "string",
+          "const": "font-larger"
+        },
+        {
+          "description": "Make the font one point smaller.",
+          "type": "string",
+          "const": "font-smaller"
+        },
+        {
+          "description": "Back to the configured font size.",
+          "type": "string",
+          "const": "font-reset"
+        },
+        {
+          "description": "Scroll the history one screen up.",
+          "type": "string",
+          "const": "scroll-page-up"
+        },
+        {
+          "description": "Scroll the history one screen down.",
+          "type": "string",
+          "const": "scroll-page-down"
+        },
+        {
+          "description": "Scroll to the oldest history row.",
+          "type": "string",
+          "const": "scroll-to-top"
+        },
+        {
+          "description": "Scroll back to the screen.",
+          "type": "string",
+          "const": "scroll-to-bottom"
+        }
+      ]
+    },
     "AnsiOverrides": {
       "description": "The first colours of the palette, replacing the scheme's.",
       "type": "array",
@@ -33,6 +88,11 @@
         "$ref": "#/$defs/Rgb"
       },
       "maxItems": 16
+    },
+    "Chord": {
+      "description": "Modifiers (ctrl, alt, shift, super) and one key joined by `+`: a character, f1 to f35, or one of space, escape, enter, tab, backspace, insert, delete, left, right, up, down, page-up, page-down, home, end. A character needs ctrl, alt or super.",
+      "type": "string",
+      "maxLength": 64
     },
     "ColorsSection": {
       "description": "`[colors]`.",
@@ -63,6 +123,25 @@
       },
       "additionalProperties": false
     },
+    "Entry": {
+      "description": "One `[[keybind]]` table.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "The action; `none` frees a default chord.",
+          "$ref": "#/$defs/Action"
+        },
+        "key": {
+          "description": "The chord that triggers the action.",
+          "$ref": "#/$defs/Chord"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "action"
+      ]
+    },
     "Family": {
       "description": "A font family name: empty for the platform's monospace font.",
       "type": "string",
@@ -91,6 +170,14 @@
       "format": "float",
       "maximum": 200.0,
       "minimum": 4.0
+    },
+    "Keybinds": {
+      "description": "The `[[keybind]]` list, checked as a whole.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Entry"
+      },
+      "maxItems": 256
     },
     "Rgb": {
       "description": "A colour as `0xRRGGBB`.",

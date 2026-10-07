@@ -3,6 +3,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::keybind::{Binding, Keybinds};
 use crate::{ConfigError, Rgb, Scheme, Theme};
 
 /// The largest file read; a config is a few hundred bytes, so anything near
@@ -149,7 +150,7 @@ fn integer_schema(schema: &mut schemars::Schema) {
     pinned(schema, "integer");
 }
 #[cfg(test)]
-fn array_schema(schema: &mut schemars::Schema) {
+pub(crate) fn array_schema(schema: &mut schemars::Schema) {
     pinned(schema, "array");
 }
 
@@ -199,6 +200,8 @@ pub(crate) struct Config {
     colors: ColorsSection,
     /// History rows kept per terminal; applies to terminals opened afterwards.
     scrollback: Scrollback,
+    /// Key bindings laid over the defaults.
+    keybind: Keybinds,
 }
 
 impl Default for Config {
@@ -207,6 +210,7 @@ impl Default for Config {
             font: FontSection::default(),
             colors: ColorsSection::default(),
             scrollback: Scrollback(DEFAULT_SCROLLBACK),
+            keybind: Keybinds::default(),
         }
     }
 }
@@ -229,6 +233,8 @@ pub struct Settings {
     pub colors: Theme,
     /// History rows for terminals opened from now on.
     pub scrollback: u32,
+    /// The key bindings in force: the defaults with the file's laid over them.
+    pub bindings: Vec<Binding>,
 }
 
 impl Default for Settings {
@@ -254,6 +260,7 @@ impl Config {
             },
             colors,
             scrollback: self.scrollback.0,
+            bindings: self.keybind.resolve(),
         }
     }
 }

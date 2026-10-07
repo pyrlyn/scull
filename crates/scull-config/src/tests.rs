@@ -277,3 +277,149 @@ fn the_schema_carries_the_ranges_of_the_types() {
     assert_eq!(schema["additionalProperties"], false);
     assert!(!schema_json().contains("null"));
 }
+
+fn chord(text: &str) -> Chord {
+    Chord::try_from(text.to_owned()).unwrap()
+}
+
+fn binding(settings: &Settings, text: &str) -> Option<Action> {
+    let chord = chord(text);
+    settings
+        .bindings
+        .iter()
+        .find(|b| b.chord == chord)
+        .map(|b| b.action)
+}
+
+#[test]
+fn chords_parse_in_any_case_and_spelling_and_print_canonically() {
+    use scull_input::{Key, Modifiers};
+    let c = chord("Cmd+Shift+=");
+    assert_eq!(c.key, Key::Char('='));
+    assert_eq!(c.mods, Modifiers::SUPER | Modifiers::SHIFT);
+    assert_eq!(chord("option+control+a"), chord("ctrl+alt+a"));
+    assert_eq!(chord("win+A"), chord("super+a"));
+    for canonical in [
+        "ctrl+alt+shift+super+x",
+        "shift+super+=",
+        "shift+page-up",
+        "f11",
+        "ctrl+f35",
+        "super+space",
+        "alt+enter",
+        "super+é",
+    ] {
+        assert_eq!(chord(canonical).to_string(), canonical);
+    }
+}
+
+#[test]
+fn bad_chords_say_what_is_wrong() {
+    for (text, needle) in [
+        ("", "not a key name"),
+        ("super+", "not a key name"),
+        ("super++", "not a modifier"),
+        ("hyper+a", "not a modifier"),
+        ("super+super+a", "twice"),
+        ("super+f36", "not a key name"),
+        ("super+f0", "not a key name"),
+        ("super+ab", "not a key name"),
+        ("super+\u{7}", "not a key name"),
+        ("a", "steal typing"),
+        ("shift+a", "steal typing"),
+        ("shift+=", "steal typing"),
+        ("super+shift", "not a key name"),
+    ] {
+        let err = Chord::try_from(text.to_owned()).unwrap_err();
+        assert!(err.contains(needle), "{text:?}: {err}");
+    }
+    // Named keys are fine alone, characters are not.
+    assert!(Chord::try_from("f1".to_owned()).is_ok());
+    assert!(Chord::try_from("shift+home".to_owned()).is_ok());
+}
+
+#[test]
+fn the_defaults_are_bound_without_a_file() {
+    let settings = Settings::default();
+    assert_eq!(settings.bindings.len(), 9);
+    assert_eq!(binding(&settings, "super+v"), Some(Action::Paste));
+    assert_eq!(
+        binding(&settings, "super+shift+="),
+        Some(Action::FontLarger)
+    );
+    assert_eq!(
+        binding(&settings, "shift+page-up"),
+        Some(Action::ScrollPageUp)
+    );
+    assert!(settings.bindings.iter().all(|b| b.action != Action::None));
+}
+
+#[test]
+fn a_user_binding_replaces_the_default_of_its_chord_and_none_frees_it() {
+    let settings = parse(
+        r#"
+[[keybind]]
+key = "super+v"
+action = "scroll-to-top"
+
+[[keybind]]
+key = "super+0"
+action = "none"
+
+[[keybind]]
+key = "ctrl+alt+f"
+action = "font-larger"
+"#,
+    )
+    .unwrap();
+    assert_eq!(binding(&settings, "super+v"), Some(Action::ScrollToTop));
+    assert_eq!(binding(&settings, "super+0"), None);
+    assert_eq!(binding(&settings, "ctrl+alt+f"), Some(Action::FontLarger));
+    assert_eq!(binding(&settings, "super+-"), Some(Action::FontSmaller));
+    assert_eq!(settings.bindings.len(), 9);
+}
+
+#[test]
+fn keybind_entries_are_validated_when_the_file_is_read() {
+    let twice = "[[keybind]]\nkey = \"super+v\"\naction = \"paste\"\n";
+    assert!(message(&format!("{twice}{twice}")).contains("appears twice"));
+    // The same chord spelled two ways is still twice.
+    let other = "[[keybind]]\nkey = \"cmd+V\"\naction = \"none\"\n";
+    assert!(message(&format!("{twice}{other}")).contains("appears twice"));
+    assert!(message("[[keybind]]\nkey = \"a\"\naction = \"paste\"").contains("steal typing"));
+    assert!(
+        message("[[keybind]]\nkey = \"super+v\"\naction = \"fly\"").contains("unknown variant")
+    );
+    assert!(message("[[keybind]]\nkey = \"super+v\"").contains("missing field"));
+    assert!(
+        message("[[keybind]]\nkey = \"super+v\"\naction = \"paste\"\nx = 1")
+            .contains("unknown field")
+    );
+}
+
+#[test]
+fn the_keybind_count_is_capped() {
+    let entry = |i: u32| {
+        // Distinct chords: a character and a function key under each modifier set.
+        let keys = (b'a'..=b'z').map(char::from).collect::<Vec<_>>();
+        let mods = [
+            "ctrl",
+            "alt",
+            "super",
+            "ctrl+alt",
+            "ctrl+super",
+            "alt+super",
+            "ctrl+alt+super",
+            "ctrl+shift",
+            "alt+shift",
+            "super+shift",
+        ];
+        let key = keys[i as usize % 26];
+        let m = mods[i as usize / 26 % mods.len()];
+        format!("[[keybind]]\nkey = \"{m}+{key}\"\naction = \"paste\"\n")
+    };
+    let at_cap = (0..MAX_KEYBINDS as u32).map(entry).collect::<String>();
+    assert!(parse(&at_cap).is_ok());
+    let over = format!("{at_cap}[[keybind]]\nkey = \"f1\"\naction = \"paste\"\n");
+    assert!(message(&over).contains("at most 256"));
+}

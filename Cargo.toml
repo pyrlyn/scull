@@ -50,6 +50,8 @@ base64 = "0.23.1"
 # `image`, which adds colour management (moxcms) the core does not use.
 png = "0.18.1"
 zune-jpeg = "0.5.15"
+# scull-image: zlib for kitty `o=z`; already in the tree through png.
+flate2 = "1.1.10"
 
 # scull-parser: memchr3 finds the end of a DCS/APC payload in bulk.
 memchr = "2.8.3"

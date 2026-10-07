@@ -3,6 +3,9 @@
 
 use crate::{BYTES_PER_PIXEL, ImageError, MAX_IMAGE_BYTES, MAX_IMAGE_SIDE};
 
+/// Bytes per packed RGB pixel.
+pub(crate) const RGB_BYTES: usize = 3;
+
 /// Identifies a stored image. Kitty's client-chosen ids occupy the `u32`
 /// range; ids the store hands out for sixel and iTerm2 images start above
 /// it, so the two can never collide.
@@ -62,6 +65,21 @@ impl Image {
             generation: 0,
             pixels,
         })
+    }
+
+    /// Expands packed RGB8 (kitty `f=24`) to opaque RGBA.
+    pub fn from_rgb(width: u32, height: u32, rgb: &[u8]) -> Result<Self, ImageError> {
+        let len = rgba_len(width.into(), height.into())?;
+        let expected = len / BYTES_PER_PIXEL * RGB_BYTES;
+        if rgb.len() != expected {
+            return Err(ImageError::BadLength(expected, rgb.len()));
+        }
+        let mut pixels = Vec::with_capacity(len);
+        for px in rgb.as_chunks::<RGB_BYTES>().0 {
+            pixels.extend_from_slice(px);
+            pixels.push(u8::MAX);
+        }
+        Self::from_rgba(width, height, pixels)
     }
 
     /// Width in pixels.

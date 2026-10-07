@@ -31,3 +31,4 @@
 | base64 | local | https://github.com/marshallpierce/rust-base64 | Streaming decode of iTerm2 and kitty image payloads in scull-image |
 | png | local | https://github.com/image-rs/image-png | PNG decode for iTerm2 images and kitty `f=100` in scull-image |
 | zune-jpeg | local | https://github.com/etemesi254/zune-image | JPEG decode for iTerm2 images in scull-image |
+| flate2 | local | https://github.com/rust-lang/flate2-rs | zlib inflate of kitty `o=z` payloads in scull-image |

@@ -69,3 +69,27 @@ pub struct Placement {
     /// Stacking order; negative draws below text.
     pub z: i32,
 }
+
+impl Placement {
+    /// Whether the cell at absolute line `row`, column `col` shows part of
+    /// this placement.
+    pub fn covers(&self, row: u64, col: u32) -> bool {
+        self.covers_row(row) && self.covers_col(col)
+    }
+
+    /// Whether the placement spans absolute line `row`.
+    pub fn covers_row(&self, row: u64) -> bool {
+        row >= self.row && row - self.row < u64::from(self.rows)
+    }
+
+    /// Whether the placement spans column `col`.
+    pub fn covers_col(&self, col: u32) -> bool {
+        col >= self.col && col - self.col < self.cols
+    }
+}
+
+/// Cells needed to show `pixels` with cells `cell` pixels long: at least one,
+/// so a sliver of an image still owns a cell.
+pub fn cells_for(pixels: u32, cell: u32) -> u32 {
+    pixels.div_ceil(cell.max(1)).max(1)
+}

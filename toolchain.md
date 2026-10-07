@@ -16,3 +16,7 @@
 | cargo_metadata | local | https://github.com/oli-obk/cargo_metadata | Crate-graph test (`crates/scull-ffi/tests/deps.rs`) |
 | libfuzzer-sys | local | https://github.com/rust-fuzz/libfuzzer | libFuzzer target for the stub grid (`fuzz/`; nightly, not the CI gate) |
 | cargo-nextest | global (mise) | https://github.com/nextest-rs/nextest | Test runner |
+| proptest | local | https://github.com/proptest-rs/proptest | Property tests |
+| anyhow | local | https://github.com/dtolnay/anyhow | Error type of the `scull-ucd-gen` binary |
+| sha2 | local | https://github.com/RustCrypto/hashes | Verifies the pinned Unicode data files |
+| ureq | local | https://github.com/algesten/ureq | Downloads the Unicode data files in `scull-ucd-gen` |

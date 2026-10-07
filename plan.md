@@ -8,7 +8,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | --- | --- | --- | --- | --- | --- |
 | T3 | in progress | P0 | 3 | 50% | Cursor / grok 4.7 |
 | T4 | in progress | P0 | 4 | 0% | Claude Code / claude-opus-5-5 |
-| T5 | in progress | P0 | 4 | 0% | Claude Code / claude-opus-5-5 |
 | T6 | todo | P0 | 5 | 0% | |
 | T7 | todo | P0 | 5 | 0% | |
 | T8 | todo | P0 | 3 | 0% | |
@@ -45,17 +44,6 @@ Execution plan:
 3. `fuzz/` workspace (cargo-fuzz, nightly) with a parser target; run it clean locally.
 4. A divan bench in `crates/scull-parser/benches` against `vte` on plain text and mixed SGR output.
 5. Verify with `just check`. Over the 500-line budget, stop at a coherent boundary and split the rest into T4.x.
-### T5. Unicode tables
-
-`scull-unicode`: multi-stage width and grapheme-break tables generated from the Unicode data files, one width function shared by the scanner and the grid, mode 2027, and a setting for ambiguous width and Unicode version. Done when `GraphemeBreakTest.txt` passes and emoji ZWJ, variation selectors and combining marks have golden tests.
-
-
-Execution plan:
-1. Evaluate `unicode-width` and `unicode-segmentation` against a per-code-point table (configurable ambiguous width, incremental grapheme state); record the choice in the commit.
-2. A generator (workspace binary under `tools/`) reads pinned Unicode data files checked by SHA-256 and writes multi-stage tables into `crates/scull-unicode/src/tables.rs`, committed; a test fails when the output is stale.
-3. `crates/scull-unicode`: `width(cp, opts)`, incremental grapheme-break state, cluster width for mode 2027, ambiguous-width and Unicode-version options.
-4. Tests: `GraphemeBreakTest.txt` in full; golden tests for emoji ZWJ, variation selectors and combining marks.
-5. Verify with `just check`. Over the 500-line budget, split the rest into T5.x.
 ### T6. Grid and scrollback
 
 `scull-grid`: a small fixed cell with interned clusters and styles, rare data out of line, O(1) blank and uniform lines, and one power-of-two ring of lazily allocated rows shared by the screen and scrollback. Rows carry a stable id and a generation. Done when scrolling is an offset change and memory per scrollback row is recorded in the benchmark.

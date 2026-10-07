@@ -45,9 +45,9 @@ public final class MetalRenderer {
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
-    private let font: CTFont
-    private let cellSize: CGSize
-    private let shaper: RunShaper
+    private var font: CTFont
+    private var cellSize: CGSize
+    private var shaper: RunShaper
     private let images: ImageLayer
     private var atlas: GlyphAtlas
     private var scale: CGFloat = 0
@@ -99,6 +99,15 @@ public final class MetalRenderer {
         color?.destinationRGBBlendFactor = .oneMinusSourceAlpha
         color?.destinationAlphaBlendFactor = .oneMinusSourceAlpha
         return try device.makeRenderPipelineState(descriptor: desc)
+    }
+
+    /// A new font or cell size, in points: every glyph and row is made
+    /// again on the next draw.
+    public func setFont(_ font: CTFont, cellWidth: CGFloat, cellHeight: CGFloat) {
+        (self.font, cellSize) = (font, CGSize(width: cellWidth, height: cellHeight))
+        shaper = RunShaper(font: font, isSprite: Sprites.covers)
+        // The next `prepare` takes the scale as new: fresh metrics and atlas.
+        scale = 0
     }
 
     /// Draws the session's latest frame into `layer`, `size` in points.
@@ -354,7 +363,7 @@ public final class MetalRenderer {
                     encoder.setFragmentTexture(image.texture, index: 1)
                     draw([image.quad], encoder: encoder, uniforms: &uniforms)
                 }
-                draw(layer == 0 ? cursor : overlay, encoder: encoder, uniforms: &uniforms)
+                draw(layer == 0 ? cursor : preeditQuads(session) + overlay, encoder: encoder, uniforms: &uniforms)
             }
         }
         encoder.endEncoding()
@@ -387,6 +396,17 @@ public final class MetalRenderer {
 
     /// The cursor's own quads in view pixels: what goes under the text,
     /// and what goes over it.
+    /// The input method's composing text, which the frame already shows,
+    /// underlined across the span the frame marks.
+    private func preeditQuads(_ session: TerminalSession) -> [Quad] {
+        let preedit = session.view.preedit
+        guard preedit.cols > 0, Int(preedit.row) < grid.rows else { return [] }
+        let (first, end) = (Int(preedit.col), Int(preedit.col) + Int(preedit.cols))
+        let y = CGFloat(preedit.row) * metrics.height + metrics.underline - metrics.thickness / 2
+        return [Quad(x: x(first), y: Float(y.rounded()), w: x(end) - x(first), h: Float(metrics.thickness),
+                     color: Self.rgba(palette.foreground))]
+    }
+
     private func cursorQuads(_ session: TerminalSession, focused: Bool) -> (under: [Quad], over: [Quad]) {
         let cursor = session.view.cursor
         let (row, col) = (Int(cursor.row), Int(cursor.col))

@@ -11,7 +11,9 @@ public final class TerminalView: NSView {
     private var failure: String?
     private let config = ScullConfig.shared
     private(set) var palette: Palette { didSet { renderer?.palette = palette } }
-    private var fonts: FontSet
+    private var fonts: FontSet {
+        didSet { renderer?.setFont(fonts.regular, cellWidth: fonts.cellWidth, cellHeight: fonts.cellHeight) }
+    }
     private var renderer: MetalRenderer?
     /// Points the font-larger and font-smaller actions added; a changed
     /// font in the file starts from its own size again.

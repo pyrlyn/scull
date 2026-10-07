@@ -76,16 +76,6 @@ extension TerminalView: @preconcurrency NSTextInputClient {
 
     public func characterIndex(for point: NSPoint) -> Int { NSNotFound }
 
-    /// Underlines the composing text the frame placed on its row.
-    func drawPreedit(in ctx: CGContext) {
-        guard let preedit = session?.view.preedit, preedit.cols > 0 else { return }
-        let thickness = max(1, font.underlineThickness)
-        ctx.setFillColor(Palette.cgColor(palette.foreground))
-        ctx.fill(CGRect(x: CGFloat(preedit.col) * cellWidth,
-                        y: CGFloat(preedit.row + 1) * cellHeight - thickness,
-                        width: CGFloat(preedit.cols) * cellWidth, height: thickness))
-    }
-
     #if DEBUG
     /// Composes `-ScullPreedit` text, so a scripted snapshot shows it.
     func composeDebugPreedit() {

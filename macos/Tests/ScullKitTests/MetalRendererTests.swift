@@ -119,3 +119,33 @@ private func renderer() throws -> MetalRenderer {
     let cleared = try render(session, renderer)
     #expect(rgb(cleared, cols: 4, row: 0, col: 0, dx: 8, dy: 16) == 0x141414)
 }
+
+@MainActor
+@Test func rendererUnderlinesThePreeditSpan() throws {
+    let session = try TerminalSession(cols: 6, rows: 1)
+    let renderer = try renderer()
+    // Spaces leave only the underline in the cells it marks.
+    #expect(session.preedit("  ", caret: 2) == TT_OK)
+    let pixels = try render(session, renderer)
+    let inked = { (col: Int) in (16..<32).contains { rgb(pixels, cols: 6, row: 0, col: col, dx: 8, dy: $0) == 0xE5E5E5 } }
+    #expect(session.view.preedit.cols == 2)
+    #expect(inked(0) && inked(1))
+    #expect(!inked(4))
+}
+
+@MainActor
+@Test func rendererRemakesGlyphsForANewFont() throws {
+    let session = try TerminalSession(cols: 2, rows: 1)
+    let renderer = try renderer()
+    _ = session.feed(Array("█".utf8))
+    _ = try render(session, renderer)
+    // Twice the cell: the block sprite cached at the old size must not be
+    // reused.
+    renderer.setFont(CTFontCreateWithName("Menlo" as CFString, 26, nil), cellWidth: 16, cellHeight: 32)
+    let image = try #require(renderer.snapshot(session, size: CGSize(width: 32, height: 32), scale: 2, focused: false))
+    let data = [UInt8](try #require(image.dataProvider?.data as Data?))
+    let at = { (x: Int, y: Int) in data[(y * image.width + x) * 4 + 2] }
+    #expect(image.width == 64)
+    #expect(at(30, 60) == 0xE5 && at(20, 40) == 0xE5)
+    #expect(at(40, 30) == 0x14)
+}

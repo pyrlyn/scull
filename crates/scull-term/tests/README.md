@@ -67,13 +67,25 @@ must check at least one thing.
 | `margins.txt` | DECLRMM, DECSLRM, SCOSC when DECLRMM is off; SU, SD, IL, DL, ICH, DCH, IND, CR, CUF, CUB and printing inside left and right margins; origin mode with four margins | esctest2 `su.py`, `sd.py`, `il.py`, `dl.py`, `ich.py`, `dch.py`, `ind.py`, `cr.py`, `cuf.py`, `cub.py`, `cup.py`, `decset.py` |
 | `screens.txt` | alternate screen 47, 1047, 1049; DECSC/DECRC, SCOSC/SCORC, 1048; what the saved cursor keeps and leaves; one saved cursor per screen | esctest2 `decset.py` (ALTBUF), `save_restore_cursor.py`, `decrc.py` |
 | `charsets.txt` | SCS for G0-G3, SI, SO, LS2, SS2, SS3, DEC Special Graphics, UK set, unknown sets | vttest menu 3; VT100 User Guide table 3-9; xterm ctlseqs |
-| `reports.txt` | DA1, DA2, DSR 5, CPR (with origin mode), DECXCPR, reply order, unknown requests, OSC ignored | esctest2 `da.py`, `da2.py`, `decdsr.py`; xterm ctlseqs |
+| `reports.txt` | DA1, DA2, DSR 5, CPR (with origin mode), DECXCPR, reply order, unknown requests, OSC 0 title event | esctest2 `da.py`, `da2.py`, `decdsr.py`; xterm ctlseqs |
 | `reset.txt` | RIS (screen, cursor, pen, modes, tabs, alternate screen, margins, scrollback kept); DECSTR (cursor kept, IRM, DECAWM kept, margins, DECOM, saved cursor, pen, DECLRMM) | esctest2 `ris.py`, `decstr.py`, `save_restore_cursor.py` |
 
 The reply queue cap and the no-panic property are unit tests in
 `src/reply.rs` and `src/terminal.rs`, not fixtures.
 
+## Cases (T13)
+
+| File | Cases | Sources |
+| --- | --- | --- |
+| `shell.txt` | OSC 0/1/2 titles, coalesced BEL, OSC 7, OSC 133, OSC 52 read and write, OSC 8 per-row spans | xterm ctlseqs; OSC 8 hyperlink spec; iTerm2 escape codes; VS Code shell integration |
+
+`events:` and `links:` are optional blocks in the same `|…|` shape as
+`screen:`. An event line is what `poll_event` returns, in order. A link
+line is `ROW START..END=ID` for one span on a screen row (row 1-based,
+columns 0-based and half-open). A clipboard read is denied or answered in
+`src/osc.rs` tests.
+
 Not covered: tests that need a real host or features this core does not
 have (DECCOLM and 132-column switching, reverse wraparound, DECSCA and
 selective erase protection, DECRQCRA checksums, printer, locator and
-keyboard reports, ISO protection), and OSC, which T13 owns.
+keyboard reports, ISO protection).

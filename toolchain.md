@@ -39,7 +39,7 @@
 | parking_lot | local | https://github.com/Amanieu/parking_lot | Terminal lock with `unlock_fair` so a frame read is not starved |
 | cbindgen | local | https://github.com/mozilla/cbindgen | Generates the committed C header `crates/scull-ffi/include/scull.h` (drift test, dev-dependency) |
 | csbindgen | local | https://github.com/Cysharp/csbindgen | Generates the committed C# bindings `crates/scull-ffi/bindings/csharp/NativeMethods.g.cs` (drift test, dev-dependency) |
-| base64 | local | https://github.com/marshallpierce/rust-base64 | Streaming decode of iTerm2 and kitty image payloads in scull-image |
+| base64 | local | https://github.com/marshallpierce/rust-base64 | Streaming decode of iTerm2 and kitty image payloads in scull-image; one-shot OSC 52 clipboard payloads in scull-term |
 | png | local | https://github.com/image-rs/image-png | PNG decode for iTerm2 images and kitty `f=100` in scull-image |
 | zune-jpeg | local | https://github.com/etemesi254/zune-image | JPEG decode for iTerm2 images in scull-image |
 | flate2 | local | https://github.com/rust-lang/flate2-rs | zlib inflate of kitty `o=z` payloads in scull-image |

@@ -1,0 +1,93 @@
+# Titles, the bell, the directory, shell marks, the clipboard and
+# hyperlinks. Each one is an event; links are also per-row spans.
+# Columns in a link line are 0-based and half-open.
+
+=== OSC 0 names the icon and the window
+source: xterm ctlseqs OSC Ps = 0
+input: \e]0;hello\x07
+events:
+|title 0 hello|
+
+=== OSC 1 and OSC 2 name one of them each
+source: xterm ctlseqs OSC Ps = 1, Ps = 2
+input: \e]1;icon\x07\e]2;window\x07
+events:
+|title 1 icon|
+|title 2 window|
+
+=== Several BELs are one bell
+source: xterm ctlseqs BEL
+input: \x07\x07a\x07
+events:
+|bell|
+
+=== A BEL that ends an OSC is not a bell
+source: xterm ctlseqs OSC (BEL terminator)
+input: \e]2;t\x07
+events:
+|title 2 t|
+
+=== OSC 7 reports the working directory
+source: iTerm2 Proprietary Escape Codes OSC 7
+input: \e]7;file://host/tmp\x07
+events:
+|cwd file://host/tmp|
+
+=== OSC 133 marks the prompt and the command's exit
+source: VS Code shell integration (OSC 133 A and D)
+input: \e]133;A\x07\e]133;D;0\x07
+events:
+|shell A|
+|shell D 0|
+
+=== OSC 52 write is a clipboard event
+source: xterm ctlseqs OSC 52 (base64 Pd)
+input: \e]52;c;aGk=\x07
+events:
+|clip write c hi|
+
+=== OSC 52 query is a read the host may deny
+source: xterm ctlseqs OSC 52 (Pd = ?)
+input: \e]52;p;?\x1b\\
+events:
+|clip read p|
+
+=== Broken OSC 52 base64 is dropped whole
+source: xterm ctlseqs OSC 52
+input: \e]52;c;!!!!\x07
+events:
+
+=== OSC 8 paints a per-row span and then stops
+source: OSC 8 hyperlinks (egmontkob gist)
+size: 6x1
+input: \e]8;id=a;https://example.com\e\\ab\e]8;;\e\\c
+events:
+|link 1 https://example.com|
+links:
+|1 0..2=1|
+screen:
+|abc...|
+
+=== A link follows a wrap onto the next row
+source: OSC 8 hyperlinks (egmontkob gist)
+size: 4x2
+input: \e]8;;http://x\e\\abcdef\e]8;;\e\\
+events:
+|link 1 http://x|
+links:
+|1 0..4=1|
+|2 0..2=1|
+screen:
+|abcd|
+|ef..|
+
+=== A wide character's link covers both cells
+source: OSC 8 hyperlinks (egmontkob gist); Unicode UAX #11
+size: 4x1
+input: \e]8;;http://x\e\\\xe3\x81\x82\e]8;;\e\\
+events:
+|link 1 http://x|
+links:
+|1 0..2=1|
+screen:
+|あ..|

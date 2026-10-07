@@ -56,6 +56,11 @@ fn grid_depends_only_on_unicode() {
 }
 
 #[test]
+fn config_depends_only_on_input() {
+    assert_eq!(workspace_deps(&metadata(), "scull-config"), ["scull-input"]);
+}
+
+#[test]
 fn term_has_no_io_and_no_ffi() {
     let deps = workspace_deps(&metadata(), "scull-term");
     for banned in ["scull-pty", "scull-ffi"] {

@@ -26,12 +26,44 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 3;
+        internal const uint TT_ABI_VERSION_MINOR = 4;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 3;
+        internal const uint TT_ABI_VERSION = 4;
+        /// <summary>
+        ///  `tt_keybind.action`: paste the clipboard.
+        /// </summary>
+        internal const byte TT_ACTION_PASTE = 1;
+        /// <summary>
+        ///  Make the font one point larger.
+        /// </summary>
+        internal const byte TT_ACTION_FONT_LARGER = 2;
+        /// <summary>
+        ///  Make the font one point smaller.
+        /// </summary>
+        internal const byte TT_ACTION_FONT_SMALLER = 3;
+        /// <summary>
+        ///  Back to the configured font size.
+        /// </summary>
+        internal const byte TT_ACTION_FONT_RESET = 4;
+        /// <summary>
+        ///  Scroll the history one screen up.
+        /// </summary>
+        internal const byte TT_ACTION_SCROLL_PAGE_UP = 5;
+        /// <summary>
+        ///  Scroll the history one screen down.
+        /// </summary>
+        internal const byte TT_ACTION_SCROLL_PAGE_DOWN = 6;
+        /// <summary>
+        ///  Scroll to the oldest history row.
+        /// </summary>
+        internal const byte TT_ACTION_SCROLL_TO_TOP = 7;
+        /// <summary>
+        ///  Scroll back to the screen.
+        /// </summary>
+        internal const byte TT_ACTION_SCROLL_TO_BOTTOM = 8;
         /// <summary>
         ///  `tt_event.kind`: the program rang the bell, once or more since the last
         ///  poll.
@@ -260,6 +292,62 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_abi_version", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern uint tt_abi_version();
+
+        /// <summary>
+        ///  Opens the configuration and starts watching it. A missing file is the
+        ///  defaults and a broken one is an `error` in the view, so this fails only
+        ///  for bad arguments or a host with no home directory to put the file in.
+        ///  On `TT_OK` `*out` holds the handle; free it with `tt_config_free`.
+        ///
+        ///  # Safety
+        ///
+        ///  `options` is `NULL` or points to `struct_size` readable bytes, its
+        ///  strings valid for their lengths during this call; `out` is `NULL` or
+        ///  writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_config_new", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_config_new(tt_config_options* options, tt_config** @out);
+
+        /// <summary>
+        ///  Fills `*view` with the settings in force and sets `updated` when they
+        ///  are not what the previous poll returned. Polling lets the next wakeup
+        ///  fire.
+        ///
+        ///  # Safety
+        ///
+        ///  `config` is `NULL` or live; `view` is `NULL` or points to `struct_size`
+        ///  writable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_config_poll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_config_poll(tt_config* config, tt_config_view* view);
+
+        /// <summary>
+        ///  Changes one setting in the config file, keeping the rest of the file as
+        ///  it is, and applies it at once. `key` is one of `font.family`,
+        ///  `font.size`, `colors.scheme`, `colors.foreground`, `colors.background`,
+        ///  `colors.cursor`, `scrollback`; `value` is its text (`13.5`,
+        ///  `solarized-dark`, `#1a2b3c`), and an empty `value` removes the key so its
+        ///  default applies. `TT_INVALID` for an unknown key or a value the config
+        ///  does not accept, with the file untouched; `TT_IO` when it cannot be
+        ///  written.
+        ///
+        ///  # Safety
+        ///
+        ///  `config` is `NULL` or live; the strings are valid for their lengths.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_config_set", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_config_set(tt_config* config, tt_str key, tt_str value);
+
+        /// <summary>
+        ///  Frees the configuration and stops its watcher. `NULL` is a no-op. No
+        ///  other call may use `config` during or after this one.
+        ///
+        ///  # Safety
+        ///
+        ///  `config` is `NULL` or live, and not used again.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_config_free", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void tt_config_free(tt_config* config);
 
         /// <summary>
         ///  Creates a terminal with no child process: bytes reach it only through
@@ -511,6 +599,144 @@ namespace Scull.Native
         internal static extern tt_status tt_term_scroll_display(tt_term* term, int delta);
 
 
+    }
+
+    /// <summary>
+    ///  How to open the configuration.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_config_options
+    {
+        /// <summary>
+        ///  `sizeof(tt_config_options)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  `TT_ABI_VERSION` as the host was built with it.
+        /// </summary>
+        public uint abi_version;
+        /// <summary>
+        ///  The config file; empty for the default place
+        ///  (`$XDG_CONFIG_HOME/scull/config.toml`, `~/.config/scull/config.toml`,
+        ///  `%APPDATA%\scull\config.toml`).
+        /// </summary>
+        public tt_str path;
+        /// <summary>
+        ///  Called from a core thread when `tt_config_poll` would answer
+        ///  something new; `NULL` for none. Same contract as `tt_wakeup_fn`:
+        ///  it must not block or call `tt_*`, it is not called again until the
+        ///  host polls, and never after `tt_config_free` returns.
+        /// </summary>
+        public delegate* unmanaged[Cdecl]<void*, void> wakeup;
+        /// <summary>
+        ///  Passed to `wakeup` as is.
+        /// </summary>
+        public void* userdata;
+    }
+
+    /// <summary>
+    ///  A key binding: when `key` is pressed with exactly `mods` among Shift,
+    ///  Alt, Control and Super held, do `action`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_keybind
+    {
+        /// <summary>
+        ///  As `tt_key_event.key`.
+        /// </summary>
+        public uint key;
+        /// <summary>
+        ///  `TT_MOD_*` bits.
+        /// </summary>
+        public byte mods;
+        /// <summary>
+        ///  `TT_ACTION_*`.
+        /// </summary>
+        public byte action;
+    }
+
+    /// <summary>
+    ///  The settings in force. Every pointer in it stays valid until the next
+    ///  `tt_config_poll` or `tt_config_free` on the same handle.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_config_view
+    {
+        /// <summary>
+        ///  `sizeof(tt_config_view)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  1 when anything changed since the previous poll (always on the first).
+        /// </summary>
+        public byte updated;
+        /// <summary>
+        ///  1 when file changes are watched; 0 means only `tt_config_set` and a
+        ///  new handle see the file.
+        /// </summary>
+        public byte watching;
+        /// <summary>
+        ///  Grows with every change of the settings or of `error`.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  The font family; empty for the platform's monospace font.
+        /// </summary>
+        public tt_str font_family;
+        /// <summary>
+        ///  The font size in points.
+        /// </summary>
+        public float font_size;
+        /// <summary>
+        ///  History rows for terminals opened from now on.
+        /// </summary>
+        public uint scrollback;
+        /// <summary>
+        ///  The colour scheme's name as the file spells it (`scull-dark`, ...).
+        /// </summary>
+        public tt_str scheme;
+        /// <summary>
+        ///  Default text colour, `0xRRGGBB`.
+        /// </summary>
+        public uint foreground;
+        /// <summary>
+        ///  Default background colour, `0xRRGGBB`.
+        /// </summary>
+        public uint background;
+        /// <summary>
+        ///  Cursor colour, `0xRRGGBB`.
+        /// </summary>
+        public uint cursor;
+        /// <summary>
+        ///  Palette entries 0 to 15, `0xRRGGBB`.
+        /// </summary>
+        public fixed uint ansi[16];
+        /// <summary>
+        ///  The key bindings in force.
+        /// </summary>
+        public tt_keybind* keybinds;
+        /// <summary>
+        ///  Number of `keybinds`.
+        /// </summary>
+        public nuint keybinds_len;
+        /// <summary>
+        ///  Why the file could not be used the last time it was read, with its
+        ///  name; empty when it was fine. The settings above are then the last
+        ///  good ones.
+        /// </summary>
+        public tt_str error;
+        /// <summary>
+        ///  The config file's path.
+        /// </summary>
+        public tt_str path;
+    }
+
+    /// <summary>
+    ///  The configuration. Opaque to the host.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_config
+    {
     }
 
     /// <summary>

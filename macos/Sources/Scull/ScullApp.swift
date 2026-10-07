@@ -17,6 +17,8 @@ struct ScullApp: App {
         }
         .defaultSize(width: 720, height: 460)
         .commands { PaneCommands() }
+
+        Settings { SettingsView() }
     }
 }
 

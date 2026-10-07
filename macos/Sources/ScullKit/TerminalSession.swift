@@ -14,7 +14,7 @@ public enum ScullError: Error, Equatable {
 /// Carried through the C wakeup's userdata. The core coalesces wakeups
 /// until the next poll, so each one just posts; nothing here touches
 /// tt_* because the callback runs on a core thread.
-private final class Waker: Sendable {
+final class Waker: Sendable {
     let action: @MainActor @Sendable () -> Void
     init(_ action: @escaping @MainActor @Sendable () -> Void) { self.action = action }
     func fire() {
@@ -36,12 +36,12 @@ public final class TerminalSession {
 
     /// Runs the user's shell. `onWake` runs on the main actor whenever
     /// there is output or an event to look at.
-    public init(cols: UInt16, rows: UInt16, env: [String], cwd: String,
+    public init(cols: UInt16, rows: UInt16, env: [String], cwd: String, scrollback: UInt32 = 10_000,
                 onWake: @escaping @MainActor @Sendable () -> Void) throws(ScullError) {
         let waker = Unmanaged.passRetained(Waker(onWake))
         var out: OpaquePointer?
         let status = withStrings(env + [cwd]) { strs in
-            var options = Self.options(cols: cols, rows: rows)
+            var options = Self.options(cols: cols, rows: rows, scrollback: scrollback)
             options.env = strs.baseAddress
             options.env_len = strs.count - 1
             options.cwd = strs[strs.count - 1]
@@ -65,8 +65,8 @@ public final class TerminalSession {
     }
 
     /// A terminal with no child, fed by `feed`; for tests.
-    public init(cols: UInt16, rows: UInt16) throws(ScullError) {
-        var options = Self.options(cols: cols, rows: rows)
+    public init(cols: UInt16, rows: UInt16, scrollback: UInt32 = 10_000) throws(ScullError) {
+        var options = Self.options(cols: cols, rows: rows, scrollback: scrollback)
         var out: OpaquePointer?
         let status = tt_term_new(&options, &out)
         guard status == TT_OK, let out else { throw .status(status.rawValue) }
@@ -84,13 +84,13 @@ public final class TerminalSession {
         waker?.release()
     }
 
-    private static func options(cols: UInt16, rows: UInt16) -> tt_term_options {
+    private static func options(cols: UInt16, rows: UInt16, scrollback: UInt32) -> tt_term_options {
         var options = tt_term_options()
         options.struct_size = UInt32(MemoryLayout<tt_term_options>.size)
         options.abi_version = UInt32(TT_ABI_VERSION)
         options.cols = cols
         options.rows = rows
-        options.scrollback = 10_000
+        options.scrollback = scrollback
         return options
     }
 
@@ -202,7 +202,7 @@ public final class TerminalSession {
 
 /// Calls `body` with the strings as tt_str values that stay valid for the
 /// call; Swift gives no stable pointer to several strings at once.
-private func withStrings<R>(_ strings: [String], _ body: (UnsafeBufferPointer<tt_str>) -> R) -> R {
+func withStrings<R>(_ strings: [String], _ body: (UnsafeBufferPointer<tt_str>) -> R) -> R {
     let copies = strings.map { string -> (UnsafeMutablePointer<UInt8>, Int) in
         let utf8 = Array(string.utf8)
         let copy = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))

@@ -27,6 +27,7 @@
 // csbindgen drops a constant it cannot read as a literal from the C#
 // bindings. Each one is checked against its meaning where it is defined.
 
+mod config;
 mod event;
 mod frame;
 mod guard;
@@ -36,6 +37,12 @@ mod term;
 #[cfg(feature = "test-hooks")]
 mod test_hooks;
 
+pub use config::{
+    TT_ACTION_FONT_LARGER, TT_ACTION_FONT_RESET, TT_ACTION_FONT_SMALLER, TT_ACTION_PASTE,
+    TT_ACTION_SCROLL_PAGE_DOWN, TT_ACTION_SCROLL_PAGE_UP, TT_ACTION_SCROLL_TO_BOTTOM,
+    TT_ACTION_SCROLL_TO_TOP, tt_config, tt_config_free, tt_config_new, tt_config_options,
+    tt_config_poll, tt_config_set, tt_config_view, tt_keybind,
+};
 pub use event::{
     TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, TT_EXIT_CODE_UNKNOWN, tt_event, tt_term_poll_event,
 };
@@ -67,11 +74,11 @@ pub const TT_ABI_VERSION_MAJOR: u32 = 0;
 
 /// Additions (new functions, fields appended to a struct) bump the minor.
 /// While the major is 0 every minor may break, so the minor must match too.
-pub const TT_ABI_VERSION_MINOR: u32 = 3;
+pub const TT_ABI_VERSION_MINOR: u32 = 4;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = 0x0000_0003;
+pub const TT_ABI_VERSION: u32 = 0x0000_0004;
 
 const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 
@@ -100,7 +107,10 @@ mod tests {
         assert!(abi_compatible(TT_ABI_VERSION));
         assert!(abi_compatible(tt_abi_version()));
         assert!(!abi_compatible(TT_ABI_VERSION + 1));
-        assert!(!abi_compatible(TT_ABI_VERSION - 1), "a host without input");
+        assert!(
+            !abi_compatible(TT_ABI_VERSION - 1),
+            "a host without the config handle"
+        );
         assert!(!abi_compatible(1 << MINOR_BITS | TT_ABI_VERSION_MINOR));
         assert!(!abi_compatible(0));
     }

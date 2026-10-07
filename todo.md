@@ -5,7 +5,6 @@
 - T16. macOS input method and accessibility
 - T17. Windows app and renderer
 - T18. Windows input method and accessibility
-- T19. Images
 - T20. Configuration, fonts and themes
 - T21. Tabs, splits and windows
 - T22. Make no-op link clears generation-neutral in Row::set_link

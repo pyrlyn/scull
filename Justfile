@@ -31,6 +31,10 @@ bindings:
 bindings-check:
     mise exec -- cargo nextest run -p scull-ffi --test bindings --locked
 
+# Rewrite docs/config.schema.json from the config types.
+config-schema:
+    SCULL_BLESS=1 mise exec -- cargo nextest run -p scull-config --locked committed_schema
+
 c_abi_out := "target/c-abi"
 c_abi_cc := "cc -std=c11 -g -O1 -fno-omit-frame-pointer -Wall -Wextra -Werror -Icrates/scull-ffi/include"
 c_abi_link := "-Ltarget/debug -lscull_ffi -Wl,-rpath," + justfile_directory() + "/target/debug -lpthread"
@@ -48,14 +52,18 @@ c-abi-test:
     ./{{c_abi_out}}/two_threads-asan
     {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/two_threads.c {{c_abi_link}} -o {{c_abi_out}}/two_threads-tsan
     ./{{c_abi_out}}/two_threads-tsan
+    {{c_abi_cc}} -fsanitize=address,undefined -fno-sanitize-recover=all crates/scull-ffi/tests/c/config.c {{c_abi_link}} -o {{c_abi_out}}/config-asan
+    ./{{c_abi_out}}/config-asan
+    {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/config.c {{c_abi_link}} -o {{c_abi_out}}/config-tsan
+    ./{{c_abi_out}}/config-tsan
 
 macos_app := "target/macos/Scull.app"
 
 # The core as a static library for the Swift package to link; arm64 only.
 # `cargo rustc` picks the crate type here so the manifest stays as is.
 [private]
-macos-lib:
-    mise exec -- cargo rustc -p scull-ffi --lib --crate-type staticlib --release --target aarch64-apple-darwin --locked
+macos-lib features="":
+    mise exec -- cargo rustc -p scull-ffi --lib --crate-type staticlib --release --target aarch64-apple-darwin --locked {{ if features == "" { "" } else { "--features " + features } }}
 
 # Build the macOS app into target/macos/Scull.app, signed ad hoc so it runs
 # locally. The Swift side is a debug build, which keeps the scripted-launch
@@ -68,8 +76,10 @@ macos: macos-lib
     cp "$(cd macos && swift build --arch arm64 --show-bin-path)/Scull" {{macos_app}}/Contents/MacOS/
     codesign --force --sign - {{macos_app}}
 
-# The Swift package's tests, against the same static library.
-macos-test: macos-lib
+# The Swift package's tests. The library carries the `test-hooks` feature so
+# a test can poison one terminal; `just macos` rebuilds it without.
+macos-test:
+    just macos-lib test-hooks
     cd macos && swift test --arch arm64
 
 # Renderer throughput on the T3 input, in a release build; the table goes

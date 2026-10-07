@@ -9,7 +9,7 @@ public struct Palette: Sendable {
     public var foreground: UInt32 = 0xE5E5E5
     public var background: UInt32 = 0x141414
     public var cursor: UInt32 = 0xE5E5E5
-    public private(set) var indexed: [UInt32]
+    public internal(set) var indexed: [UInt32]
 
     public init() {
         let ansi: [UInt32] = [

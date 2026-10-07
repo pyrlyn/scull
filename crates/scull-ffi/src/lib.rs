@@ -27,13 +27,23 @@
 // csbindgen drops a constant it cannot read as a literal from the C#
 // bindings. Each one is checked against its meaning where it is defined.
 
+mod config;
 mod event;
 mod frame;
 mod guard;
 mod input;
 mod spawn;
 mod term;
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
+mod text;
 
+pub use config::{
+    TT_ACTION_FONT_LARGER, TT_ACTION_FONT_RESET, TT_ACTION_FONT_SMALLER, TT_ACTION_PASTE,
+    TT_ACTION_SCROLL_PAGE_DOWN, TT_ACTION_SCROLL_PAGE_UP, TT_ACTION_SCROLL_TO_BOTTOM,
+    TT_ACTION_SCROLL_TO_TOP, tt_config, tt_config_free, tt_config_new, tt_config_options,
+    tt_config_poll, tt_config_set, tt_config_view, tt_keybind,
+};
 pub use event::{
     TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, TT_EXIT_CODE_UNKNOWN, tt_event, tt_term_poll_event,
 };
@@ -41,10 +51,11 @@ pub use event::{
 pub use frame::{
     TT_ATTR_BLINK, TT_ATTR_BOLD, TT_ATTR_DIM, TT_ATTR_HIDDEN, TT_ATTR_INVERSE, TT_ATTR_ITALIC,
     TT_ATTR_OVERLINE, TT_ATTR_STRIKE, TT_CELL_CLUSTER, TT_COLOR_DEFAULT, TT_COLOR_INDEXED,
-    TT_COLOR_KIND_MASK, TT_COLOR_RGB, TT_UNDERLINE_CURLY, TT_UNDERLINE_DASHED, TT_UNDERLINE_DOTTED,
-    TT_UNDERLINE_DOUBLE, TT_UNDERLINE_NONE, TT_UNDERLINE_SINGLE, tt_cell, tt_cursor, tt_frame,
-    tt_frame_free, tt_frame_new, tt_frame_update, tt_frame_view, tt_image, tt_image_pixels,
-    tt_image_release, tt_image_retain, tt_placement, tt_row, tt_run, tt_scroll, tt_style,
+    TT_COLOR_KIND_MASK, TT_COLOR_RGB, TT_MAX_PREEDIT_BYTES, TT_UNDERLINE_CURLY,
+    TT_UNDERLINE_DASHED, TT_UNDERLINE_DOTTED, TT_UNDERLINE_DOUBLE, TT_UNDERLINE_NONE,
+    TT_UNDERLINE_SINGLE, tt_cell, tt_cursor, tt_frame, tt_frame_free, tt_frame_new,
+    tt_frame_preedit, tt_frame_update, tt_frame_view, tt_image, tt_image_pixels, tt_image_release,
+    tt_image_retain, tt_placement, tt_preedit, tt_row, tt_run, tt_scroll, tt_style,
 };
 pub use guard::tt_status;
 pub use input::{
@@ -58,6 +69,7 @@ pub use input::{
 };
 pub use spawn::{tt_str, tt_term_resize_begin, tt_term_spawn, tt_term_write, tt_wakeup_fn};
 pub use term::{tt_term, tt_term_feed, tt_term_free, tt_term_new, tt_term_options, tt_term_resize};
+pub use text::tt_term_read_text;
 
 /// Breaking changes bump the major version; a host refuses to run on
 /// another major.
@@ -65,11 +77,11 @@ pub const TT_ABI_VERSION_MAJOR: u32 = 0;
 
 /// Additions (new functions, fields appended to a struct) bump the minor.
 /// While the major is 0 every minor may break, so the minor must match too.
-pub const TT_ABI_VERSION_MINOR: u32 = 3;
+pub const TT_ABI_VERSION_MINOR: u32 = 5;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = 0x0000_0003;
+pub const TT_ABI_VERSION: u32 = 0x0000_0005;
 
 const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 
@@ -98,7 +110,10 @@ mod tests {
         assert!(abi_compatible(TT_ABI_VERSION));
         assert!(abi_compatible(tt_abi_version()));
         assert!(!abi_compatible(TT_ABI_VERSION + 1));
-        assert!(!abi_compatible(TT_ABI_VERSION - 1), "a host without input");
+        assert!(
+            !abi_compatible(TT_ABI_VERSION - 1),
+            "a host without the config handle"
+        );
         assert!(!abi_compatible(1 << MINOR_BITS | TT_ABI_VERSION_MINOR));
         assert!(!abi_compatible(0));
     }

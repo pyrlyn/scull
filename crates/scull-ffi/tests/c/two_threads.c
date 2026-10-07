@@ -184,11 +184,25 @@ static tt_status draw_until_done(struct shared *shared, const tt_image **kept) {
     unsigned long sum = 0;
     unsigned long frames = 0;
     tt_status status = TT_OK;
+    /* Composing while output streams in: the overlay follows the cursor. */
+    static const char COMPOSING[] = "\xe6\x97\xa5\xe6\x9c\xac";
     while (status == TT_OK && !atomic_load(&shared->feeding_done)) {
-        status = update(frame, shared->term, &view, &sum);
+        size_t len = (frames & 1) ? sizeof COMPOSING - 1 : 0;
+        status = tt_frame_preedit(frame, (const uint8_t *)COMPOSING, len, 3);
+        if (status == TT_OK)
+            status = update(frame, shared->term, &view, &sum);
+        /* A screen reader reads the text while output streams in. */
+        char text[ROWS * LINE_BYTES];
+        size_t text_len = 0;
+        tt_status read = tt_term_read_text(shared->term, 0, ROWS, (uint8_t *)text,
+                                           sizeof text, &text_len);
+        if (status == TT_OK && read != TT_OK && read != TT_FULL)
+            status = read;
         frames++;
     }
     /* The last line fed is on the screen once the feeder is done. */
+    if (status == TT_OK)
+        status = tt_frame_preedit(frame, NULL, 0, 0);
     if (status == TT_OK)
         status = update(frame, shared->term, &view, &sum);
     if (status == TT_OK) {

@@ -14,7 +14,7 @@ public enum ScullError: Error, Equatable {
 /// Carried through the C wakeup's userdata. The core coalesces wakeups
 /// until the next poll, so each one just posts; nothing here touches
 /// tt_* because the callback runs on a core thread.
-private final class Waker: Sendable {
+final class Waker: Sendable {
     let action: @MainActor @Sendable () -> Void
     init(_ action: @escaping @MainActor @Sendable () -> Void) { self.action = action }
     func fire() {
@@ -24,21 +24,30 @@ private final class Waker: Sendable {
 
 @MainActor
 public final class TerminalSession {
-    private let term: OpaquePointer
+    // Not private so tests can hand the raw handle to the core's test hook.
+    let term: OpaquePointer
     private let frame: OpaquePointer
     private let waker: Unmanaged<Waker>?
     public private(set) var view = tt_frame_view()
     /// Damage of every update since the renderer last took it.
     private var damage = FrameDamage()
+    /// True once a call answered `TT_POISONED` or `TT_PANIC`: the core hit a
+    /// bug in this terminal, and only freeing it is left. Other sessions are
+    /// untouched, so the pane shows a notice and its siblings keep running.
+    public private(set) var isPoisoned = false
+
+    /// The screen's text, read once per changed frame: an accessibility
+    /// client asks for it many times per query.
+    private var screenCache: ScreenText?
 
     /// Runs the user's shell. `onWake` runs on the main actor whenever
     /// there is output or an event to look at.
-    public init(cols: UInt16, rows: UInt16, env: [String], cwd: String,
+    public init(cols: UInt16, rows: UInt16, env: [String], cwd: String, scrollback: UInt32 = 10_000,
                 onWake: @escaping @MainActor @Sendable () -> Void) throws(ScullError) {
         let waker = Unmanaged.passRetained(Waker(onWake))
         var out: OpaquePointer?
         let status = withStrings(env + [cwd]) { strs in
-            var options = Self.options(cols: cols, rows: rows)
+            var options = Self.options(cols: cols, rows: rows, scrollback: scrollback)
             options.env = strs.baseAddress
             options.env_len = strs.count - 1
             options.cwd = strs[strs.count - 1]
@@ -62,8 +71,8 @@ public final class TerminalSession {
     }
 
     /// A terminal with no child, fed by `feed`; for tests.
-    public init(cols: UInt16, rows: UInt16) throws(ScullError) {
-        var options = Self.options(cols: cols, rows: rows)
+    public init(cols: UInt16, rows: UInt16, scrollback: UInt32 = 10_000) throws(ScullError) {
+        var options = Self.options(cols: cols, rows: rows, scrollback: scrollback)
         var out: OpaquePointer?
         let status = tt_term_new(&options, &out)
         guard status == TT_OK, let out else { throw .status(status.rawValue) }
@@ -81,14 +90,20 @@ public final class TerminalSession {
         waker?.release()
     }
 
-    private static func options(cols: UInt16, rows: UInt16) -> tt_term_options {
+    private static func options(cols: UInt16, rows: UInt16, scrollback: UInt32) -> tt_term_options {
         var options = tt_term_options()
         options.struct_size = UInt32(MemoryLayout<tt_term_options>.size)
         options.abi_version = UInt32(TT_ABI_VERSION)
         options.cols = cols
         options.rows = rows
-        options.scrollback = 10_000
+        options.scrollback = scrollback
         return options
+    }
+
+    @discardableResult
+    private func track(_ status: tt_status) -> tt_status {
+        if status == TT_POISONED || status == TT_PANIC { isPoisoned = true }
+        return status
     }
 
     /// Takes every pending event; true once the child has exited. Rings the
@@ -97,7 +112,7 @@ public final class TerminalSession {
         var event = tt_event()
         event.struct_size = UInt32(MemoryLayout<tt_event>.size)
         var exited = false
-        while tt_term_poll_event(term, &event) == TT_OK {
+        while track(tt_term_poll_event(term, &event)) == TT_OK {
             switch Int32(event.kind) {
             case TT_EVENT_BELL: bell()
             case TT_EVENT_CHILD_EXITED: exited = true
@@ -112,9 +127,14 @@ public final class TerminalSession {
     public func update() -> Bool {
         var next = tt_frame_view()
         next.struct_size = UInt32(MemoryLayout<tt_frame_view>.size)
-        guard tt_frame_update(frame, term, &next) == TT_OK else { return false }
+        let wasPoisoned = isPoisoned
+        guard track(tt_frame_update(frame, term, &next)) == TT_OK else {
+            // The notice replaces the grid, so the view has to redraw once.
+            return isPoisoned && !wasPoisoned
+        }
         view = next
         damage.absorb(next)
+        if next.updated != 0 { screenCache = nil }
         return next.updated != 0
     }
 
@@ -122,6 +142,31 @@ public final class TerminalSession {
     public func takeDamage() -> FrameDamage {
         defer { damage = FrameDamage(clean: Int(view.rows)) }
         return damage
+    }
+
+    /// The viewport's text, a line per row (see `tt_term_read_text`).
+    func screenText() -> ScreenText {
+        if let screenCache { return screenCache }
+        let read = ScreenText(readText() ?? "")
+        screenCache = read
+        return read
+    }
+
+    private func readText() -> String? {
+        var cap = 0
+        // The child can print between asking for the length and reading,
+        // so a few tries; past them the reader gets nothing this frame.
+        for _ in 0..<4 {
+            var bytes = [UInt8](repeating: 0, count: cap)
+            var len = 0
+            let status = bytes.withUnsafeMutableBufferPointer {
+                tt_term_read_text(term, 0, UInt16.max, $0.baseAddress, cap, &len)
+            }
+            if status == TT_OK { return String(decoding: bytes.prefix(len), as: UTF8.self) }
+            guard status == TT_FULL else { return nil }
+            cap = len + len / 8
+        }
+        return nil
     }
 
     public func cell(row: Int, col: Int) -> tt_cell? {
@@ -157,46 +202,54 @@ public final class TerminalSession {
         var text = text
         return text.withUTF8 { bytes in
             event.text = tt_str(ptr: bytes.baseAddress, len: bytes.count)
-            return tt_term_key(term, &event)
+            return track(tt_term_key(term, &event))
         }
     }
 
     public func text(_ text: String) -> tt_status {
         var text = text
-        return text.withUTF8 { tt_term_text(term, $0.baseAddress, $0.count) }
+        return text.withUTF8 { track(tt_term_text(term, $0.baseAddress, $0.count)) }
+    }
+
+    /// Shows an input method's composing text at the cursor from the next
+    /// update, the caret at UTF-8 offset `caret`; empty text clears it.
+    /// It never reaches the child.
+    public func preedit(_ text: String, caret: Int) -> tt_status {
+        var text = text
+        return text.withUTF8 { tt_frame_preedit(frame, $0.baseAddress, $0.count, max(0, caret)) }
     }
 
     public func paste(_ text: String) -> tt_status {
         var text = text
-        return text.withUTF8 { tt_term_paste(term, $0.baseAddress, $0.count) }
+        return text.withUTF8 { track(tt_term_paste(term, $0.baseAddress, $0.count)) }
     }
 
-    public func focus(_ focused: Bool) -> tt_status { tt_term_focus(term, focused ? 1 : 0) }
+    public func focus(_ focused: Bool) -> tt_status { track(tt_term_focus(term, focused ? 1 : 0)) }
 
     /// Sends a mouse event; true when the program took it.
     public func mouse(_ event: tt_mouse_event) -> Bool {
         var event = event
         event.struct_size = UInt32(MemoryLayout<tt_mouse_event>.size)
         var taken: UInt8 = 0
-        return tt_term_mouse(term, &event, &taken) == TT_OK && taken != 0
+        return track(tt_term_mouse(term, &event, &taken)) == TT_OK && taken != 0
     }
 
-    public func scrollDisplay(_ delta: Int32) -> tt_status { tt_term_scroll_display(term, delta) }
+    public func scrollDisplay(_ delta: Int32) -> tt_status { track(tt_term_scroll_display(term, delta)) }
 
-    public func resizeBegin() -> tt_status { tt_term_resize_begin(term) }
+    public func resizeBegin() -> tt_status { track(tt_term_resize_begin(term)) }
 
     public func resize(cols: UInt16, rows: UInt16, widthPx: UInt16, heightPx: UInt16) -> tt_status {
-        tt_term_resize(term, cols, rows, widthPx, heightPx)
+        track(tt_term_resize(term, cols, rows, widthPx, heightPx))
     }
 
     public func feed(_ bytes: [UInt8]) -> tt_status {
-        bytes.withUnsafeBufferPointer { tt_term_feed(term, $0.baseAddress, $0.count) }
+        bytes.withUnsafeBufferPointer { track(tt_term_feed(term, $0.baseAddress, $0.count)) }
     }
 }
 
 /// Calls `body` with the strings as tt_str values that stay valid for the
 /// call; Swift gives no stable pointer to several strings at once.
-private func withStrings<R>(_ strings: [String], _ body: (UnsafeBufferPointer<tt_str>) -> R) -> R {
+func withStrings<R>(_ strings: [String], _ body: (UnsafeBufferPointer<tt_str>) -> R) -> R {
     let copies = strings.map { string -> (UnsafeMutablePointer<UInt8>, Int) in
         let utf8 = Array(string.utf8)
         let copy = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))

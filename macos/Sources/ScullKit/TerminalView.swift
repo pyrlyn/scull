@@ -7,16 +7,30 @@ import CoreText
 import CScull
 
 public final class TerminalView: NSView {
-    private var session: TerminalSession?
+    var session: TerminalSession?
     private var failure: String?
-    private let palette = Palette()
-    private let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    private let config = ScullConfig.shared
+    private(set) var palette: Palette { didSet { renderer?.palette = palette } }
+    private var fonts: FontSet
     private var renderer: MetalRenderer?
-    private let cellWidth: CGFloat
-    private let cellHeight: CGFloat
+    /// Points the font-larger and font-smaller actions added; a changed
+    /// font in the file starts from its own size again.
+    private var zoom = 0.0
+    private var appliedFont: (family: String, size: Double)
+    private var configObserver: (any NSObjectProtocol)?
+    var font: NSFont { fonts.regular }
+    var cellWidth: CGFloat { fonts.cellWidth }
+    var cellHeight: CGFloat { fonts.cellHeight }
     private var grid = (cols: UInt16(80), rows: UInt16(24))
     private var focused = false
-    private var keyText: String?
+    /// Set by a pane host: the child's exit closes the pane, not the window.
+    public var onChildExit: (() -> Void)?
+    /// Runs when this view becomes the first responder, so a host can track
+    /// which pane has the keyboard.
+    public var onFocus: (() -> Void)?
+    /// A host with several panes picks the focused one itself.
+    public var takesFocusOnAttach = true
+    var textInput = TextInput()
     private var lastMotionCell: (Int, Int)?
     private var scrollRemainder: CGFloat = 0
     #if DEBUG
@@ -25,14 +39,18 @@ public final class TerminalView: NSView {
     #endif
 
     public override init(frame: NSRect) {
-        // Advances, not rounded cells, so CoreText's glyphs land on the grid.
-        cellWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
-        cellHeight = ceil(font.ascender - font.descender + font.leading)
+        let settings = config.settings
+        palette = Palette(settings)
+        fonts = FontSet(family: settings.fontFamily, size: settings.fontSize)
+        appliedFont = (settings.fontFamily, settings.fontSize)
         super.init(frame: frame)
+        configObserver = NotificationCenter.default.addObserver(
+            forName: ScullConfig.didChange, object: config, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.applyConfig() } }
         let env = ["TERM=xterm-256color", "COLORTERM=truecolor"]
         do {
             session = try TerminalSession(cols: grid.cols, rows: grid.rows, env: env,
-                                          cwd: NSHomeDirectory()) { [weak self] in self?.wake() }
+                                          cwd: NSHomeDirectory(), scrollback: settings.scrollback) { [weak self] in self?.wake() }
         } catch {
             failure = "Could not start the shell: \(error)"
         }
@@ -46,17 +64,22 @@ public final class TerminalView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    isolated deinit {
+        configObserver.map(NotificationCenter.default.removeObserver)
+    }
+
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
     private func wake() {
         guard let session else { return }
         if session.drainEvents(bell: { NSSound.beep() }) {
-            window?.close()
+            if let onChildExit { onChildExit() } else { window?.close() }
             return
         }
         if session.update() {
             needsDisplay = true
+            screenChanged()
             #if DEBUG
             if let renderer, let probe {
                 probe.frameUpdated(renderer)
@@ -71,6 +94,7 @@ public final class TerminalView: NSView {
         if let input = initialInput {
             initialInput = nil
             _ = session.text(input)
+            composeDebugPreedit()
             send(key: UInt32(TT_KEY_ESCAPE) + 1, action: UInt8(TT_KEY_PRESS), mods: 0, text: "")
             if let path = UserDefaults.standard.string(forKey: "ScullSnapshot") {
                 // A shell with heavy startup needs longer than the default.
@@ -100,14 +124,67 @@ public final class TerminalView: NSView {
     }
     #endif
 
+    // MARK: Configuration
+
+    private func applyConfig() {
+        let settings = config.settings
+        palette = Palette(settings)
+        if (settings.fontFamily, settings.fontSize) != appliedFont {
+            appliedFont = (settings.fontFamily, settings.fontSize)
+            zoom = 0
+        }
+        applyFont()
+        #if DEBUG
+        // Shows a scripted check that an edit of the file reached the view.
+        if initialInput == nil, let path = UserDefaults.standard.string(forKey: "ScullSnapshotOnConfig") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.snapshot(to: path) }
+        }
+        #endif
+    }
+
+    private func applyFont() {
+        let size = min(max(appliedFont.size + zoom, 4), 200)
+        fonts = FontSet(family: appliedFont.family, size: size)
+        resizeGrid(force: true)
+        needsDisplay = true
+    }
+
+    /// Runs the action bound to the key and modifiers of `event`, if any.
+    private func runBinding(_ event: NSEvent) -> Bool {
+        let shortcutMods = UInt8(TT_MOD_SHIFT | TT_MOD_ALT | TT_MOD_CTRL | TT_MOD_SUPER)
+        let unshifted = event.characters(byApplyingModifiers: [])?.unicodeScalars.first?.value
+        guard let key = KeyMap.key(forKeyCode: event.keyCode) ?? unshifted else { return false }
+        let mods = KeyMap.mods(event.modifierFlags) & shortcutMods
+        guard let bind = config.settings.keybinds.first(where: { $0.key == key && $0.mods == mods }) else {
+            return false
+        }
+        switch bind.action {
+        case .paste: paste(nil)
+        case .fontLarger: zoom += 1; applyFont()
+        case .fontSmaller: zoom -= 1; applyFont()
+        case .fontReset: zoom = 0; applyFont()
+        case .scrollPageUp: scroll(Int32(grid.rows))
+        case .scrollPageDown: scroll(-Int32(grid.rows))
+        case .scrollToTop: scroll(Int32.max)
+        case .scrollToBottom: scroll(-Int32.max)
+        }
+        return true
+    }
+
+    private func scroll(_ rows: Int32) {
+        guard let session else { return }
+        _ = session.scrollDisplay(rows)
+        if session.update() { needsDisplay = true }
+    }
+
     // MARK: Size
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         NotificationCenter.default.removeObserver(self)
         guard let window else { return }
-        window.makeFirstResponder(self)
-        focused = window.isKeyWindow
+        if takesFocusOnAttach { window.makeFirstResponder(self) }
+        focused = window.isKeyWindow && window.firstResponder === self
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(keyChanged),
                                                    name: name, object: window)
@@ -157,8 +234,24 @@ public final class TerminalView: NSView {
 
     public override func updateLayer() {
         guard let session else { return }
+        guard !session.isPoisoned else { return showCrashNotice() }
         renderer?.draw(session, size: bounds.size, scale: window?.backingScaleFactor ?? 1, focused: focused)
     }
+
+    // A crashed core terminal shows the notice in place of its stale grid.
+    // The Metal layer has no text of its own, so the notice is a label on
+    // top.
+    private func showCrashNotice() {
+        guard !subviews.contains(where: { $0.identifier == Self.crashNotice }) else { return }
+        let label = NSTextField(labelWithString: "This terminal crashed. Close the pane to dismiss it.")
+        (label.identifier, label.font, label.textColor) = (Self.crashNotice, font, .white)
+        (label.drawsBackground, label.backgroundColor) = (true, NSColor(cgColor: Palette.cgColor(palette.background)))
+        label.frame = bounds
+        label.autoresizingMask = [.width, .height]
+        addSubview(label)
+    }
+
+    private static let crashNotice = NSUserInterfaceItemIdentifier("crashNotice")
 
     // Only a terminal that failed to start draws here.
     public override func draw(_ dirtyRect: NSRect) {
@@ -172,25 +265,46 @@ public final class TerminalView: NSView {
     // MARK: Keyboard
 
     @objc private func keyChanged(_ note: Notification) {
-        focused = note.name == NSWindow.didBecomeKeyNotification
-        _ = session?.focus(focused)
+        setFocused(note.name == NSWindow.didBecomeKeyNotification && window?.firstResponder === self)
+    }
+
+    // Focus is per pane: the key window alone does not say which of its
+    // panes has the keyboard.
+    public override func becomeFirstResponder() -> Bool {
+        setFocused(window?.isKeyWindow ?? false)
+        onFocus?()
+        return true
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        setFocused(false)
+        return true
+    }
+
+    private func setFocused(_ value: Bool) {
+        guard value != focused else { return }
+        focused = value
+        _ = session?.focus(value)
         needsDisplay = true
     }
 
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        runBinding(event) || super.performKeyEquivalent(with: event)
+    }
+
     public override func keyDown(with event: NSEvent) {
+        if runBinding(event) { return }
         let flags = event.modifierFlags
         guard !flags.contains(.command) else { return super.keyDown(with: event) }
         var text = ""
-        if flags.contains(.control) {
+        if flags.contains(.control) && !textInput.hasMarkedText {
             // Control's own characters are the core's to produce; the
             // event's text is what the key types without it.
             text = event.charactersIgnoringModifiers ?? ""
         } else {
-            // Collects what the input system types, dead keys included.
-            keyText = ""
-            interpretKeyEvents([event])
-            text = keyText ?? ""
-            keyText = nil
+            // An input method may take the key or compose text from it.
+            guard let typed = interpret(event) else { return }
+            text = typed
         }
         text = String(text.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F && !(0xF700...0xF8FF).contains($0.value) })
         sendKey(event, action: event.isARepeat ? TT_KEY_REPEAT : TT_KEY_PRESS, text: text)
@@ -220,15 +334,6 @@ public final class TerminalView: NSView {
         if session.key(event, text: text) == TT_FULL { NSSound.beep() }
         // Typing returns the view to the screen; show it now.
         if session.update() { needsDisplay = true }
-    }
-
-    public override func insertText(_ insertString: Any) {
-        let string = (insertString as? NSAttributedString)?.string ?? (insertString as? String) ?? ""
-        if keyText != nil {
-            keyText? += string
-        } else if session?.text(string) == TT_FULL {
-            NSSound.beep()
-        }
     }
 
     // Keys like Return and the arrows reach the core as keys, not as the

@@ -23,3 +23,7 @@ proptest = { workspace = true }
 [[bench]]
 name = "scrollback"
 harness = false
+
+[[bench]]
+name = "reflow"
+harness = false

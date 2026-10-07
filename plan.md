@@ -8,12 +8,12 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | --- | --- | --- | --- | --- | --- |
 | T3 | in progress | P0 | 3 | 80% | Cursor / grok 4.7 |
 | T13 | todo | P1 | 3 | 0% | |
-| T15 | todo | P1 | 5 | 0% | |
-| T16 | todo | P1 | 4 | 0% | |
+| T15 | in progress | P1 | 5 | 0% | Claude Code / claude-opus-5-5 |
+| T16 | in progress | P1 | 4 | 0% | Claude Code / claude-opus-5-5 |
 | T17 | todo | P1 | 5 | 0% | |
 | T18 | todo | P2 | 5 | 0% | |
-| T20 | todo | P2 | 3 | 0% | |
-| T21 | todo | P2 | 3 | 0% | |
+| T20 | in progress | P2 | 3 | 0% | Claude Code / claude-sonnet-5-5 |
+| T21 | in progress | P2 | 3 | 0% | Claude Code / claude-sonnet-5-5 |
 | T23 | todo | P3 | 2 | 0% | |
 | T24 | todo | P2 | 2 | 0% | |
 | T25 | todo | P2 | 2 | 0% | |

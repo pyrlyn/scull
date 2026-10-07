@@ -2,6 +2,8 @@
 //! state so the parser can borrow the state as its handler while callers see
 //! one owned value.
 
+use std::time::Instant;
+
 use scull_grid::{Grid, Style};
 use scull_parser::Parser;
 use scull_unicode::WidthOptions;
@@ -9,12 +11,14 @@ use scull_unicode::WidthOptions;
 use crate::error::TermError;
 use crate::modes::Modes;
 use crate::state::{Cursor, Margins, State};
+use crate::sync::SyncGate;
 
 /// A terminal: feed it PTY output, read its grid and cursor.
 #[derive(Debug, Clone)]
 pub struct Terminal {
     parser: Parser,
     state: State,
+    sync: SyncGate,
 }
 
 impl Terminal {
@@ -38,6 +42,7 @@ impl Terminal {
         Ok(Self {
             parser: Parser::new(),
             state: State::new(grid, alt, width),
+            sync: SyncGate::default(),
         })
     }
 
@@ -45,6 +50,36 @@ impl Terminal {
     /// PTY output; nothing in them can make this fail or panic.
     pub fn feed(&mut self, bytes: &[u8]) {
         self.parser.feed(bytes, &mut self.state);
+        if self
+            .sync
+            .fed(self.state.modes.synchronized_output, bytes.len())
+        {
+            self.end_sync();
+        }
+    }
+
+    /// Whether synchronized output (mode 2026) holds the picture at `now`.
+    /// The hold ends, and the mode is reset, once it has lasted
+    /// [`crate::MAX_SYNC_HOLD`] from the first call that saw it or spanned
+    /// [`crate::MAX_SYNC_BYTES`] fed bytes. Call it after every `feed` and
+    /// wake the UI only when it returns false.
+    pub fn sync_held(&mut self, now: Instant) -> bool {
+        if self.sync.holds(self.state.modes.synchronized_output, now) {
+            return true;
+        }
+        self.end_sync();
+        false
+    }
+
+    /// When a hold seen by [`Self::sync_held`] ends by itself: the poll
+    /// timeout of the reader thread while the picture is held.
+    pub fn sync_deadline(&self) -> Option<Instant> {
+        self.sync.deadline()
+    }
+
+    fn end_sync(&mut self) {
+        self.state.modes.synchronized_output = false;
+        self.sync = SyncGate::default();
     }
 
     /// The grid being drawn.
@@ -223,6 +258,73 @@ mod tests {
         assert!(!term.is_alt_screen());
         let first = term.grid().screen_row(0).unwrap().cell(0).unwrap();
         assert_eq!(first.content(), Content::Char('m'));
+    }
+
+    const BSU: &[u8] = b"\x1b[?2026h";
+    const ESU: &[u8] = b"\x1b[?2026l";
+    const QUERY_SYNC: &[u8] = b"\x1b[?2026$p";
+    const SYNC_RESET: &[u8] = b"\x1b[?2026;2$y";
+
+    #[test]
+    fn synchronized_output_holds_the_picture_until_esu() {
+        let now = Instant::now();
+        let mut term = Terminal::new(10, 5, 0).unwrap();
+        assert!(!term.sync_held(now));
+        term.feed(BSU);
+        term.feed(b"half a frame");
+        assert!(term.sync_held(now));
+        assert_eq!(term.sync_deadline(), now.checked_add(crate::MAX_SYNC_HOLD));
+        term.feed(ESU);
+        assert!(!term.sync_held(now));
+        assert_eq!(term.sync_deadline(), None);
+    }
+
+    #[test]
+    fn a_hold_past_the_time_cap_is_released_and_reads_as_reset() {
+        let start = Instant::now();
+        let mut term = Terminal::new(10, 5, 0).unwrap();
+        term.feed(BSU);
+        assert!(term.sync_held(start));
+        assert!(term.sync_held(start + crate::MAX_SYNC_HOLD / 2));
+        assert!(!term.sync_held(start + crate::MAX_SYNC_HOLD));
+        assert!(!term.modes().synchronized_output);
+        term.feed(QUERY_SYNC);
+        assert_eq!(term.take_replies(), SYNC_RESET);
+    }
+
+    #[test]
+    fn a_hold_past_the_byte_cap_is_released() {
+        let now = Instant::now();
+        let mut term = Terminal::new(10, 5, 0).unwrap();
+        term.feed(BSU);
+        let rest = crate::MAX_SYNC_BYTES - BSU.len();
+        term.feed(&vec![b'x'; rest]);
+        assert!(term.sync_held(now), "exactly at the cap still holds");
+        term.feed(b"x");
+        assert!(!term.sync_held(now));
+        assert!(!term.modes().synchronized_output);
+    }
+
+    #[test]
+    fn a_new_hold_starts_with_fresh_caps() {
+        let start = Instant::now();
+        let mut term = Terminal::new(10, 5, 0).unwrap();
+        term.feed(BSU);
+        assert!(term.sync_held(start));
+        term.feed(ESU);
+        assert!(!term.sync_held(start + crate::MAX_SYNC_HOLD / 2));
+        term.feed(BSU);
+        let later = start + crate::MAX_SYNC_HOLD;
+        assert!(term.sync_held(later), "timed from its own first look");
+    }
+
+    #[test]
+    fn a_full_reset_ends_the_hold() {
+        let now = Instant::now();
+        let mut term = Terminal::new(10, 5, 0).unwrap();
+        term.feed(BSU);
+        term.feed(b"\x1bc");
+        assert!(!term.sync_held(now));
     }
 
     proptest! {

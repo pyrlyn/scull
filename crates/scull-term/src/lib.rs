@@ -20,10 +20,12 @@ mod screen;
 mod set_mode;
 mod sgr;
 mod state;
+mod sync;
 mod tabs;
 mod terminal;
 
 pub use error::TermError;
 pub use modes::Modes;
 pub use state::{Cursor, Margins};
+pub use sync::{MAX_SYNC_BYTES, MAX_SYNC_HOLD};
 pub use terminal::Terminal;

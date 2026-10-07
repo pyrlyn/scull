@@ -15,6 +15,8 @@ struct ScullApp: App {
                 .frame(minWidth: 200, minHeight: 100)
         }
         .defaultSize(width: 720, height: 460)
+
+        Settings { SettingsView() }
     }
 }
 

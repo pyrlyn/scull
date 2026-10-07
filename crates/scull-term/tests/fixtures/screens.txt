@@ -1,0 +1,163 @@
+# The alternate screen (47, 1047, 1049) and the saved cursor (DECSC,
+# DECRC, SCOSC, SCORC, 1048).
+
+=== 47 switches to the alternate screen without moving the cursor
+source: esctest2 decset.py test_DECSET_ALTBUF
+input: abc\r\nabc\e[?47h\e[2J\e[2;1Hdef\r\ndef
+cursor: 3,4
+screen:
+|..........|
+|def.......|
+|def.......|
+|..........|
+|..........|
+
+=== Leaving 47 shows the main screen again
+source: esctest2 decset.py test_DECSET_ALTBUF
+input: abc\r\nabc\e[?47h\e[2J\e[2;1Hdef\r\ndef\e[?47l
+cursor: 3,4
+screen:
+|abc.......|
+|abc.......|
+|..........|
+|..........|
+|..........|
+
+=== Returning to 47 finds the alternate screen as it was left
+source: esctest2 decset.py test_DECSET_ALTBUF
+input: abc\r\nabc\e[?47h\e[2J\e[2;1Hdef\r\ndef\e[?47l\e[?47h
+screen:
+|..........|
+|def.......|
+|def.......|
+|..........|
+|..........|
+
+=== Leaving 1047 clears the alternate screen
+source: esctest2 decset.py test_DECSET_OPT_ALTBUF
+input: abc\r\nabc\e[?1047h\e[2J\e[2;1Hdef\r\ndef\e[?1047l\e[?1047h
+screen:
+|..........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== 1049 saves the cursor on entry and restores it on leaving
+source: esctest2 decset.py test_DECSET_OPT_ALTBUF_CURSOR
+input: abc\r\nabc\e[?1049h\e[5;5Hx\e[?1049l
+cursor: 2,4
+screen:
+|abc.......|
+|abc.......|
+|..........|
+|..........|
+|..........|
+
+=== 1049 clears the alternate screen on entry
+source: esctest2 decset.py test_DECSET_OPT_ALTBUF_CURSOR
+input: \e[?1049hX\e[?1049l\e[?1049h
+screen:
+|..........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== The alternate screen keeps no scrollback
+source: xterm (the alternate screen has no saved lines)
+scrollback: 10
+input: a\r\nb\e[?1049h\e[5;1H\n\n\n\e[?1049l
+history: 0
+screen:
+|a.........|
+|b.........|
+|..........|
+|..........|
+|..........|
+
+=== DECRC restores the position DECSC saved
+source: esctest2 decrc.py (SaveRestoreCursor_Basic with ESC 7 and ESC 8)
+input: \e[4;5H\e7\e[H\e8
+cursor: 4,5
+
+=== SCORC restores the position SCOSC saved
+source: esctest2 save_restore_cursor.py test_SaveRestoreCursor_Basic (CSI s, CSI u)
+input: \e[4;5H\e[s\e[H\e[u
+cursor: 4,5
+
+=== DECRC with nothing saved homes the cursor
+source: esctest2 save_restore_cursor.py test_SaveRestoreCursor_MoveToHomeWhenNotSaved
+input: \e[3;3H\e8
+cursor: 1,1
+
+=== DECRC restores the pen
+source: xterm ctlseqs DECSC (saves character attributes)
+input: \e[1m\e7\e[m\e8A
+style: 1,1 bold
+
+=== DECRC restores origin mode
+source: esctest2 save_restore_cursor.py test_SaveRestoreCursor_ResetsOriginMode
+input: \e[3;3H\e7\e[2;4r\e[?6h\e8\e[1;1HX
+screen:
+|X.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DECRC restores the character sets
+source: xterm ctlseqs DECSC (saves the character set state)
+input: \e(0\e7\e(B\e8q
+screen:
+|─.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DECRC restores a pending wrap
+source: esctest2 save_restore_cursor.py test_SaveRestoreCursor_Wrap; DEC STD 070
+input: 0123456789\e7\e[H\e8X
+cursor: 2,2
+
+=== DECRC leaves IRM alone
+source: esctest2 save_restore_cursor.py test_SaveRestoreCursor_InsertNotAffected
+input: \e[4h\e7\e[4l\e8\e[1;1Ha\e[1;1Hb
+screen:
+|b.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DECRC leaves DECAWM alone
+source: esctest2 save_restore_cursor.py test_SaveRestoreCursor_Wrap (xterm)
+input: \e7\e[?7l\e8\e[1;9Habcd
+cursor: 1,10
+screen:
+|........ad|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== The main screen keeps its own saved cursor
+source: esctest2 save_restore_cursor.py test_SaveRestoreCursor_AltVsMain
+input: \e[2;3H\e7\e[?47h\e[4;5H\e7\e[?47l\e8
+cursor: 2,3
+
+=== The alternate screen keeps its own saved cursor
+source: esctest2 save_restore_cursor.py test_SaveRestoreCursor_AltVsMain
+input: \e[2;3H\e7\e[?47h\e[4;5H\e7\e[?47l\e8\e[?47h\e8
+cursor: 4,5
+
+=== 1048 saves and restores the cursor
+source: xterm ctlseqs DECSET 1048
+input: \e[2;3H\e[?1048h\e[H\e[?1048l
+cursor: 2,3
+
+=== DECRQM reports the alternate screen
+source: xterm ctlseqs DECRQM
+input: \e[?1049$p\e[?1049h\e[?1049$p\e[?47$p
+replies: \e[?1049;2$y\e[?1049;1$y\e[?47;1$y

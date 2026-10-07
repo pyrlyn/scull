@@ -1,0 +1,57 @@
+# Device reports, read back from the reply queue.
+
+=== DA1 answers a VT220 with colour
+source: esctest2 da.py test_DA_NoParameter, test_DA_0
+input: \e[c\e[0c
+replies: \e[?62;22c\e[?62;22c
+
+=== DA1 with a nonzero parameter is ignored
+source: xterm ctlseqs DA1 (Ps = 0 only)
+input: \e[1c
+replies:
+
+=== DA2 answers type, version and cartridge
+source: esctest2 da2.py test_DA2_NoParameter, test_DA2_0
+input: \e[>c\e[>0c
+replies: \e[>1;0;0c\e[>1;0;0c
+
+=== DSR 5 reports no malfunction
+source: xterm ctlseqs DSR Ps = 5
+input: \e[5n
+replies: \e[0n
+
+=== DSR 6 reports the cursor position
+source: xterm ctlseqs CPR
+input: \e[3;4H\e[6n
+replies: \e[3;4R
+
+=== CPR in origin mode is relative to the margins
+source: xterm ctlseqs CPR (origin mode); esctest2 cha.py test_CHA_RespectsOriginMode
+input: \e[2;4r\e[?6h\e[2;3H\e[6n
+replies: \e[2;3R
+
+=== DECXCPR adds the page
+source: esctest2 decdsr.py test_DECDSR_DECXCPR
+input: \e[4;5H\e[?6n
+replies: \e[?4;5;1R
+
+=== Replies queue in order
+source: xterm (replies are written as requests arrive)
+input: \e[5n\e[6n
+replies: \e[0n\e[1;1R
+
+=== An unknown DSR is ignored
+source: xterm ctlseqs DSR
+input: \e[99n\e[?99n
+replies:
+
+=== OSC is ignored for now
+source: T13 owns OSC; xterm ctlseqs OSC
+input: \e]0;title\x07a
+replies:
+screen:
+|a.........|
+|..........|
+|..........|
+|..........|
+|..........|

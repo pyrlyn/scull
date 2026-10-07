@@ -59,7 +59,21 @@ must check at least one thing.
 | `wrap.txt` | pending wrap, wrap, CR and BS in the pending wrap, wrap at the bottom into the scrollback, REP | esctest2 `decset.py` (DECAWM), `bs.py`, `rep.py`; vttest menu 1 |
 | `unicode.txt` | wide characters, wrapping and overwriting them, combining marks, ZWJ sequences, VS16 without mode 2027, controls ending a cluster | Unicode UAX #11, UAX #29, UTS #51; foot and Alacritty for the leading spacer |
 
-Not covered here: anything needing DECSLRM, DECOM, IRM, DECAWM off or
-replies arrives with T7.2. Tests that need a real host (DECCOLM, 132-column
-switching, printer and locator reports, checksums via DECRQCRA) are out of
-scope for a headless core.
+## Cases (T7.2)
+
+| File | Cases | Sources |
+| --- | --- | --- |
+| `modes.txt` | IRM, LNM, DECAWM off, DECOM homing and clamping, DECRQM for DEC and ANSI modes including 2026 and 2027, DECSET lists, VS16 under 2027 | esctest2 `sm.py`, `rm.py`, `decset.py`, `cup.py`, `decrqm.py`; Contour's mode 2026 and 2027 specifications |
+| `margins.txt` | DECLRMM, DECSLRM, SCOSC when DECLRMM is off; SU, SD, IL, DL, ICH, DCH, IND, CR, CUF, CUB and printing inside left and right margins; origin mode with four margins | esctest2 `su.py`, `sd.py`, `il.py`, `dl.py`, `ich.py`, `dch.py`, `ind.py`, `cr.py`, `cuf.py`, `cub.py`, `cup.py`, `decset.py` |
+| `screens.txt` | alternate screen 47, 1047, 1049; DECSC/DECRC, SCOSC/SCORC, 1048; what the saved cursor keeps and leaves; one saved cursor per screen | esctest2 `decset.py` (ALTBUF), `save_restore_cursor.py`, `decrc.py` |
+| `charsets.txt` | SCS for G0-G3, SI, SO, LS2, SS2, SS3, DEC Special Graphics, UK set, unknown sets | vttest menu 3; VT100 User Guide table 3-9; xterm ctlseqs |
+| `reports.txt` | DA1, DA2, DSR 5, CPR (with origin mode), DECXCPR, reply order, unknown requests, OSC ignored | esctest2 `da.py`, `da2.py`, `decdsr.py`; xterm ctlseqs |
+| `reset.txt` | RIS (screen, cursor, pen, modes, tabs, alternate screen, margins, scrollback kept); DECSTR (cursor kept, IRM, DECAWM kept, margins, DECOM, saved cursor, pen, DECLRMM) | esctest2 `ris.py`, `decstr.py`, `save_restore_cursor.py` |
+
+The reply queue cap and the no-panic property are unit tests in
+`src/reply.rs` and `src/terminal.rs`, not fixtures.
+
+Not covered: tests that need a real host or features this core does not
+have (DECCOLM and 132-column switching, reverse wraparound, DECSCA and
+selective erase protection, DECRQCRA checksums, printer, locator and
+keyboard reports, ISO protection), and OSC, which T13 owns.

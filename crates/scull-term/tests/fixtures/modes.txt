@@ -1,0 +1,115 @@
+# Modes: SM/RM (IRM, LNM), DECSET/DECRST and DECRQM.
+
+=== IRM inserts printed characters
+source: esctest2 sm.py test_SM_IRM
+input: abc\e[1;1H\e[4hX
+cursor: 1,2
+screen:
+|Xabc......|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== IRM pushes characters off the right edge
+source: esctest2 sm.py test_SM_IRM_TruncatesAtRightMargin
+input: 0123456789\e[1;1H\e[4hX
+screen:
+|X012345678|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== RM IRM goes back to replacing
+source: esctest2 rm.py test_RM_IRM
+input: \e[4h\e[4labc\e[1;1HX
+screen:
+|Xbc.......|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== LNM makes LF return the carriage
+source: esctest2 sm.py test_SM_LNM
+input: \e[20hab\ncd
+cursor: 2,3
+screen:
+|ab........|
+|cd........|
+|..........|
+|..........|
+|..........|
+
+=== DECAWM off overwrites the last column
+source: esctest2 decset.py test_DECSET_DECAWM
+input: \e[?7l0123456789ab
+cursor: 1,10
+screen:
+|012345678b|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== Resetting DECAWM drops a pending wrap
+source: DEC STD 070 (last column flag); esctest2 save_restore_cursor.py test_SaveRestoreCursor_Wrap
+input: 0123456789\e[?7l
+cursor: 1,10
+
+=== DECOM homes the cursor to the margin corner
+source: esctest2 decset.py test_DECSET_DECOM
+input: \e[2;4r\e[3;3H\e[?6h
+cursor: 2,1
+
+=== CUP is relative to the margins in origin mode
+source: esctest2 cup.py test_CUP_RespectsOriginMode
+input: \e[2;4r\e[?6h\e[2;3H
+cursor: 3,3
+
+=== CUP in origin mode stays inside the margins
+source: xterm ctlseqs DECOM
+input: \e[2;4r\e[?6h\e[9;1H
+cursor: 4,1
+
+=== Resetting DECOM homes the cursor to the screen corner
+source: xterm ctlseqs DECOM
+input: \e[2;4r\e[?6h\e[2;3H\e[?6l
+cursor: 1,1
+
+=== DECRQM reports DEC modes as set, reset or unknown
+source: esctest2 decrqm.py test_DECRQM_DEC_DECAWM, test_DECRQM_DEC_DECOM
+input: \e[?7$p\e[?6$p\e[?9999$p
+replies: \e[?7;1$y\e[?6;2$y\e[?9999;0$y
+
+=== DECRQM reports ANSI modes
+source: esctest2 decrqm.py test_DECRQM_ANSI_IRM, test_DECRQM_ANSI_LNM
+input: \e[4h\e[4$p\e[20$p\e[3$p
+replies: \e[4;1$y\e[20;2$y\e[3;0$y
+
+=== DECRQM reports mode 2026
+source: Contour synchronized output specification (DECRQM 2026)
+input: \e[?2026$p\e[?2026h\e[?2026$p
+replies: \e[?2026;2$y\e[?2026;1$y
+
+=== DECRQM reports mode 2027
+source: Contour grapheme cluster specification (DECRQM 2027)
+input: \e[?2027$p\e[?2027h\e[?2027$p
+replies: \e[?2027;2$y\e[?2027;1$y
+
+=== DECSET takes several modes at once
+source: xterm ctlseqs DECSET (Pm is a list)
+input: \e[?2004;1004;25l\e[?2004;1004h\e[?2004$p\e[?1004$p\e[?25$p
+replies: \e[?2004;1$y\e[?1004;1$y\e[?25;2$y
+
+=== Mode 2027 lets VS16 widen a narrow character
+source: Contour grapheme cluster specification; Unicode UTS #51
+input: \e[?2027h\xe2\x9d\xa4\xef\xb8\x8fx
+cursor: 1,4
+screen:
+|❤️x.......|
+|..........|
+|..........|
+|..........|
+|..........|

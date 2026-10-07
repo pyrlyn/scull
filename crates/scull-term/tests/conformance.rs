@@ -28,6 +28,7 @@ mod tests {
         screen: Vec<String>,
         styles: Vec<(u16, u16, String)>,
         history: Option<usize>,
+        replies: Option<Vec<u8>>,
     }
 
     fn unescape(text: &str) -> Vec<u8> {
@@ -89,6 +90,7 @@ mod tests {
                 "input" => case.input.extend(unescape(value)),
                 "cursor" => case.cursor = Some(value.to_owned()),
                 "history" => case.history = Some(value.parse().unwrap()),
+                "replies" => case.replies = Some(unescape(value)),
                 "style" => {
                     let (at, style) = value.split_once(' ').unwrap_or((value, ""));
                     let (r, c) = at.split_once(',').expect("style: ROW,COL attrs");
@@ -174,6 +176,17 @@ mod tests {
         let mut term = Terminal::new(case.cols, case.rows, case.scrollback).unwrap();
         term.feed(&case.input);
         let mut errors = String::new();
+        if let Some(want) = &case.replies {
+            let got = term.take_replies();
+            if &got != want {
+                let _ = writeln!(
+                    errors,
+                    "  replies: want {:?}, got {:?}",
+                    String::from_utf8_lossy(want),
+                    String::from_utf8_lossy(&got)
+                );
+            }
+        }
         let grid = term.grid();
         if !case.screen.is_empty() {
             let got: Vec<String> = (0..case.rows)
@@ -233,7 +246,8 @@ mod tests {
                     case.cursor.is_some()
                         || !case.screen.is_empty()
                         || !case.styles.is_empty()
-                        || case.history.is_some(),
+                        || case.history.is_some()
+                        || case.replies.is_some(),
                     "{}: {} checks nothing",
                     case.file,
                     case.name

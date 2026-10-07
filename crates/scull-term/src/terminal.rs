@@ -82,6 +82,12 @@ impl Terminal {
         self.sync = SyncGate::default();
     }
 
+    /// Moves the viewport `delta` rows back into history (negative: towards
+    /// the screen), clamped to what history holds.
+    pub fn scroll_display(&mut self, delta: isize) {
+        self.state.grid.scroll_display(delta);
+    }
+
     /// The grid being drawn.
     pub fn grid(&self) -> &Grid {
         &self.state.grid
@@ -325,6 +331,60 @@ mod tests {
         term.feed(BSU);
         term.feed(b"\x1bc");
         assert!(!term.sync_held(now));
+    }
+
+    fn stamps(term: &Terminal) -> Vec<crate::RowStamp> {
+        let g = term.grid();
+        (0..g.screen_rows())
+            .map(|r| crate::RowStamp::of(g.visible_row(r).unwrap()))
+            .collect()
+    }
+
+    fn damage_of(term: &mut Terminal, change: impl FnOnce(&mut Terminal)) -> crate::Damage {
+        let old = stamps(term);
+        change(term);
+        let mut d = crate::Damage::default();
+        d.compute(&old, &stamps(term), false);
+        d
+    }
+
+    fn scroll(start: u16, end: u16, from: u16) -> crate::Scroll {
+        crate::Scroll { start, end, from }
+    }
+
+    #[test]
+    fn a_linefeed_at_the_bottom_is_scroll_damage() {
+        let mut term = Terminal::new(10, 4, 10).unwrap();
+        term.feed(b"a\r\nb\r\nc\r\nd");
+        let d = damage_of(&mut term, |t| t.feed(b"\r\n"));
+        assert_eq!(d.scrolls(), [scroll(0, 3, 1)]);
+        assert_eq!(d.dirty(), [3]);
+    }
+
+    #[test]
+    fn a_region_scroll_moves_only_the_region() {
+        let mut term = Terminal::new(10, 6, 10).unwrap();
+        term.feed(b"\x1b[2;5r");
+        let d = damage_of(&mut term, |t| t.feed(b"\x1b[2S"));
+        assert_eq!(d.scrolls(), [scroll(1, 3, 3)]);
+        assert_eq!(d.dirty(), [3, 4]);
+    }
+
+    #[test]
+    fn printing_dirties_only_the_rows_written() {
+        let mut term = Terminal::new(10, 4, 0).unwrap();
+        let d = damage_of(&mut term, |t| t.feed(b"\x1b[3Hx"));
+        assert!(d.scrolls().is_empty());
+        assert_eq!(d.dirty(), [2]);
+    }
+
+    #[test]
+    fn scrolling_the_viewport_back_is_scroll_damage_too() {
+        let mut term = Terminal::new(10, 3, 10).unwrap();
+        term.feed(b"1\r\n2\r\n3\r\n4\r\n5");
+        let d = damage_of(&mut term, |t| t.scroll_display(1));
+        assert_eq!(d.scrolls(), [scroll(1, 3, 0)]);
+        assert_eq!(d.dirty(), [0]);
     }
 
     proptest! {

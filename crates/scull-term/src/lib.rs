@@ -8,6 +8,7 @@
 //! applications are tested against.
 
 mod charset;
+mod damage;
 mod dispatch;
 mod edit;
 mod error;
@@ -24,6 +25,7 @@ mod sync;
 mod tabs;
 mod terminal;
 
+pub use damage::{Damage, RowStamp, Scroll};
 pub use error::TermError;
 pub use modes::Modes;
 pub use state::{Cursor, Margins};

@@ -572,6 +572,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "scull-bench"
+version = "0.0.0"
+dependencies = [
+ "divan",
+ "scull-harness",
+]
+
+[[package]]
 name = "scull-ffi"
 version = "0.0.0"
 dependencies = [

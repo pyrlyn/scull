@@ -22,5 +22,5 @@
 | sha2 | local | https://github.com/RustCrypto/hashes | Verifies the pinned Unicode data files |
 | ureq | local | https://github.com/algesten/ureq | Downloads the Unicode data files in `scull-ucd-gen` |
 | memchr | local | https://github.com/BurntSushi/memchr | Bulk search for the end of DCS/APC payloads in scull-parser |
-| divan | local | https://github.com/nvzqz/divan | Parser throughput bench |
+| divan | local | https://github.com/nvzqz/divan | Parser throughput bench and the stub baseline (`crates/scull-bench`) |
 | vte | local | https://github.com/alacritty/vte | Baseline parser in the throughput bench (dev-dependency) |

@@ -18,3 +18,7 @@ ucd:
 # Fail when the committed tables differ from what the pinned data files produce.
 ucd-check:
     mise exec -- cargo run --locked -p scull-ucd-gen -- --check
+
+# Baseline table for the stub and the reference terminals.
+bench:
+    mise exec -- cargo run -p scull-bench --release --locked

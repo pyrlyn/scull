@@ -36,6 +36,7 @@ ureq = "3.4.2"
 memchr = "2.8.3"
 # Property tests (parser chunking, unicode width bounds) and benches.
 proptest = "1.11.0"
+# Parser throughput and the stub baseline in scull-bench.
 divan = "0.1.21"
 # Baseline the parser bench is measured against.
 vte = "0.15.0"

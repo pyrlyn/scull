@@ -10,15 +10,20 @@ import CScull
 public final class TerminalView: NSView {
     private var session: TerminalSession?
     private var failure: String?
-    private let palette = Palette()
-    private let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-    private lazy var bold = NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: .bold)
-    private lazy var italic = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic),
-                                     size: font.pointSize) ?? font
-    private lazy var boldItalic = NSFont(descriptor: bold.fontDescriptor.withSymbolicTraits(.italic),
-                                         size: font.pointSize) ?? bold
-    private let cellWidth: CGFloat
-    private let cellHeight: CGFloat
+    private let config = ScullConfig.shared
+    private var palette: Palette
+    private var fonts: FontSet
+    /// Points the font-larger and font-smaller actions added; a changed
+    /// font in the file starts from its own size again.
+    private var zoom = 0.0
+    private var appliedFont: (family: String, size: Double)
+    private var configObserver: (any NSObjectProtocol)?
+    private var font: NSFont { fonts.regular }
+    private var bold: NSFont { fonts.bold }
+    private var italic: NSFont { fonts.italic }
+    private var boldItalic: NSFont { fonts.boldItalic }
+    private var cellWidth: CGFloat { fonts.cellWidth }
+    private var cellHeight: CGFloat { fonts.cellHeight }
     private var grid = (cols: UInt16(80), rows: UInt16(24))
     private var focused = false
     private var keyText: String?
@@ -29,14 +34,18 @@ public final class TerminalView: NSView {
     #endif
 
     public override init(frame: NSRect) {
-        // Advances, not rounded cells, so CoreText's glyphs land on the grid.
-        cellWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
-        cellHeight = ceil(font.ascender - font.descender + font.leading)
+        let settings = config.settings
+        palette = Palette(settings)
+        fonts = FontSet(family: settings.fontFamily, size: settings.fontSize)
+        appliedFont = (settings.fontFamily, settings.fontSize)
         super.init(frame: frame)
+        configObserver = NotificationCenter.default.addObserver(
+            forName: ScullConfig.didChange, object: config, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.applyConfig() } }
         let env = ["TERM=xterm-256color", "COLORTERM=truecolor"]
         do {
             session = try TerminalSession(cols: grid.cols, rows: grid.rows, env: env,
-                                          cwd: NSHomeDirectory()) { [weak self] in self?.wake() }
+                                          cwd: NSHomeDirectory(), scrollback: settings.scrollback) { [weak self] in self?.wake() }
         } catch {
             failure = "Could not start the shell: \(error)"
         }
@@ -44,6 +53,10 @@ public final class TerminalView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    isolated deinit {
+        configObserver.map(NotificationCenter.default.removeObserver)
+    }
 
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
@@ -77,6 +90,53 @@ public final class TerminalView: NSView {
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
     }
     #endif
+
+    // MARK: Configuration
+
+    private func applyConfig() {
+        let settings = config.settings
+        palette = Palette(settings)
+        if (settings.fontFamily, settings.fontSize) != appliedFont {
+            appliedFont = (settings.fontFamily, settings.fontSize)
+            zoom = 0
+        }
+        applyFont()
+    }
+
+    private func applyFont() {
+        let size = min(max(appliedFont.size + zoom, 4), 200)
+        fonts = FontSet(family: appliedFont.family, size: size)
+        resizeGrid(force: true)
+        needsDisplay = true
+    }
+
+    /// Runs the action bound to the key and modifiers of `event`, if any.
+    private func runBinding(_ event: NSEvent) -> Bool {
+        let shortcutMods = UInt8(TT_MOD_SHIFT | TT_MOD_ALT | TT_MOD_CTRL | TT_MOD_SUPER)
+        let unshifted = event.characters(byApplyingModifiers: [])?.unicodeScalars.first?.value
+        guard let key = KeyMap.key(forKeyCode: event.keyCode) ?? unshifted else { return false }
+        let mods = KeyMap.mods(event.modifierFlags) & shortcutMods
+        guard let bind = config.settings.keybinds.first(where: { $0.key == key && $0.mods == mods }) else {
+            return false
+        }
+        switch bind.action {
+        case .paste: paste(nil)
+        case .fontLarger: zoom += 1; applyFont()
+        case .fontSmaller: zoom -= 1; applyFont()
+        case .fontReset: zoom = 0; applyFont()
+        case .scrollPageUp: scroll(Int32(grid.rows))
+        case .scrollPageDown: scroll(-Int32(grid.rows))
+        case .scrollToTop: scroll(Int32.max)
+        case .scrollToBottom: scroll(-Int32.max)
+        }
+        return true
+    }
+
+    private func scroll(_ rows: Int32) {
+        guard let session else { return }
+        _ = session.scrollDisplay(rows)
+        if session.update() { needsDisplay = true }
+    }
 
     // MARK: Size
 
@@ -231,7 +291,12 @@ public final class TerminalView: NSView {
         needsDisplay = true
     }
 
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        runBinding(event) || super.performKeyEquivalent(with: event)
+    }
+
     public override func keyDown(with event: NSEvent) {
+        if runBinding(event) { return }
         let flags = event.modifierFlags
         guard !flags.contains(.command) else { return super.keyDown(with: event) }
         var text = ""

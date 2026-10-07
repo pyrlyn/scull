@@ -1,6 +1,5 @@
 - T3. Conformance and benchmark harness
 - T13. Selection, search, links, shell integration
-- T14. macOS app: first light
 - T15. macOS renderer
 - T16. macOS input method and accessibility
 - T17. Windows app and renderer

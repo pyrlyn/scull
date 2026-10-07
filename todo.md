@@ -1,5 +1,4 @@
 - T3. Conformance and benchmark harness
-- T6. Grid and scrollback
 - T7. Terminal state
 - T8. PTY and I/O thread
 - T9. Damage, synchronized output, frame snapshot

@@ -24,3 +24,5 @@
 | memchr | local | https://github.com/BurntSushi/memchr | Bulk search for the end of DCS/APC payloads in scull-parser |
 | divan | local | https://github.com/nvzqz/divan | Parser throughput bench and the stub baseline (`crates/scull-bench`) |
 | vte | local | https://github.com/alacritty/vte | Baseline parser in the throughput bench (dev-dependency) |
+| rustc-hash | local | https://github.com/rust-lang/rustc-hash | Fast, deterministic hash maps for the interning tables (clippy.toml bans std HashMap) |
+| bitflags | local | https://github.com/bitflags/bitflags | Cell flags and SGR attribute bits in scull-grid |

@@ -101,6 +101,8 @@ pub struct tt_config_view {
     pub font_size: f32,
     /// History rows for terminals opened from now on.
     pub scrollback: u32,
+    /// The colour scheme's name as the file spells it (`scull-dark`, ...).
+    pub scheme: tt_str,
     /// Default text colour, `0xRRGGBB`.
     pub foreground: u32,
     /// Default background colour, `0xRRGGBB`.
@@ -265,6 +267,7 @@ pub unsafe extern "C" fn tt_config_poll(
             font_family: str_of(&s.font.family),
             font_size: s.font.size,
             scrollback: s.scrollback,
+            scheme: str_of(s.scheme.name()),
             foreground: s.colors.foreground.value(),
             background: s.colors.background.value(),
             cursor: s.colors.cursor.value(),
@@ -435,6 +438,7 @@ mod tests {
         assert_eq!(text_of(view.font_family), "");
         assert_eq!(text_of(view.path), path.to_str().unwrap());
         assert_eq!(text_of(view.error), "");
+        assert_eq!(text_of(view.scheme), "scull-dark");
         assert_eq!(view.background, defaults.colors.background.value());
         assert_eq!(view.ansi[1], defaults.colors.ansi[1].value());
         assert_eq!(view.keybinds_len, defaults.bindings.len());
@@ -517,6 +521,7 @@ mod tests {
         }
         let view = poll(config);
         assert_eq!((view.updated, view.font_size), (1, 17.0));
+        assert_eq!(text_of(view.scheme), "scull-light");
         assert_eq!(
             view.background,
             scull_config::Scheme::ScullLight.theme().background.value()

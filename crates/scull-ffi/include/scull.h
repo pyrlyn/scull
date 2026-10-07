@@ -336,6 +336,8 @@ typedef struct tt_config_view {
   float font_size;
   // History rows for terminals opened from now on.
   uint32_t scrollback;
+  // The colour scheme's name as the file spells it (`scull-dark`, ...).
+  struct tt_str scheme;
   // Default text colour, `0xRRGGBB`.
   uint32_t foreground;
   // Default background colour, `0xRRGGBB`.

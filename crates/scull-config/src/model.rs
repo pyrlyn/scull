@@ -229,6 +229,8 @@ pub struct Font {
 pub struct Settings {
     /// The terminal font.
     pub font: Font,
+    /// The scheme the colours start from, which a settings view shows.
+    pub scheme: Scheme,
     /// The colours.
     pub colors: Theme,
     /// History rows for terminals opened from now on.
@@ -258,6 +260,7 @@ impl Config {
                 family: self.font.family.0,
                 size: self.font.size.0,
             },
+            scheme: c.scheme,
             colors,
             scrollback: self.scrollback.0,
             bindings: self.keybind.resolve(),

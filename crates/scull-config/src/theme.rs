@@ -77,6 +77,15 @@ pub struct Theme {
 }
 
 impl Scheme {
+    /// The name the file spells it with.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ScullDark => "scull-dark",
+            Self::ScullLight => "scull-light",
+            Self::SolarizedDark => "solarized-dark",
+        }
+    }
+
     /// The colours of the scheme.
     pub fn theme(self) -> Theme {
         let (foreground, background, cursor, ansi) = match self {

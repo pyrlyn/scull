@@ -692,6 +692,10 @@ namespace Scull.Native
         /// </summary>
         public uint scrollback;
         /// <summary>
+        ///  The colour scheme's name as the file spells it (`scull-dark`, ...).
+        /// </summary>
+        public tt_str scheme;
+        /// <summary>
         ///  Default text colour, `0xRRGGBB`.
         /// </summary>
         public uint foreground;

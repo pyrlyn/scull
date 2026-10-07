@@ -36,6 +36,13 @@ anyhow = "1.0.104"
 sha2 = "0.11.0"
 ureq = "3.4.2"
 
+# scull-pty: the PTY and ConPTY layer (blocking Read/Write, we add the threads); the only
+# maintained cross-platform choice, see research.md section 6.
+portable-pty = "0.9.0"
+# scull-pty: the caller-supplied terminal lock; unlock_fair hands the lock to a waiting frame
+# read so a flooding child cannot starve it (std Mutex has no fair unlock).
+parking_lot = "0.12.5"
+
 # scull-parser: memchr3 finds the end of a DCS/APC payload in bulk.
 memchr = "2.8.3"
 # Property tests (parser chunking, unicode width bounds) and benches.

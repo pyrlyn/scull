@@ -92,3 +92,18 @@ Execution plan:
 Delivered: `scull-term` drives `scull-grid` from `scull-parser` events. `Terminal::new(cols, rows, scrollback)`, `feed`, `grid`, `cursor`, `pen`, `modes`, `margins`, `is_alt_screen` and `take_replies` (capped at 4096 bytes). Covers print with wide and combining characters, cursor motion, erase, insert and delete, SGR, scroll regions with left and right margins, tabs, modes, G0–G3 charsets, the alt screen (its own grid with no scrollback), saved cursor, DSR/DA/DECRQM reports and soft and hard reset. REP is capped at cols × rows. 226 self-written conformance fixtures under `crates/scull-term/tests/fixtures/`; esctest2 is GPL-2.0-only, so nothing was copied from it.
 
 Left out: mouse and kitty keyboard modes are not stored yet, and DECSCUSR, XTSAVE/XTRESTORE, ?45, DECCOLM, DECSCA, DECRQCRA and resize are not implemented. Unknown ANSI modes answer 0 in DECRQM. No test covers REP inside margins.
+
+### T11. Resize and reflow
+
+One-pass reflow with tracking points for cursor, saved cursor, viewport and selection. The alt screen is not rewrapped. Interactive resize pauses the PTY and reflows once at the end. Done when no anchor is lost in the reflow golden tests.
+
+Execution plan:
+1. Read Alacritty's `grid/resize.rs` and WezTerm's rewrap for tracking-point handling; port only with notices kept.
+2. `crates/scull-grid`: `Grid::resize(rows, cols, &mut [TrackPoint])` that rewraps the primary screen and scrollback in one pass, joining wrapped rows into logical lines and splitting them at the new width, keeping wide characters whole, and moving every tracking point (cursor, saved cursor, viewport top, selection ends) with its cell. A flag skips rewrap for the alt screen (truncate or pad only). Row ids survive where a row survives; new rows get new ids.
+3. Pausing the PTY during interactive resize belongs to the FFI layer (T10); this task exposes the one-shot resize and documents the contract.
+4. Golden tests: shrink and grow round trips, wide characters at the wrap edge, cursor on a wrapped line, points in scrollback, history cap during grow, alt-screen no-rewrap; a proptest that no tracking point is lost or moved outside the grid.
+5. Verify with `just check`.
+
+Delivered: `Grid::resize(cols, screen_rows, Reflow, &mut cursor, &mut points)` in `scull-grid`. One pass rewraps soft-wrapped lines (`Reflow::Rewrap`) or cuts and pads rows for the alt screen (`Reflow::Truncate`). `TrackPoint { row, col, clamped }` follows the cursor, selection ends and other marks; a point whose cell did not survive is moved to the nearest place in the grid and flagged `clamped`. Wide characters at the new edge move to the next row behind a leading spacer. History stays within its cap, a scrolled-back viewport stays on its top line, and row ids and generations are kept where a row's start and content survive. The doc comment on `resize` states the T10 contract: pause PTY reads during an interactive drag and resize once at the final size. Tests: 22 golden tests, 2 proptests (also run with 20,000 cases) and 3 unit tests. Bench: reflowing 10,000 history rows 120 → 80 → 120 columns takes a median of 6.3 ms. No code was ported; the sorted tracking-point pass follows foot's idea, and not rewrapping the alt screen follows kitty and WezTerm.
+
+Left out: kitty's prompt protection, DEC mode 2028, image anchors (T19), wiring into `scull-term` (cursor, pending wrap, saved cursor, selection, choosing `Reflow` per screen) and the FFI drag pause (T10).

@@ -154,14 +154,60 @@ impl State {
 
     fn scroll_region_up(&mut self, region: Margins, n: u16) {
         let blank = self.blank();
-        let rows = region.top..region.bottom.saturating_add(1);
-        self.grid.scroll_region_up(rows, n, blank);
+        if self.full_width(region) {
+            let rows = region.top..region.bottom.saturating_add(1);
+            self.grid.scroll_region_up(rows, n, blank);
+        } else {
+            self.scroll_columns(region, n, true, blank);
+        }
     }
 
     fn scroll_region_down(&mut self, region: Margins, n: u16) {
         let blank = self.blank();
-        let rows = region.top..region.bottom.saturating_add(1);
-        self.grid.scroll_region_down(rows, n, blank);
+        if self.full_width(region) {
+            let rows = region.top..region.bottom.saturating_add(1);
+            self.grid.scroll_region_down(rows, n, blank);
+        } else {
+            self.scroll_columns(region, n, false, blank);
+        }
+    }
+
+    fn full_width(&self, region: Margins) -> bool {
+        region.left == 0 && region.right >= self.last_col()
+    }
+
+    /// Scrolling inside left and right margins (DECLRMM): only the cells
+    /// between them move, row by row, and nothing reaches the scrollback,
+    /// since no whole line leaves the screen (DEC STD 070, xterm).
+    fn scroll_columns(&mut self, region: Margins, n: u16, up: bool, blank: Cell) {
+        let height = region.bottom.saturating_sub(region.top).saturating_add(1);
+        let n = n.min(height);
+        let cols = region.left..region.right.saturating_add(1);
+        let mut cells = Vec::with_capacity(usize::from(cols.end - cols.start));
+        for i in 0..height - n {
+            let (dst, src) = if up {
+                (region.top + i, region.top + i + n)
+            } else {
+                (region.bottom - i, region.bottom - i - n)
+            };
+            cells.clear();
+            if let Some(row) = self.grid.screen_row(src) {
+                cells.extend(cols.clone().filter_map(|c| row.cell(c)));
+            }
+            if let Some(row) = self.grid.screen_row_mut(dst) {
+                row.write_cells(region.left, &cells);
+            }
+        }
+        let cleared = if up {
+            region.bottom + 1 - n..region.bottom + 1
+        } else {
+            region.top..region.top + n
+        };
+        for r in cleared {
+            if let Some(row) = self.grid.screen_row_mut(r) {
+                row.fill_range(cols.clone(), blank);
+            }
+        }
     }
 
     /// DECALN: the screen filled with `E` in the default style, margins

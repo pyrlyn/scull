@@ -29,6 +29,7 @@ impl State {
     }
 
     pub(crate) fn print_char(&mut self, ch: char) {
+        let ch = self.charsets.map(ch);
         let starts_cluster = self.grapheme.next(ch);
         let cells = width(ch, self.width);
         if starts_cluster && cells > 0 {

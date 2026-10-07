@@ -5,8 +5,11 @@
 use scull_grid::{Cell, Grid, Row};
 use scull_unicode::{ClusterPolicy, GraphemeState, WidthOptions};
 
+use crate::charset::Charsets;
 use crate::modes::Modes;
 use crate::pen::Pen;
+use crate::reply::Replies;
+use crate::screen::SavedCursor;
 use crate::tabs::TabStops;
 
 /// Where the next character goes. Rows and columns count from 0 at the top
@@ -51,7 +54,16 @@ impl Margins {
 /// Everything the handler mutates.
 #[derive(Debug, Clone)]
 pub(crate) struct State {
+    /// The screen shown.
     pub(crate) grid: Grid,
+    /// The screen not shown: the alternate one, or the main one while the
+    /// alternate is active.
+    pub(crate) alt: Grid,
+    pub(crate) alt_active: bool,
+    /// DECSC state for the main and the alternate screen.
+    pub(crate) saved: [Option<SavedCursor>; 2],
+    pub(crate) charsets: Charsets,
+    pub(crate) replies: Replies,
     pub(crate) cursor: Cursor,
     pub(crate) pen: Pen,
     pub(crate) modes: Modes,
@@ -65,10 +77,16 @@ pub(crate) struct State {
 }
 
 impl State {
-    pub(crate) fn new(grid: Grid, width: WidthOptions) -> Self {
+    /// `alt` must have the size of `grid`.
+    pub(crate) fn new(grid: Grid, alt: Grid, width: WidthOptions) -> Self {
         let (cols, rows) = (grid.cols(), grid.screen_rows());
         Self {
             grid,
+            alt,
+            alt_active: false,
+            saved: [None, None],
+            charsets: Charsets::default(),
+            replies: Replies::default(),
             cursor: Cursor::default(),
             pen: Pen::default(),
             modes: Modes::default(),

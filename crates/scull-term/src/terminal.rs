@@ -32,9 +32,12 @@ impl Terminal {
         width: WidthOptions,
     ) -> Result<Self, TermError> {
         let grid = Grid::new(cols, rows, scrollback)?;
+        // Full-screen programs own the alternate screen; nothing scrolls off
+        // it into history (xterm).
+        let alt = Grid::new(cols, rows, 0)?;
         Ok(Self {
             parser: Parser::new(),
-            state: State::new(grid, width),
+            state: State::new(grid, alt, width),
         })
     }
 
@@ -68,12 +71,25 @@ impl Terminal {
     pub fn margins(&self) -> Margins {
         self.state.margins
     }
+
+    /// Whether the alternate screen is shown.
+    pub fn is_alt_screen(&self) -> bool {
+        self.state.alt_active
+    }
+
+    /// Takes the replies queued for the program (device attributes, status
+    /// and cursor reports, mode reports), to be written back to the PTY.
+    /// The queue holds at most a few kilobytes; replies that arrive while it
+    /// is full are dropped whole, so drain it after every `feed`.
+    pub fn take_replies(&mut self) -> Vec<u8> {
+        self.state.replies.take()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use scull_grid::CellFlags;
+    use scull_grid::{Cell, CellFlags, Content};
 
     use super::*;
 
@@ -117,6 +133,27 @@ mod tests {
         b"m",
         b"r",
         b"#8",
+        b"?",
+        b">",
+        b"!p",
+        b"$p",
+        b"h",
+        b"l",
+        b"n",
+        b"c",
+        b"s",
+        b"u",
+        b"6",
+        b"7",
+        b"8",
+        b"47",
+        b"69",
+        b"1049",
+        b"2027",
+        b"(0",
+        b")0",
+        b"\x0e",
+        b"\x0f",
         b"\r",
         b"\n",
         b"\t",
@@ -159,6 +196,35 @@ mod tests {
         assert_eq!((term.cursor().row, term.cursor().col), (2, 3));
     }
 
+    #[test]
+    fn a_flood_of_requests_never_grows_the_reply_queue_past_its_cap() {
+        let mut term = Terminal::new(10, 5, 0).unwrap();
+        let request = b"\x1b[6n";
+        term.feed(&request.repeat(100_000));
+        let replies = term.take_replies();
+        assert!(!replies.is_empty());
+        assert!(replies.len() <= crate::reply::MAX_REPLY_BYTES);
+        assert!(replies.ends_with(b"R"), "only whole replies are kept");
+        term.feed(b"\x1b[5n");
+        assert_eq!(term.take_replies(), b"\x1b[0n", "draining makes room again");
+    }
+
+    #[test]
+    fn the_alternate_screen_starts_blank_and_leaves_the_main_one_intact() {
+        let mut term = Terminal::new(10, 5, 10).unwrap();
+        term.feed(b"main");
+        term.feed(b"\x1b[?1049h");
+        assert!(term.is_alt_screen());
+        assert_eq!(
+            term.grid().screen_row(0).unwrap().cell(0),
+            Some(Cell::EMPTY)
+        );
+        term.feed(b"\x1b[?1049l");
+        assert!(!term.is_alt_screen());
+        let first = term.grid().screen_row(0).unwrap().cell(0).unwrap();
+        assert_eq!(first.content(), Content::Char('m'));
+    }
+
     proptest! {
         #[test]
         fn no_byte_stream_panics_or_leaves_the_screen(
@@ -173,6 +239,7 @@ mod tests {
             let m = term.margins();
             prop_assert!(m.top <= m.bottom && m.bottom < rows);
             prop_assert!(m.left <= m.right && m.right < cols);
+            prop_assert!(term.take_replies().len() <= crate::reply::MAX_REPLY_BYTES);
         }
 
         #[test]

@@ -7,6 +7,7 @@
 //! manuals on vt100.net; where they differ, xterm wins because that is what
 //! applications are tested against.
 
+mod charset;
 mod dispatch;
 mod edit;
 mod error;
@@ -14,6 +15,9 @@ mod modes;
 mod motion;
 mod pen;
 mod print;
+mod reply;
+mod screen;
+mod set_mode;
 mod sgr;
 mod state;
 mod tabs;

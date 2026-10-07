@@ -71,7 +71,7 @@ impl Wake {
 /// # Safety
 ///
 /// `s.ptr` points to `s.len` readable bytes, or `s.len` is 0.
-unsafe fn text<'a>(s: tt_str) -> Option<&'a str> {
+pub(crate) unsafe fn text<'a>(s: tt_str) -> Option<&'a str> {
     if s.len == 0 {
         return Some("");
     }

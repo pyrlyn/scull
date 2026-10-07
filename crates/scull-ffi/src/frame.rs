@@ -5,16 +5,22 @@
 //!
 //! Cells and text runs are handed out as the frame's own buffers: `tt_cell`
 //! and `tt_run` have the layout of `FrameCell` and `TextRun`, checked at
-//! compile time, so an update copies nothing for them. Rows, styles and
-//! scrolls are rebuilt per update into small arrays the frame owns.
+//! compile time, so an update copies nothing for them. Rows, styles,
+//! scrolls and image placements are rebuilt per update into small arrays
+//! the frame owns.
+//!
+//! An image is a `tt_image`, the pointer of the core's `Arc<Image>`: the
+//! frame holds one reference until its next update, and the host may take
+//! its own with `tt_image_retain` to keep a texture's source past that.
 #![allow(unsafe_code)] // C exports take raw pointers from the host.
 
 use std::mem::offset_of;
 use std::ptr;
+use std::sync::Arc;
 use std::time::Instant;
 
 use scull_grid::{Attrs, Color, Style, Underline};
-use scull_term::{Frame, FrameCell, TextRun};
+use scull_term::{Frame, FrameCell, FramePlacement, Image, TextRun};
 
 use crate::guard::{SizedStruct, can_write, guard, tt_status, with_term, write_sized};
 use crate::term::tt_term;
@@ -212,6 +218,73 @@ pub struct tt_cursor {
     pub visible: u8,
 }
 
+/// An image's pixels, shared and immutable. Opaque to the host: read it
+/// with `tt_image_pixels`.
+pub struct tt_image {
+    // Never built: a `tt_image *` is an `Arc<Image>` pointer under its C name.
+    _private: [u8; 0],
+}
+
+/// One image in the viewport. Draw the source rectangle of `image` scaled
+/// to `cols` x `rows` cells whose top-left cell is (`row`, `col`), moved by
+/// the pixel offset. Placements come lowest `z` first; a negative `z`
+/// draws below the text.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct tt_placement {
+    /// The pixels; valid until the next update or free of the frame, or
+    /// until `tt_image_release` after a `tt_image_retain`.
+    pub image: *const tt_image,
+    /// Changes whenever the pixels behind `image` may have; a texture cache
+    /// keys on `image` and `generation`.
+    pub generation: u64,
+    /// Viewport row of the top-left cell; negative above the viewport.
+    pub row: i32,
+    /// Column of the top-left cell.
+    pub col: u32,
+    /// Width in cells.
+    pub cols: u32,
+    /// Height in cells.
+    pub rows: u32,
+    /// Pixel offset inside the top-left cell.
+    pub offset_x: u32,
+    /// Pixel offset inside the top-left cell.
+    pub offset_y: u32,
+    /// Source rectangle in image pixels: left edge.
+    pub src_x: u32,
+    /// Top edge.
+    pub src_y: u32,
+    /// Width.
+    pub src_w: u32,
+    /// Height.
+    pub src_h: u32,
+    /// Stacking order.
+    pub z: i32,
+}
+
+impl From<&FramePlacement> for tt_placement {
+    fn from(p: &FramePlacement) -> Self {
+        // A visible placement ends below row 0, so its row is above
+        // `-rows`; the clamp only guards the conversion.
+        let row = i32::try_from(p.row).unwrap_or(if p.row < 0 { i32::MIN } else { i32::MAX });
+        Self {
+            image: Arc::as_ptr(&p.image).cast::<tt_image>(),
+            generation: p.image.generation(),
+            row,
+            col: p.col,
+            cols: p.cols,
+            rows: p.rows,
+            offset_x: p.offset_x,
+            offset_y: p.offset_y,
+            src_x: p.crop.x,
+            src_y: p.crop.y,
+            src_w: p.crop.width,
+            src_h: p.crop.height,
+            z: p.z,
+        }
+    }
+}
+
 /// What `tt_frame_update` hands back. Set `struct_size` before the call.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -251,6 +324,11 @@ pub struct tt_frame_view {
     pub dirty: *const u16,
     /// Number of dirty rows.
     pub dirty_len: usize,
+    /// The images in the viewport, lowest `z` first. The rows they cover
+    /// are in `dirty` whenever a placement over them changed.
+    pub placements: *const tt_placement,
+    /// Number of placements.
+    pub placements_len: usize,
 }
 
 // SAFETY: repr(C), `struct_size` first, integers and raw pointers only.
@@ -264,6 +342,7 @@ pub struct tt_frame {
     lines: Vec<tt_row>,
     styles: Vec<tt_style>,
     scrolls: Vec<tt_scroll>,
+    placements: Vec<tt_placement>,
     /// Set while an update runs; still set afterwards only if it panicked.
     torn: bool,
 }
@@ -300,6 +379,9 @@ impl tt_frame {
                 end: s.end,
                 from: s.from,
             }));
+        self.placements.clear();
+        self.placements
+            .extend(frame.placements().iter().map(tt_placement::from));
     }
 
     fn view(&self, updated: bool) -> tt_frame_view {
@@ -328,6 +410,8 @@ impl tt_frame {
             scrolls_len: self.scrolls.len(),
             dirty: dirty.as_ptr(),
             dirty_len: dirty.len(),
+            placements: self.placements.as_ptr(),
+            placements_len: self.placements.len(),
         }
     }
 }
@@ -406,6 +490,83 @@ pub unsafe extern "C" fn tt_frame_free(frame: *mut tt_frame) {
         drop(unsafe { Box::from_raw(frame) });
         tt_status::TT_OK
     });
+}
+
+/// Takes a reference to `image`, so its pixels outlive the frame update
+/// that handed it out. `NULL` is a no-op.
+///
+/// # Safety
+///
+/// `image` is `NULL`, a `tt_placement.image` whose view is still valid, or
+/// an image retained and not yet released. Any thread may call this.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tt_image_retain(image: *const tt_image) {
+    if image.is_null() {
+        return;
+    }
+    let _ = guard(|| {
+        // SAFETY: the pointer of a live `Arc<Image>`, by the caller's
+        // contract; the count it adds is dropped by `tt_image_release`.
+        unsafe { Arc::increment_strong_count(image.cast::<Image>()) };
+        tt_status::TT_OK
+    });
+}
+
+/// Drops a reference taken by `tt_image_retain`. `NULL` is a no-op.
+///
+/// # Safety
+///
+/// `image` is `NULL` or was retained, and each retain is released once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tt_image_release(image: *const tt_image) {
+    if image.is_null() {
+        return;
+    }
+    let _ = guard(|| {
+        // SAFETY: the caller's contract: this releases its own retain, so
+        // the count stays positive for every other holder.
+        unsafe { Arc::decrement_strong_count(image.cast::<Image>()) };
+        tt_status::TT_OK
+    });
+}
+
+/// The pixels of `image`: `height` rows of `stride` bytes, each `width`
+/// RGBA pixels of 4 bytes, straight (not premultiplied) alpha. Valid while
+/// `image` is. Each out pointer may be `NULL`; a `NULL` image answers
+/// `NULL` and zeroes them.
+///
+/// # Safety
+///
+/// `image` is as for `tt_image_retain`; each out pointer is `NULL` or
+/// writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tt_image_pixels(
+    image: *const tt_image,
+    width: *mut u32,
+    height: *mut u32,
+    stride: *mut usize,
+) -> *const u8 {
+    let mut out = ptr::null();
+    let _ = guard(|| {
+        // SAFETY: NULL or a live `Image`, by the caller's contract.
+        let image = unsafe { image.cast::<Image>().as_ref() };
+        let (w, h, s) = image.map_or((0, 0, 0), |i| (i.width(), i.height(), i.stride()));
+        out = image.map_or(ptr::null(), |i| i.pixels().as_ptr());
+        // SAFETY: each is NULL or writable, by the caller's contract.
+        unsafe {
+            if let Some(width) = width.as_mut() {
+                *width = w;
+            }
+            if let Some(height) = height.as_mut() {
+                *height = h;
+            }
+            if let Some(stride) = stride.as_mut() {
+                *stride = s;
+            }
+        }
+        tt_status::TT_OK
+    });
+    out
 }
 
 #[cfg(test)]
@@ -593,6 +754,91 @@ mod tests {
         });
         // SAFETY: NULL is a no-op.
         unsafe { tt_frame_free(ptr::null_mut()) };
+    }
+
+    /// kitty: image 1, 2 x 2 RGB pixels, shown at the cursor without a reply.
+    const KITTY: &[u8] = b"\x1b_Gi=1,f=24,s=2,v=2,a=T,q=2;AAAAAAAAAAAAAAAA\x1b\\";
+
+    fn pixels_of(image: *const tt_image) -> (Option<Vec<u8>>, u32, u32, usize) {
+        let (mut w, mut h, mut stride) = (u32::MAX, u32::MAX, usize::MAX);
+        // SAFETY: a live image or NULL, and writable outs.
+        let p = unsafe { tt_image_pixels(image, &mut w, &mut h, &mut stride) };
+        let bytes = (!p.is_null()).then(|| parts(p, stride * h as usize).to_vec());
+        (bytes, w, h, stride)
+    }
+
+    #[test]
+    fn placements_hand_out_images_that_a_retain_keeps_alive() {
+        let (frame, term) = (tt_frame_new(), new_term(6, 3));
+        feed(term, b"\x1b[2;3H");
+        feed(term, KITTY);
+        let (_, view) = update(frame, term);
+        let [p] = parts(view.placements, view.placements_len) else {
+            panic!("one placement");
+        };
+        assert_eq!((p.row, p.col, p.cols, p.rows, p.z), (1, 2, 1, 1, 0));
+        assert_eq!((p.src_x, p.src_y, p.src_w, p.src_h), (0, 0, 2, 2));
+        assert_eq!(parts(view.dirty, view.dirty_len), [0, 1, 2]);
+        let image = p.image;
+        // SAFETY: from a valid view.
+        unsafe { tt_image_retain(image) };
+        // SAFETY: live handles, not used again.
+        unsafe {
+            tt_frame_free(frame);
+            tt_term_free(term);
+        }
+        assert_eq!(pixels_of(image), (Some([0, 0, 0, 255].repeat(4)), 2, 2, 8));
+        // SAFETY: retained above, released once.
+        unsafe { tt_image_release(image) };
+    }
+
+    #[test]
+    fn a_null_image_has_no_pixels() {
+        assert_eq!(pixels_of(ptr::null()), (None, 0, 0, 0));
+        // SAFETY: NULL is allowed everywhere.
+        unsafe {
+            tt_image_retain(ptr::null());
+            tt_image_release(ptr::null());
+            let _ = tt_image_pixels(
+                ptr::null(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+            );
+        }
+    }
+
+    #[test]
+    fn an_image_damages_its_rows_and_an_old_view_lacks_placements() {
+        with_frame(6, 3, |frame, term| {
+            update(frame, term);
+            feed(term, b"\x1b[2;1H");
+            feed(term, KITTY);
+            let mut old = blank_view();
+            old.struct_size = u32::try_from(offset_of!(tt_frame_view, placements)).unwrap();
+            // SAFETY: a whole view.
+            let status = unsafe { tt_frame_update(frame, term, &mut old) };
+            assert_eq!(status, tt_status::TT_OK);
+            assert_eq!(parts(old.dirty, old.dirty_len), [1]);
+            assert!(old.placements.is_null(), "a host built before images");
+        });
+    }
+
+    #[test]
+    fn a_resize_with_pixels_sets_the_cell_size_images_use() {
+        with_frame(10, 4, |frame, term| {
+            // SAFETY: a live handle.
+            let status = unsafe { crate::term::tt_term_resize(term, 10, 4, 40, 80) };
+            assert_eq!(status, tt_status::TT_OK);
+            feed(
+                term,
+                b"\x1b]1337;File=inline=1;width=8px;height=40px;preserveAspectRatio=0:\
+                  iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==\x07",
+            );
+            let (_, view) = update(frame, term);
+            let p = parts(view.placements, view.placements_len)[0];
+            assert_eq!((p.cols, p.rows), (2, 2), "cells of 4 x 20 px");
+        });
     }
 
     #[test]

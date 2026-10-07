@@ -33,6 +33,9 @@ pub enum tt_status {
     /// The operating system refused: no PTY, a program that does not
     /// start, a size the PTY rejects.
     TT_IO = 7,
+    /// The child is not reading and its input queue cannot take the whole
+    /// event; nothing was sent. Try again later.
+    TT_FULL = 8,
 }
 
 /// Runs `body` with panics caught; a panic answers `TT_PANIC`.

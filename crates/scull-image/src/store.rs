@@ -9,6 +9,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{Image, ImageError, ImageId, MAX_IMAGES, MAX_PLACEMENTS, Placement};
 
+#[derive(Debug, Clone)]
 struct Entry {
     image: Arc<Image>,
     /// Store clock at the last insert, lookup or placement.
@@ -16,6 +17,7 @@ struct Entry {
 }
 
 /// Images and placements with a byte quota and LRU eviction.
+#[derive(Debug, Clone)]
 pub struct ImageStore {
     quota: usize,
     used: usize,
@@ -119,6 +121,11 @@ impl ImageStore {
     /// Placements in the order they were made.
     pub fn placements(&self) -> &[Placement] {
         &self.placements
+    }
+
+    /// The placements, for the terminal to re-anchor after a reflow.
+    pub fn placements_mut(&mut self) -> &mut [Placement] {
+        &mut self.placements
     }
 
     /// Keeps the placements for which `keep` is true; the images stay.

@@ -4,3 +4,4 @@
 /fuzz/artifacts
 .DS_Store
 /.claude/worktrees
+/macos/.build

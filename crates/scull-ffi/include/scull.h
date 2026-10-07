@@ -21,11 +21,11 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 1
+#define TT_ABI_VERSION_MINOR 3
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 1
+#define TT_ABI_VERSION 3
 
 // `tt_event.kind`: the program rang the bell, once or more since the last
 // poll.
@@ -98,6 +98,103 @@
 // Dashed.
 #define TT_UNDERLINE_DASHED 5
 
+// `tt_key_event.action`: the key went down.
+#define TT_KEY_PRESS 1
+
+// The key auto-repeats.
+#define TT_KEY_REPEAT 2
+
+// The key went up.
+#define TT_KEY_RELEASE 3
+
+// `tt_key_event.mods` and `tt_mouse_event.mods` bits.
+#define TT_MOD_SHIFT 1
+
+// Alt, Option on macOS.
+#define TT_MOD_ALT 2
+
+// Control.
+#define TT_MOD_CTRL 4
+
+// Super: Command on macOS, the Windows key.
+#define TT_MOD_SUPER 8
+
+// Hyper.
+#define TT_MOD_HYPER 16
+
+// Meta.
+#define TT_MOD_META 32
+
+// Caps Lock is on.
+#define TT_MOD_CAPS_LOCK 64
+
+// Num Lock is on.
+#define TT_MOD_NUM_LOCK 128
+
+// `tt_key_event.key`: Escape. The keys after it, one code each, are
+// Enter, Tab, Backspace, Insert, Delete, Left, Right, Up, Down, Page Up,
+// Page Down, Home and End (`TT_KEY_END`).
+#define TT_KEY_ESCAPE 57344
+
+// The last of the keys from `TT_KEY_ESCAPE`.
+#define TT_KEY_END 57357
+
+// Caps Lock; then Scroll Lock, Num Lock, Print Screen, Pause, Menu.
+#define TT_KEY_CAPS_LOCK 57358
+
+// F1; F`n` is `TT_KEY_F1 + n - 1` up to F35.
+#define TT_KEY_F1 57364
+
+// Keypad 0; then 1 to 9, Decimal, Divide, Multiply, Subtract, Add, Enter,
+// Equal, Separator, Left, Right, Up, Down, Page Up, Page Down, Home, End,
+// Insert, Delete, Begin.
+#define TT_KEY_KP_0 57399
+
+// Play; then Pause, Play/Pause, Reverse, Stop, Fast Forward, Rewind, Next
+// Track, Previous Track, Record, Volume Down, Volume Up, Mute.
+#define TT_KEY_MEDIA_PLAY 57428
+
+// Left Shift on its own; then Left Control, Left Alt, Left Super, Left
+// Hyper, Left Meta, the same six on the right, ISO Level 3 Shift and ISO
+// Level 5 Shift.
+#define TT_KEY_LEFT_SHIFT 57441
+
+// `tt_mouse_event.action`: a button went down; wheel steps are presses.
+#define TT_MOUSE_PRESS 1
+
+// A button went up.
+#define TT_MOUSE_RELEASE 2
+
+// The pointer moved to another cell, or pixel while the program asks
+// for pixels; send it only then.
+#define TT_MOUSE_MOTION 3
+
+// `tt_mouse_event.button`: none, for motion with no button held. Others
+// are X11's numbers: 1 left, 2 middle, 3 right, 4 to 7 wheel up, down,
+// left and right, 8 back, 9 forward, 10 and 11.
+#define TT_MOUSE_NONE 0
+
+// The left button.
+#define TT_MOUSE_LEFT 1
+
+// The middle button.
+#define TT_MOUSE_MIDDLE 2
+
+// The right button.
+#define TT_MOUSE_RIGHT 3
+
+// One wheel step up.
+#define TT_MOUSE_WHEEL_UP 4
+
+// One wheel step down.
+#define TT_MOUSE_WHEEL_DOWN 5
+
+// One wheel step left.
+#define TT_MOUSE_WHEEL_LEFT 6
+
+// One wheel step right.
+#define TT_MOUSE_WHEEL_RIGHT 7
+
 // What every fallible call answers. Values are only ever appended.
 enum tt_status
 #if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
@@ -124,6 +221,9 @@ enum tt_status
   // The operating system refused: no PTY, a program that does not
   // start, a size the PTY rejects.
   TT_IO = 7,
+  // The child is not reading and its input queue cannot take the whole
+  // event; nothing was sent. Try again later.
+  TT_FULL = 8,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -136,6 +236,10 @@ typedef int32_t tt_status;
 // A UI-owned frame. Opaque to the host; one per view, used from one
 // thread at a time.
 typedef struct tt_frame tt_frame;
+
+// An image's pixels, shared and immutable. Opaque to the host: read it
+// with `tt_image_pixels`.
+typedef struct tt_image tt_image;
 
 // One terminal. Opaque to the host.
 typedef struct tt_term tt_term;
@@ -234,6 +338,41 @@ typedef struct tt_scroll {
   uint16_t from;
 } tt_scroll;
 
+// One image in the viewport. Draw the source rectangle of `image` scaled
+// to `cols` x `rows` cells whose top-left cell is (`row`, `col`), moved by
+// the pixel offset. Placements come lowest `z` first; a negative `z`
+// draws below the text.
+typedef struct tt_placement {
+  // The pixels; valid until the next update or free of the frame, or
+  // until `tt_image_release` after a `tt_image_retain`.
+  const struct tt_image *image;
+  // Changes whenever the pixels behind `image` may have; a texture cache
+  // keys on `image` and `generation`.
+  uint64_t generation;
+  // Viewport row of the top-left cell; negative above the viewport.
+  int32_t row;
+  // Column of the top-left cell.
+  uint32_t col;
+  // Width in cells.
+  uint32_t cols;
+  // Height in cells.
+  uint32_t rows;
+  // Pixel offset inside the top-left cell.
+  uint32_t offset_x;
+  // Pixel offset inside the top-left cell.
+  uint32_t offset_y;
+  // Source rectangle in image pixels: left edge.
+  uint32_t src_x;
+  // Top edge.
+  uint32_t src_y;
+  // Width.
+  uint32_t src_w;
+  // Height.
+  uint32_t src_h;
+  // Stacking order.
+  int32_t z;
+} tt_placement;
+
 // What `tt_frame_update` hands back. Set `struct_size` before the call.
 typedef struct tt_frame_view {
   // `sizeof(tt_frame_view)` as the host knows it; on return, the bytes
@@ -271,6 +410,11 @@ typedef struct tt_frame_view {
   const uint16_t *dirty;
   // Number of dirty rows.
   size_t dirty_len;
+  // The images in the viewport, lowest `z` first. The rows they cover
+  // are in `dirty` whenever a placement over them changed.
+  const struct tt_placement *placements;
+  // Number of placements.
+  size_t placements_len;
 } tt_frame_view;
 
 // UTF-8 text the host owns: `len` bytes at `ptr`, no terminator. `ptr`
@@ -281,6 +425,53 @@ typedef struct tt_str {
   // Bytes, not characters.
   size_t len;
 } tt_str;
+
+// One key event, as Ghostty's embedding API reports it: what was
+// pressed and what text it typed; the core picks the bytes.
+typedef struct tt_key_event {
+  // `sizeof(tt_key_event)` as the host knows it.
+  uint32_t struct_size;
+  // The key: for a key of the main block, the code point it types on
+  // the US layout with no modifiers (`'a'`, `'1'`, `' '`); for any
+  // other key a `TT_KEY_*` code.
+  uint32_t key;
+  // What the key types on the current layout with no modifiers (`с`
+  // for the `c` key on a Russian layout); 0 when it is `key` itself.
+  uint32_t unshifted;
+  // `TT_KEY_PRESS`, `TT_KEY_REPEAT` or `TT_KEY_RELEASE`.
+  uint8_t action;
+  // `TT_MOD_*` bits held, including this key if it is a modifier.
+  uint8_t mods;
+  // `TT_MOD_*` bits the layout used to type `text` (Option typing `å`).
+  uint8_t consumed_mods;
+  // 1 while an input method is composing: nothing is sent.
+  uint8_t composing;
+  // UTF-8 the key typed, with Shift and consumed modifiers but not
+  // Control applied; may be empty.
+  struct tt_str text;
+} tt_key_event;
+
+// One mouse event, in cells and in pixels: the core picks which the
+// program gets.
+typedef struct tt_mouse_event {
+  // `sizeof(tt_mouse_event)` as the host knows it.
+  uint32_t struct_size;
+  // `TT_MOUSE_PRESS`, `TT_MOUSE_RELEASE` or `TT_MOUSE_MOTION`.
+  uint8_t action;
+  // The button pressed or released; for motion, the lowest one held or
+  // `TT_MOUSE_NONE`.
+  uint8_t button;
+  // `TT_MOD_*` bits; Shift, Alt and Control are reported.
+  uint8_t mods;
+  // Viewport column, from 0.
+  uint32_t col;
+  // Viewport row, from 0.
+  uint32_t row;
+  // Pixels from the left of the text area.
+  uint32_t x_px;
+  // Pixels from the top of the text area.
+  uint32_t y_px;
+} tt_mouse_event;
 
 // Called with the `userdata` given at spawn when the terminal has
 // something new: output to draw or an event to poll. It runs on a core
@@ -363,6 +554,99 @@ tt_status tt_frame_update(struct tt_frame *frame,
 // `frame` is `NULL` or live, and not used again.
 void tt_frame_free(struct tt_frame *frame);
 
+// Takes a reference to `image`, so its pixels outlive the frame update
+// that handed it out. `NULL` is a no-op.
+//
+// # Safety
+//
+// `image` is `NULL`, a `tt_placement.image` whose view is still valid, or
+// an image retained and not yet released. Any thread may call this.
+void tt_image_retain(const struct tt_image *image);
+
+// Drops a reference taken by `tt_image_retain`. `NULL` is a no-op.
+//
+// # Safety
+//
+// `image` is `NULL` or was retained, and each retain is released once.
+void tt_image_release(const struct tt_image *image);
+
+// The pixels of `image`: `height` rows of `stride` bytes, each `width`
+// RGBA pixels of 4 bytes, straight (not premultiplied) alpha. Valid while
+// `image` is. Each out pointer may be `NULL`; a `NULL` image answers
+// `NULL` and zeroes them.
+//
+// # Safety
+//
+// `image` is as for `tt_image_retain`; each out pointer is `NULL` or
+// writable.
+const uint8_t *tt_image_pixels(const struct tt_image *image,
+                               uint32_t *width,
+                               uint32_t *height,
+                               size_t *stride);
+
+// Sends a key event. `TT_OK` also when the active modes send nothing
+// for it (a release in legacy mode, a composing key); `TT_CLOSED` when
+// there is no child; `TT_FULL` when the child is not reading and its
+// input queue lacks room, in which case nothing was sent.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
+// readable bytes whose `text` is valid for its length.
+tt_status tt_term_key(const struct tt_term *term, const struct tt_key_event *event);
+
+// Sends text an input method committed outside a key event (dictation,
+// the character viewer). Control characters are dropped. Statuses as for
+// `tt_term_key`; `TT_INVALID` for text that is not UTF-8.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `bytes` points to `len` readable bytes.
+tt_status tt_term_text(const struct tt_term *term, const uint8_t *bytes, size_t len);
+
+// Sends pasted text: bracketed, with any bracket marker inside removed,
+// while the program asks for it (mode 2004); otherwise line feeds become
+// carriage returns. A paste is sent whole or not at all, so one larger
+// than the child's input queue (256 KiB) answers `TT_FULL`. Statuses
+// otherwise as for `tt_term_text`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `bytes` points to `len` readable bytes.
+tt_status tt_term_paste(const struct tt_term *term, const uint8_t *bytes, size_t len);
+
+// Tells the program the view gained (`focused` 1) or lost (0) focus,
+// while it asks for focus reports (mode 1004). Statuses as for
+// `tt_term_key`.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_focus(const struct tt_term *term, uint8_t focused);
+
+// Sends a mouse event if the program takes it. `*taken`, unless `NULL`,
+// becomes 1 when it does: always while it tracks the mouse, and for a
+// wheel step on the alternate screen, which becomes a cursor key (mode
+// 1007). At 0 the event is the host's: select, or scroll the history
+// with `tt_term_scroll_display`. Statuses as for `tt_term_key`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
+// readable bytes; `taken` is `NULL` or writable.
+tt_status tt_term_mouse(const struct tt_term *term,
+                        const struct tt_mouse_event *event,
+                        uint8_t *taken);
+
+// Moves the viewport `delta` rows back into history (negative: towards
+// the screen), clamped to what history holds. Typing, text and paste
+// bring it back to the screen by themselves.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_scroll_display(const struct tt_term *term, int32_t delta);
+
 // Creates a terminal running a child on a new PTY: `options.program`
 // with its arguments, or the user's shell. Output is parsed on core
 // threads; `options.wakeup` says when to look. On `TT_OK` `*out` holds
@@ -418,7 +702,8 @@ tt_status tt_term_feed(const struct tt_term *term, const uint8_t *bytes, size_t 
 // Resizes the terminal to `cols` x `rows` cells: the primary screen and
 // its history are rewrapped, the alternate screen is cut or padded. The
 // child, if any, is told the new size (`width_px` and `height_px` are the
-// view's size in pixels, 0 if unknown) and output paused by
+// view's size in pixels, 0 if unknown; they also give the cell size that
+// image sizes are measured with) and output paused by
 // `tt_term_resize_begin` flows again, whatever the outcome.
 //
 // # Safety

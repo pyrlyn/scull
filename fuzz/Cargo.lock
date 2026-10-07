@@ -193,6 +193,17 @@ dependencies = [
  "scull-harness",
  "scull-image",
  "scull-parser",
+ "scull-term",
+]
+
+[[package]]
+name = "scull-grid"
+version = "0.0.0"
+dependencies = [
+ "bitflags",
+ "rustc-hash",
+ "scull-unicode",
+ "thiserror",
 ]
 
 [[package]]
@@ -217,6 +228,17 @@ version = "0.0.0"
 dependencies = [
  "memchr",
  "scull-unicode",
+]
+
+[[package]]
+name = "scull-term"
+version = "0.0.0"
+dependencies = [
+ "scull-grid",
+ "scull-image",
+ "scull-parser",
+ "scull-unicode",
+ "thiserror",
 ]
 
 [[package]]

@@ -63,7 +63,7 @@ enum State {
 }
 
 /// Decodes one sixel image from its DCS payload (the bytes after `q`).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SixelDecoder {
     state: State,
     params: [u32; MAX_PARAMS],

@@ -13,10 +13,18 @@
 //! placement, plus the row's text cut into runs of one style and one cell
 //! width: the unit the platform shaper (CoreText, DirectWrite) takes, since
 //! the core decides widths and the platform only shapes.
+//!
+//! Images ride along as placements in viewport cells. Each row also keeps a
+//! keyed hash of the image slices drawn on it, so a row whose text moved
+//! unchanged is still repainted when the images over it differ (a region
+//! scroll slides text under an image anchored to its line).
 
+use std::hash::{BuildHasher, RandomState};
+use std::sync::Arc;
 use std::time::Instant;
 
 use scull_grid::{Cell, CellFlags, Content, Grid, Style, StyleId};
+use scull_image::{Crop, Image};
 
 use crate::damage::{Damage, RowStamp};
 use crate::terminal::Terminal;
@@ -177,6 +185,34 @@ pub struct FrameCursor {
     pub col: u16,
 }
 
+/// One image shown in the viewport. The host scales the `crop` of the
+/// image to the `cols` x `rows` cell rectangle (sixel and auto-sized iTerm2
+/// images are padded to whole cells, so they show at their own size) and
+/// draws placements in `z` order, negative ones below the text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FramePlacement {
+    /// The pixels, kept alive by the frame until its next update. A texture
+    /// cache keys on the pointer and [`Image::generation`].
+    pub image: Arc<Image>,
+    /// Viewport row of the top-left cell; negative when the image starts
+    /// above the viewport.
+    pub row: i64,
+    /// Column of the top-left cell.
+    pub col: u32,
+    /// Width in cells.
+    pub cols: u32,
+    /// Height in cells.
+    pub rows: u32,
+    /// Pixel offset inside the top-left cell.
+    pub offset_x: u32,
+    /// Pixel offset inside the top-left cell.
+    pub offset_y: u32,
+    /// The part of the image shown, in image pixels.
+    pub crop: Crop,
+    /// Stacking order; negative draws below the text.
+    pub z: i32,
+}
+
 /// The UI's copy of the viewport. Create one per view and keep it: every
 /// update reuses its buffers and copies only what changed.
 #[derive(Clone, Debug, Default)]
@@ -194,6 +230,14 @@ pub struct Frame {
     old_stamps: Vec<RowStamp>,
     spare_cells: Vec<FrameCell>,
     spare_lines: Vec<FrameRow>,
+    placements: Vec<FramePlacement>,
+    /// Per row, a hash of the image slices on it (0 for none), now and in
+    /// the previous picture.
+    slices: Vec<u64>,
+    old_slices: Vec<u64>,
+    /// Keyed per frame, so a program cannot aim for a collision that would
+    /// leave a stale image slice on screen.
+    hasher: RandomState,
 }
 
 impl Frame {
@@ -244,6 +288,11 @@ impl Frame {
         self.cursor
     }
 
+    /// The images in the viewport, lowest `z` first.
+    pub fn placements(&self) -> &[FramePlacement] {
+        &self.placements
+    }
+
     /// What the last update changed: blit the scrolls from the previous
     /// picture, then repaint the dirty rows.
     pub fn damage(&self) -> &Damage {
@@ -273,7 +322,12 @@ impl Frame {
             grid.visible_row(r)
                 .map_or_else(RowStamp::default, RowStamp::of)
         }));
-        self.damage.compute(&self.old_stamps, &self.stamps, full);
+        std::mem::swap(&mut self.old_slices, &mut self.slices);
+        self.collect_placements(term);
+        let (now, before) = (&self.slices, &self.old_slices);
+        let same = |r: u16, from: u16| now.get(usize::from(r)) == before.get(usize::from(from));
+        self.damage
+            .compute_with(&self.old_stamps, &self.stamps, full, same);
         self.apply_scrolls();
         let mut dirty = std::mem::take(&mut self.damage);
         for &r in dirty.dirty() {
@@ -281,6 +335,50 @@ impl Frame {
         }
         std::mem::swap(&mut self.damage, &mut dirty);
         self.cursor = cursor_in_viewport(term);
+    }
+
+    /// Collects the placements in the viewport and hashes the slice of
+    /// each that every row shows.
+    fn collect_placements(&mut self, term: &Terminal) {
+        let shown = i64::from(self.rows);
+        self.placements.clear();
+        self.slices.clear();
+        self.slices.resize(usize::from(self.rows), 0);
+        let back = u64::try_from(term.grid().display_offset()).unwrap_or(u64::MAX);
+        // Absolute lines stay far below `i64::MAX`: one per line ever output.
+        let top = i64::try_from(term.screen_top_line().saturating_sub(back)).unwrap_or(i64::MAX);
+        let store = term.images();
+        for p in store.placements() {
+            let Some(image) = store.peek(p.image) else {
+                continue;
+            };
+            let row = i64::try_from(p.row).unwrap_or(i64::MAX).saturating_sub(top);
+            let end = row.saturating_add(i64::from(p.rows));
+            if row >= shown || end <= 0 {
+                continue;
+            }
+            let crop = (p.crop.x, p.crop.y, p.crop.width, p.crop.height);
+            let cell = (p.col, p.cols, p.rows, p.offset_x, p.offset_y, p.z);
+            let pixels = (Arc::as_ptr(image).addr(), image.generation());
+            for r in row.max(0)..end.min(shown) {
+                let slice = self.hasher.hash_one((pixels, cell, crop, r - row));
+                if let Some(at) = usize::try_from(r).ok().and_then(|r| self.slices.get_mut(r)) {
+                    *at = self.hasher.hash_one((*at, slice));
+                }
+            }
+            self.placements.push(FramePlacement {
+                image: Arc::clone(image),
+                row,
+                col: p.col,
+                cols: p.cols,
+                rows: p.rows,
+                offset_x: p.offset_x,
+                offset_y: p.offset_y,
+                crop: p.crop,
+                z: p.z,
+            });
+        }
+        self.placements.sort_by_key(|p| p.z);
     }
 
     /// Moves the rows the damage says moved. Every scroll reads the
@@ -570,12 +668,80 @@ mod tests {
         assert_eq!(fresh(&mut t).cursor(), None);
     }
 
+    /// A kitty image of 2 x 2 pixels, shown `C=1` at the cursor in 2 x 1
+    /// cells.
+    const KITTY_STILL: &[u8] = b"\x1b_Gi=1,f=24,s=2,v=2,a=T,C=1,c=2,r=1,q=2;AAAAAAAAAAAAAAAA\x1b\\";
+
+    #[test]
+    fn placements_are_in_viewport_rows() {
+        let mut t = term();
+        t.feed(b"\x1b[2;3H");
+        t.feed(KITTY_STILL);
+        let f = fresh(&mut t);
+        let [p] = f.placements() else {
+            panic!("{:?}", f.placements());
+        };
+        assert_eq!((p.row, p.col, p.cols, p.rows), (1, 2, 2, 1));
+        assert_eq!((p.image.width(), p.image.height()), (2, 2));
+        t.feed(b"\x1b[4H\r\n\r\n");
+        assert_eq!(fresh(&mut t).placements().len(), 0, "scrolled off");
+        t.scroll_display(2);
+        assert_eq!(
+            fresh(&mut t).placements()[0].row,
+            1,
+            "in the scrollback view"
+        );
+    }
+
+    #[test]
+    fn an_image_damages_the_rows_it_covers_though_the_text_is_unchanged() {
+        let mut t = term();
+        t.feed(b"a\r\nb\x1b[2;1H");
+        let mut f = fresh(&mut t);
+        t.feed(KITTY_STILL);
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().dirty(), [1]);
+        t.feed(b"\x1b_Ga=d,q=2\x1b\\");
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().dirty(), [1], "and the rows it leaves");
+        assert!(f.placements().is_empty());
+    }
+
+    #[test]
+    fn text_scrolled_under_a_fixed_image_is_repainted() {
+        let mut t = term();
+        t.feed(b"a\r\nb\r\nc\x1b[2;1H");
+        t.feed(KITTY_STILL);
+        let mut f = fresh(&mut t);
+        // A region scroll moves the text but not the image on line 1.
+        t.feed(b"\x1b[1;3r\x1b[S");
+        updated(&mut t, &mut f);
+        assert!(f.damage().dirty().contains(&0), "b moved out from under it");
+        assert!(f.damage().dirty().contains(&1), "c moved under it");
+    }
+
+    /// One image slice on a row: which pixels (pointer and generation),
+    /// which image row of cells, where and how it is drawn.
+    type Slice = (
+        usize,
+        u64,
+        i64,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        (u32, u32, u32, u32),
+        i32,
+    );
+
     /// A row as a UI would put it on screen: every cell with its style
-    /// resolved, and every run with its text.
+    /// resolved, every run with its text, and the image slices over it.
     #[derive(Clone, Debug, PartialEq)]
     struct Painted {
         cells: Vec<(u32, u8, u8, Option<Style>)>,
         runs: Vec<(u16, u16, u8, Option<Style>, String)>,
+        images: Vec<Slice>,
     }
 
     fn paint(f: &Frame, r: u16) -> Painted {
@@ -593,6 +759,26 @@ mod tests {
                     let style = f.style(run.style).copied();
                     let text = row.run_text(run).to_owned();
                     (run.col, run.cols, run.width, style, text)
+                })
+                .collect(),
+            images: f
+                .placements()
+                .iter()
+                .filter(|p| (p.row..p.row + i64::from(p.rows)).contains(&i64::from(r)))
+                .map(|p| {
+                    let c = p.crop;
+                    (
+                        Arc::as_ptr(&p.image).addr(),
+                        p.image.generation(),
+                        i64::from(r) - p.row,
+                        p.col,
+                        p.cols,
+                        p.rows,
+                        p.offset_x,
+                        p.offset_y,
+                        (c.x, c.y, c.width, c.height),
+                        p.z,
+                    )
                 })
                 .collect(),
         }
@@ -622,8 +808,17 @@ mod tests {
     }
 
     /// Whole sequences the fragments rarely assemble: synchronized output,
-    /// screens, regions, colours, clusters and erases.
+    /// screens, regions, colours, clusters, erases and images.
     const SEQUENCES: &[&[u8]] = &[
+        b"\x1bPq#0;2;100;0;0#0~~-~~\x1b\\",
+        b"\x1b]1337;File=inline=1;width=2;doNotMoveCursor=1:iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==\x07",
+        KITTY_STILL,
+        b"\x1b_Gi=2,f=24,s=2,v=2,a=T,r=2,z=-1,q=2;AAAAAAAAAAAAAAAA\x1b\\",
+        b"\x1b_Ga=p,i=1,X=3,Y=5,x=1,w=1,q=2\x1b\\",
+        b"\x1b_Ga=d,q=2\x1b\\",
+        b"\x1b_Ga=d,d=i,i=2,q=2\x1b\\",
+        b"\x1b[S",
+        b"\x1b[T",
         b"\x1b[?2026h",
         b"\x1b[?2026l",
         b"\x1b[?1049h",
@@ -690,6 +885,7 @@ mod tests {
                 prop_assert_eq!(&canvas, &paint_all(&full));
                 prop_assert_eq!(&paint_all(&frame), &canvas);
                 prop_assert_eq!(frame.cursor(), full.cursor());
+                prop_assert_eq!(frame.placements(), full.placements());
                 for c in frame.cells() {
                     let truth = t.grid().styles().get(StyleId(c.style));
                     prop_assert_eq!(frame.style(c.style), truth, "no stale style");

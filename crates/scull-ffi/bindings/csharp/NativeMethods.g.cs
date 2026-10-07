@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 1;
+        internal const uint TT_ABI_VERSION_MINOR = 3;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 1;
+        internal const uint TT_ABI_VERSION = 3;
         /// <summary>
         ///  `tt_event.kind`: the program rang the bell, once or more since the last
         ///  poll.
@@ -125,6 +125,132 @@ namespace Scull.Native
         ///  Dashed.
         /// </summary>
         internal const byte TT_UNDERLINE_DASHED = 5;
+        /// <summary>
+        ///  `tt_key_event.action`: the key went down.
+        /// </summary>
+        internal const byte TT_KEY_PRESS = 1;
+        /// <summary>
+        ///  The key auto-repeats.
+        /// </summary>
+        internal const byte TT_KEY_REPEAT = 2;
+        /// <summary>
+        ///  The key went up.
+        /// </summary>
+        internal const byte TT_KEY_RELEASE = 3;
+        /// <summary>
+        ///  `tt_key_event.mods` and `tt_mouse_event.mods` bits.
+        /// </summary>
+        internal const byte TT_MOD_SHIFT = 1;
+        /// <summary>
+        ///  Alt, Option on macOS.
+        /// </summary>
+        internal const byte TT_MOD_ALT = 2;
+        /// <summary>
+        ///  Control.
+        /// </summary>
+        internal const byte TT_MOD_CTRL = 4;
+        /// <summary>
+        ///  Super: Command on macOS, the Windows key.
+        /// </summary>
+        internal const byte TT_MOD_SUPER = 8;
+        /// <summary>
+        ///  Hyper.
+        /// </summary>
+        internal const byte TT_MOD_HYPER = 16;
+        /// <summary>
+        ///  Meta.
+        /// </summary>
+        internal const byte TT_MOD_META = 32;
+        /// <summary>
+        ///  Caps Lock is on.
+        /// </summary>
+        internal const byte TT_MOD_CAPS_LOCK = 64;
+        /// <summary>
+        ///  Num Lock is on.
+        /// </summary>
+        internal const byte TT_MOD_NUM_LOCK = 128;
+        /// <summary>
+        ///  `tt_key_event.key`: Escape. The keys after it, one code each, are
+        ///  Enter, Tab, Backspace, Insert, Delete, Left, Right, Up, Down, Page Up,
+        ///  Page Down, Home and End (`TT_KEY_END`).
+        /// </summary>
+        internal const uint TT_KEY_ESCAPE = 57344;
+        /// <summary>
+        ///  The last of the keys from `TT_KEY_ESCAPE`.
+        /// </summary>
+        internal const uint TT_KEY_END = 57357;
+        /// <summary>
+        ///  Caps Lock; then Scroll Lock, Num Lock, Print Screen, Pause, Menu.
+        /// </summary>
+        internal const uint TT_KEY_CAPS_LOCK = 57358;
+        /// <summary>
+        ///  F1; F`n` is `TT_KEY_F1 + n - 1` up to F35.
+        /// </summary>
+        internal const uint TT_KEY_F1 = 57364;
+        /// <summary>
+        ///  Keypad 0; then 1 to 9, Decimal, Divide, Multiply, Subtract, Add, Enter,
+        ///  Equal, Separator, Left, Right, Up, Down, Page Up, Page Down, Home, End,
+        ///  Insert, Delete, Begin.
+        /// </summary>
+        internal const uint TT_KEY_KP_0 = 57399;
+        /// <summary>
+        ///  Play; then Pause, Play/Pause, Reverse, Stop, Fast Forward, Rewind, Next
+        ///  Track, Previous Track, Record, Volume Down, Volume Up, Mute.
+        /// </summary>
+        internal const uint TT_KEY_MEDIA_PLAY = 57428;
+        /// <summary>
+        ///  Left Shift on its own; then Left Control, Left Alt, Left Super, Left
+        ///  Hyper, Left Meta, the same six on the right, ISO Level 3 Shift and ISO
+        ///  Level 5 Shift.
+        /// </summary>
+        internal const uint TT_KEY_LEFT_SHIFT = 57441;
+        /// <summary>
+        ///  `tt_mouse_event.action`: a button went down; wheel steps are presses.
+        /// </summary>
+        internal const byte TT_MOUSE_PRESS = 1;
+        /// <summary>
+        ///  A button went up.
+        /// </summary>
+        internal const byte TT_MOUSE_RELEASE = 2;
+        /// <summary>
+        ///  The pointer moved to another cell, or pixel while the program asks
+        ///  for pixels; send it only then.
+        /// </summary>
+        internal const byte TT_MOUSE_MOTION = 3;
+        /// <summary>
+        ///  `tt_mouse_event.button`: none, for motion with no button held. Others
+        ///  are X11's numbers: 1 left, 2 middle, 3 right, 4 to 7 wheel up, down,
+        ///  left and right, 8 back, 9 forward, 10 and 11.
+        /// </summary>
+        internal const byte TT_MOUSE_NONE = 0;
+        /// <summary>
+        ///  The left button.
+        /// </summary>
+        internal const byte TT_MOUSE_LEFT = 1;
+        /// <summary>
+        ///  The middle button.
+        /// </summary>
+        internal const byte TT_MOUSE_MIDDLE = 2;
+        /// <summary>
+        ///  The right button.
+        /// </summary>
+        internal const byte TT_MOUSE_RIGHT = 3;
+        /// <summary>
+        ///  One wheel step up.
+        /// </summary>
+        internal const byte TT_MOUSE_WHEEL_UP = 4;
+        /// <summary>
+        ///  One wheel step down.
+        /// </summary>
+        internal const byte TT_MOUSE_WHEEL_DOWN = 5;
+        /// <summary>
+        ///  One wheel step left.
+        /// </summary>
+        internal const byte TT_MOUSE_WHEEL_LEFT = 6;
+        /// <summary>
+        ///  One wheel step right.
+        /// </summary>
+        internal const byte TT_MOUSE_WHEEL_RIGHT = 7;
 
 
 
@@ -163,7 +289,8 @@ namespace Scull.Native
         ///  Resizes the terminal to `cols` x `rows` cells: the primary screen and
         ///  its history are rewrapped, the alternate screen is cut or padded. The
         ///  child, if any, is told the new size (`width_px` and `height_px` are the
-        ///  view's size in pixels, 0 if unknown) and output paused by
+        ///  view's size in pixels, 0 if unknown; they also give the cell size that
+        ///  image sizes are measured with) and output paused by
         ///  `tt_term_resize_begin` flows again, whatever the outcome.
         ///
         ///  # Safety
@@ -267,6 +394,121 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_frame_free", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern void tt_frame_free(tt_frame* frame);
+
+        /// <summary>
+        ///  Takes a reference to `image`, so its pixels outlive the frame update
+        ///  that handed it out. `NULL` is a no-op.
+        ///
+        ///  # Safety
+        ///
+        ///  `image` is `NULL`, a `tt_placement.image` whose view is still valid, or
+        ///  an image retained and not yet released. Any thread may call this.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_image_retain", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void tt_image_retain(tt_image* image);
+
+        /// <summary>
+        ///  Drops a reference taken by `tt_image_retain`. `NULL` is a no-op.
+        ///
+        ///  # Safety
+        ///
+        ///  `image` is `NULL` or was retained, and each retain is released once.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_image_release", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void tt_image_release(tt_image* image);
+
+        /// <summary>
+        ///  The pixels of `image`: `height` rows of `stride` bytes, each `width`
+        ///  RGBA pixels of 4 bytes, straight (not premultiplied) alpha. Valid while
+        ///  `image` is. Each out pointer may be `NULL`; a `NULL` image answers
+        ///  `NULL` and zeroes them.
+        ///
+        ///  # Safety
+        ///
+        ///  `image` is as for `tt_image_retain`; each out pointer is `NULL` or
+        ///  writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_image_pixels", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern byte* tt_image_pixels(tt_image* image, uint* width, uint* height, nuint* stride);
+
+        /// <summary>
+        ///  Sends a key event. `TT_OK` also when the active modes send nothing
+        ///  for it (a release in legacy mode, a composing key); `TT_CLOSED` when
+        ///  there is no child; `TT_FULL` when the child is not reading and its
+        ///  input queue lacks room, in which case nothing was sent.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
+        ///  readable bytes whose `text` is valid for its length.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_key", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_key(tt_term* term, tt_key_event* @event);
+
+        /// <summary>
+        ///  Sends text an input method committed outside a key event (dictation,
+        ///  the character viewer). Control characters are dropped. Statuses as for
+        ///  `tt_term_key`; `TT_INVALID` for text that is not UTF-8.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `bytes` points to `len` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_text(tt_term* term, byte* bytes, nuint len);
+
+        /// <summary>
+        ///  Sends pasted text: bracketed, with any bracket marker inside removed,
+        ///  while the program asks for it (mode 2004); otherwise line feeds become
+        ///  carriage returns. A paste is sent whole or not at all, so one larger
+        ///  than the child's input queue (256 KiB) answers `TT_FULL`. Statuses
+        ///  otherwise as for `tt_term_text`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `bytes` points to `len` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_paste", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_paste(tt_term* term, byte* bytes, nuint len);
+
+        /// <summary>
+        ///  Tells the program the view gained (`focused` 1) or lost (0) focus,
+        ///  while it asks for focus reports (mode 1004). Statuses as for
+        ///  `tt_term_key`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_focus", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_focus(tt_term* term, byte focused);
+
+        /// <summary>
+        ///  Sends a mouse event if the program takes it. `*taken`, unless `NULL`,
+        ///  becomes 1 when it does: always while it tracks the mouse, and for a
+        ///  wheel step on the alternate screen, which becomes a cursor key (mode
+        ///  1007). At 0 the event is the host's: select, or scroll the history
+        ///  with `tt_term_scroll_display`. Statuses as for `tt_term_key`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
+        ///  readable bytes; `taken` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_mouse", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_mouse(tt_term* term, tt_mouse_event* @event, byte* taken);
+
+        /// <summary>
+        ///  Moves the viewport `delta` rows back into history (negative: towards
+        ///  the screen), clamped to what history holds. Typing, text and paste
+        ///  bring it back to the screen by themselves.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_scroll_display", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_scroll_display(tt_term* term, int delta);
 
 
     }
@@ -543,6 +785,80 @@ namespace Scull.Native
     }
 
     /// <summary>
+    ///  An image's pixels, shared and immutable. Opaque to the host: read it
+    ///  with `tt_image_pixels`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_image
+    {
+    }
+
+    /// <summary>
+    ///  One image in the viewport. Draw the source rectangle of `image` scaled
+    ///  to `cols` x `rows` cells whose top-left cell is (`row`, `col`), moved by
+    ///  the pixel offset. Placements come lowest `z` first; a negative `z`
+    ///  draws below the text.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_placement
+    {
+        /// <summary>
+        ///  The pixels; valid until the next update or free of the frame, or
+        ///  until `tt_image_release` after a `tt_image_retain`.
+        /// </summary>
+        public tt_image* image;
+        /// <summary>
+        ///  Changes whenever the pixels behind `image` may have; a texture cache
+        ///  keys on `image` and `generation`.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  Viewport row of the top-left cell; negative above the viewport.
+        /// </summary>
+        public int row;
+        /// <summary>
+        ///  Column of the top-left cell.
+        /// </summary>
+        public uint col;
+        /// <summary>
+        ///  Width in cells.
+        /// </summary>
+        public uint cols;
+        /// <summary>
+        ///  Height in cells.
+        /// </summary>
+        public uint rows;
+        /// <summary>
+        ///  Pixel offset inside the top-left cell.
+        /// </summary>
+        public uint offset_x;
+        /// <summary>
+        ///  Pixel offset inside the top-left cell.
+        /// </summary>
+        public uint offset_y;
+        /// <summary>
+        ///  Source rectangle in image pixels: left edge.
+        /// </summary>
+        public uint src_x;
+        /// <summary>
+        ///  Top edge.
+        /// </summary>
+        public uint src_y;
+        /// <summary>
+        ///  Width.
+        /// </summary>
+        public uint src_w;
+        /// <summary>
+        ///  Height.
+        /// </summary>
+        public uint src_h;
+        /// <summary>
+        ///  Stacking order.
+        /// </summary>
+        public int z;
+    }
+
+    /// <summary>
     ///  What `tt_frame_update` hands back. Set `struct_size` before the call.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -615,6 +931,15 @@ namespace Scull.Native
         ///  Number of dirty rows.
         /// </summary>
         public nuint dirty_len;
+        /// <summary>
+        ///  The images in the viewport, lowest `z` first. The rows they cover
+        ///  are in `dirty` whenever a placement over them changed.
+        /// </summary>
+        public tt_placement* placements;
+        /// <summary>
+        ///  Number of placements.
+        /// </summary>
+        public nuint placements_len;
     }
 
     /// <summary>
@@ -624,6 +949,93 @@ namespace Scull.Native
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct tt_frame
     {
+    }
+
+    /// <summary>
+    ///  One key event, as Ghostty's embedding API reports it: what was
+    ///  pressed and what text it typed; the core picks the bytes.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_key_event
+    {
+        /// <summary>
+        ///  `sizeof(tt_key_event)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  The key: for a key of the main block, the code point it types on
+        ///  the US layout with no modifiers (`'a'`, `'1'`, `' '`); for any
+        ///  other key a `TT_KEY_*` code.
+        /// </summary>
+        public uint key;
+        /// <summary>
+        ///  What the key types on the current layout with no modifiers (`с`
+        ///  for the `c` key on a Russian layout); 0 when it is `key` itself.
+        /// </summary>
+        public uint unshifted;
+        /// <summary>
+        ///  `TT_KEY_PRESS`, `TT_KEY_REPEAT` or `TT_KEY_RELEASE`.
+        /// </summary>
+        public byte action;
+        /// <summary>
+        ///  `TT_MOD_*` bits held, including this key if it is a modifier.
+        /// </summary>
+        public byte mods;
+        /// <summary>
+        ///  `TT_MOD_*` bits the layout used to type `text` (Option typing `å`).
+        /// </summary>
+        public byte consumed_mods;
+        /// <summary>
+        ///  1 while an input method is composing: nothing is sent.
+        /// </summary>
+        public byte composing;
+        /// <summary>
+        ///  UTF-8 the key typed, with Shift and consumed modifiers but not
+        ///  Control applied; may be empty.
+        /// </summary>
+        public tt_str text;
+    }
+
+    /// <summary>
+    ///  One mouse event, in cells and in pixels: the core picks which the
+    ///  program gets.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_mouse_event
+    {
+        /// <summary>
+        ///  `sizeof(tt_mouse_event)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  `TT_MOUSE_PRESS`, `TT_MOUSE_RELEASE` or `TT_MOUSE_MOTION`.
+        /// </summary>
+        public byte action;
+        /// <summary>
+        ///  The button pressed or released; for motion, the lowest one held or
+        ///  `TT_MOUSE_NONE`.
+        /// </summary>
+        public byte button;
+        /// <summary>
+        ///  `TT_MOD_*` bits; Shift, Alt and Control are reported.
+        /// </summary>
+        public byte mods;
+        /// <summary>
+        ///  Viewport column, from 0.
+        /// </summary>
+        public uint col;
+        /// <summary>
+        ///  Viewport row, from 0.
+        /// </summary>
+        public uint row;
+        /// <summary>
+        ///  Pixels from the left of the text area.
+        /// </summary>
+        public uint x_px;
+        /// <summary>
+        ///  Pixels from the top of the text area.
+        /// </summary>
+        public uint y_px;
     }
 
 
@@ -668,6 +1080,11 @@ namespace Scull.Native
         ///  start, a size the PTY rejects.
         /// </summary>
         TT_IO = 7,
+        /// <summary>
+        ///  The child is not reading and its input queue cannot take the whole
+        ///  event; nothing was sent. Try again later.
+        /// </summary>
+        TT_FULL = 8,
     }
 
 

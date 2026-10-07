@@ -5,6 +5,7 @@
 use std::time::Instant;
 
 use scull_grid::{Grid, Style};
+use scull_image::ImageStore;
 use scull_parser::Parser;
 use scull_unicode::WidthOptions;
 
@@ -13,11 +14,15 @@ use crate::modes::Modes;
 use crate::state::{Cursor, Margins, State};
 use crate::sync::SyncGate;
 
+/// Largest cell side in pixels accepted from the UI; far beyond any font,
+/// small enough that cell arithmetic on image sizes cannot overflow.
+pub const MAX_CELL_PX: u32 = 4096;
+
 /// A terminal: feed it PTY output, read its grid and cursor.
 #[derive(Debug, Clone)]
 pub struct Terminal {
     parser: Parser,
-    state: State,
+    pub(crate) state: State,
     sync: SyncGate,
 }
 
@@ -50,6 +55,9 @@ impl Terminal {
     /// PTY output; nothing in them can make this fail or panic.
     pub fn feed(&mut self, bytes: &[u8]) {
         self.parser.feed(bytes, &mut self.state);
+        // Once per feed rather than per scrolled line: placements are
+        // anchored to absolute lines, so stale ones only cost memory.
+        self.state.images.prune();
         if self
             .sync
             .fed(self.state.modes.synchronized_output, bytes.len())
@@ -98,6 +106,41 @@ impl Terminal {
     /// `scull_grid::Grid::resize`).
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), TermError> {
         self.state.resize(cols, rows)
+    }
+
+    /// Sets the size of a cell in pixels, which turns image sizes into
+    /// cells; until then [`crate::DEFAULT_CELL_PX`] is assumed. Zero, or
+    /// more than [`MAX_CELL_PX`], is ignored: the size comes from the UI.
+    pub fn set_cell_size(&mut self, width_px: u32, height_px: u32) {
+        let valid = |px: u32| (1..=MAX_CELL_PX).contains(&px);
+        if valid(width_px) && valid(height_px) {
+            self.state.cell_px = (width_px, height_px);
+        }
+    }
+
+    /// The cell size images are measured with, in pixels.
+    pub fn cell_size(&self) -> (u32, u32) {
+        self.state.cell_px
+    }
+
+    /// Sets the colour (RGB) that a sixel image's unpainted pixels show,
+    /// the theme's background; opaque black until then.
+    pub fn set_background(&mut self, rgb: [u8; 3]) {
+        let [r, g, b] = rgb;
+        self.state.background = [r, g, b, u8::MAX];
+    }
+
+    /// The images and placements of the screen shown. Placement rows are
+    /// absolute lines; see [`Self::screen_top_line`].
+    pub fn images(&self) -> &ImageStore {
+        &self.state.images.store
+    }
+
+    /// The absolute line of the top screen row (not the viewport): lines
+    /// count every row that ever reached the screen, so a placement's
+    /// line stays put while the text scrolls.
+    pub fn screen_top_line(&self) -> u64 {
+        self.state.line_of(0)
     }
 
     /// The grid being drawn.

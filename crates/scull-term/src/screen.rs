@@ -64,6 +64,7 @@ impl State {
     /// the pen must intern again on the other.
     fn swap_screens(&mut self) {
         std::mem::swap(&mut self.grid, &mut self.alt);
+        std::mem::swap(&mut self.images, &mut self.alt_images);
         self.alt_active = !self.alt_active;
         self.pen.forget();
     }
@@ -85,6 +86,9 @@ impl State {
                 clear_screen(&mut self.grid);
             }
             self.swap_screens();
+            // foot drops the alternate screen's images on the way out;
+            // whatever is shown next is drawn afresh.
+            self.alt_images.clear();
         }
     }
 
@@ -93,6 +97,8 @@ impl State {
     pub(crate) fn full_reset(&mut self) {
         self.leave_alt_screen(true);
         clear_screen(&mut self.grid);
+        self.images.clear();
+        self.sixel = None;
         let (cols, rows) = (self.cols(), self.rows());
         self.cursor = Cursor::default();
         self.pen.set(Style::default());

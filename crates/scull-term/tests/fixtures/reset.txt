@@ -1,0 +1,85 @@
+# Resets: RIS (ESC c) and DECSTR (CSI ! p).
+
+=== RIS clears the screen, homes the cursor and resets the pen and modes
+source: esctest2 ris.py test_RIS_ClearsScreen, test_RIS_CursorToOrigin, test_RIS_ResetDECOM
+input: abc\e[2;4r\e[?6h\e[4h\e[1m\e[3;3HX\ecY
+cursor: 1,2
+style: 1,1 default
+screen:
+|Y.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== RIS resets the tab stops
+source: esctest2 ris.py test_RIS_ResetTabs
+input: \e[3g\ec\t
+cursor: 1,9
+
+=== RIS leaves the alternate screen
+source: esctest2 ris.py test_RIS_ExitAltScreen
+input: \e[?1049h\ec\e[?1049$p
+replies: \e[?1049;2$y
+
+=== RIS removes the margins
+source: esctest2 ris.py test_RIS_RemoveMargins
+input: \e[2;3r\ec\e[9B
+cursor: 5,1
+
+=== RIS keeps the scrollback
+source: xterm (RIS clears the screen, not the saved lines)
+scrollback: 5
+input: a\r\nb\r\nc\r\nd\r\ne\r\nf\ec
+history: 1
+
+=== DECSTR leaves the cursor where it is
+source: esctest2 decstr.py test_DECSTR_CursorStaysPut
+input: \e[3;4H\e[!p
+cursor: 3,4
+
+=== DECSTR turns IRM off
+source: esctest2 decstr.py test_DECSTR_IRM
+input: \e[4h\e[!pa\e[1;1Hb
+screen:
+|b.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DECSTR keeps DECAWM
+source: esctest2 decstr.py test_DECSTR_DECAWM
+input: \e[!p\e[1;9Hxxx
+cursor: 2,2
+
+=== DECSTR removes the top and bottom margins
+source: esctest2 decstr.py test_DECSTR_STBM
+input: \e[2;3r\e[!p\e[1;1H\e[9B
+cursor: 5,1
+
+=== DECSTR turns DECOM off
+source: esctest2 decstr.py test_DECSTR_DECOM
+input: \e[2;3r\e[?6h\e[!p\e[1;1H
+cursor: 1,1
+
+=== DECSTR forgets the saved cursor
+source: esctest2 save_restore_cursor.py test_SaveRestoreCursor_Reset; decstr.py test_DECSTR_DECSC
+input: a\e7\e[!pb\e8c
+cursor: 1,2
+screen:
+|cb........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DECSTR resets the pen
+source: xterm ctlseqs DECSTR (SGR to normal)
+input: \e[1;31m\e[!pA
+style: 1,1 default
+
+=== DECSTR turns DECLRMM off
+source: esctest2 decstr.py test_DECSTR_DECLRMM, decset.py test_DECSET_DECLRMM_ModeResetByDECSTR
+input: \e[?69h\e[!p\e[?69$p
+replies: \e[?69;2$y

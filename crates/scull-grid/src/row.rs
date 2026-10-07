@@ -191,6 +191,84 @@ impl Row {
         self.touch();
     }
 
+    /// ICH: moves columns `range` right by `n` from its start; cells pushed
+    /// past its end are dropped and `n` copies of `fill` open the gap.
+    pub fn insert_cells(&mut self, range: Range<u16>, n: u16, fill: Cell) {
+        self.shift(range, n, fill, true);
+    }
+
+    /// DCH: deletes `n` columns at the start of `range`; the rest of the
+    /// range moves left and `n` copies of `fill` close it at its end.
+    pub fn delete_cells(&mut self, range: Range<u16>, n: u16, fill: Cell) {
+        self.shift(range, n, fill, false);
+    }
+
+    /// Copies `cells` into the columns from `at`, dropping what runs past
+    /// the row (scrolling inside left and right margins). A wide character
+    /// cut by either edge of the copy is blanked, so no half survives.
+    pub fn write_cells(&mut self, at: u16, cells: &[Cell]) {
+        let start = usize::from(at.min(self.cols));
+        let end = (start + cells.len()).min(usize::from(self.cols));
+        if start == end {
+            return;
+        }
+        if let (Some(span), Some(src)) = (
+            self.materialize(end).get_mut(start..end),
+            cells.get(..end - start),
+        ) {
+            span.copy_from_slice(src);
+        }
+        self.repair_wide(start.saturating_sub(1), end + 1);
+        self.drop_links(start, end);
+        self.touch();
+    }
+
+    fn shift(&mut self, range: Range<u16>, n: u16, fill: Cell, right: bool) {
+        let end = usize::from(range.end.min(self.cols));
+        let start = usize::from(range.start).min(end);
+        let n = usize::from(n).min(end - start);
+        if n == 0 {
+            return;
+        }
+        let cells = self.materialize(end);
+        if let Some(span) = cells.get_mut(start..end) {
+            let gap = if right {
+                span.rotate_right(n);
+                0..n
+            } else {
+                span.rotate_left(n);
+                span.len() - n..span.len()
+            };
+            if let Some(gap) = span.get_mut(gap) {
+                gap.fill(fill);
+            }
+        }
+        self.repair_wide(start.saturating_sub(1), end + 1);
+        self.drop_links(start, end);
+        self.touch();
+    }
+
+    /// Blanks every half of a wide character in `start..end` whose other
+    /// half a shift moved away or overwrote.
+    fn repair_wide(&mut self, start: usize, end: usize) {
+        for i in start..end.min(self.cells.len()) {
+            let cell = self.cells.get(i).copied().unwrap_or(self.fill);
+            let next = self.cells.get(i + 1).copied().unwrap_or(self.fill);
+            let prev_wide = i
+                .checked_sub(1)
+                .and_then(|p| self.cells.get(p))
+                .is_some_and(|c| c.flags().contains(CellFlags::WIDE));
+            let orphan_head =
+                cell.flags().contains(CellFlags::WIDE) && !next.flags().contains(CellFlags::SPACER);
+            let orphan_spacer = cell.flags().contains(CellFlags::SPACER) && !prev_wide;
+            if (orphan_head || orphan_spacer)
+                && let Some(slot) = self.cells.get_mut(i)
+            {
+                *slot = Cell::blank(cell.style());
+            }
+        }
+    }
+
     /// Every column becomes `cell` in O(1); links go too. The allocation is
     /// kept, since a screen row is usually rewritten right away.
     pub fn clear(&mut self, cell: Cell) {
@@ -459,6 +537,98 @@ mod tests {
         r.put(2, ch('W'), true).unwrap();
         r.fill_range(3..4, Cell::EMPTY);
         assert_eq!(text(&r), "..........");
+    }
+
+    fn typed(s: &str) -> Row {
+        let mut r = row();
+        for (col, c) in (0..).zip(s.chars()) {
+            if c != '.' {
+                r.put(col, ch(c), false).unwrap();
+            }
+        }
+        r
+    }
+
+    #[test]
+    fn insert_cells_shifts_right_inside_the_range_only() {
+        let mut r = typed("abcdefghij");
+        r.insert_cells(2..8, 2, Cell::EMPTY);
+        assert_eq!(text(&r), "ab..cdefij");
+        r.insert_cells(0..COLS, COLS + 5, Cell::EMPTY);
+        assert_eq!(text(&r), "..........", "a count past the range clears it");
+    }
+
+    #[test]
+    fn delete_cells_shifts_left_and_fills_the_range_end() {
+        let mut r = typed("abcdefghij");
+        r.delete_cells(2..8, 2, Cell::blank(RED));
+        assert_eq!(text(&r), "abefgh..ij");
+        assert_eq!(r.cell(6), Some(Cell::blank(RED)));
+    }
+
+    #[test]
+    fn shifting_never_leaves_half_a_wide_char() {
+        let mut r = row();
+        r.put(6, ch('W'), true).unwrap();
+        r.insert_cells(0..8, 1, Cell::EMPTY);
+        assert_eq!(text(&r), "..........", "spacer pushed past the range end");
+        let mut r = row();
+        r.put(2, ch('W'), true).unwrap();
+        r.delete_cells(3..COLS, 1, Cell::EMPTY);
+        assert_eq!(text(&r), "..........", "spacer deleted under the head");
+        let mut r = row();
+        r.put(4, ch('W'), true).unwrap();
+        r.insert_cells(5..COLS, 1, Cell::EMPTY);
+        assert_eq!(text(&r), "..........", "insert between head and spacer");
+        let mut r = row();
+        r.put(4, ch('W'), true).unwrap();
+        r.insert_cells(0..COLS, 2, Cell::EMPTY);
+        assert_eq!(text(&r), "......W_..", "a whole wide char moves intact");
+    }
+
+    #[test]
+    fn write_cells_copies_a_span_and_clips_at_the_row_end() {
+        let mut r = typed("abcdefghij");
+        let src: Vec<Cell> = typed("xyz").cells().take(3).collect();
+        r.write_cells(2, &src);
+        assert_eq!(text(&r), "abxyzfghij");
+        r.write_cells(8, &src);
+        assert_eq!(text(&r), "abxyzfghxy", "the part past the row is dropped");
+        r.write_cells(COLS, &src);
+        assert_eq!(
+            text(&r),
+            "abxyzfghxy",
+            "a copy starting past the row is a no-op"
+        );
+    }
+
+    #[test]
+    fn write_cells_never_leaves_half_a_wide_char() {
+        let mut wide = row();
+        wide.put(0, ch('W'), true).unwrap();
+        let head_only: Vec<Cell> = wide.cells().take(1).collect();
+        let spacer_only: Vec<Cell> = wide.cells().skip(1).take(1).collect();
+        let mut r = typed("abcdefghij");
+        r.write_cells(3, &head_only);
+        assert_eq!(
+            text(&r),
+            "abc.efghij",
+            "a head without its spacer is blanked"
+        );
+        r.write_cells(5, &spacer_only);
+        assert_eq!(
+            text(&r),
+            "abc.e.ghij",
+            "a spacer without its head is blanked"
+        );
+        let mut r = row();
+        r.put(4, ch('V'), true).unwrap();
+        r.write_cells(5, &[ch('q')]);
+        assert_eq!(
+            text(&r),
+            ".....q....",
+            "overwriting a spacer blanks its head"
+        );
     }
 
     #[test]

@@ -1,0 +1,110 @@
+# Wide characters and grapheme clusters. Multi-byte input is spelled as
+# UTF-8 bytes; screen rows hold the cluster text.
+
+=== A wide character takes two cells
+source: Unicode UAX #11 (East Asian Wide); xterm wide-character support
+input: \xe4\xb8\xadab
+cursor: 1,5
+screen:
+|中ab......|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== A wide character that does not fit wraps whole
+source: foot and Alacritty (leading spacer at the end of the line)
+size: 5x2
+input: abcd\xe4\xb8\xad
+cursor: 2,3
+screen:
+|abcd.|
+|中...|
+
+=== Writing over the second half of a wide character blanks the first
+source: xterm wide-character handling (no half characters)
+input: \xe4\xb8\xad\e[1;2Hx
+cursor: 1,3
+screen:
+|.x........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== Writing over the first half of a wide character blanks the second
+source: xterm wide-character handling (no half characters)
+input: \xe4\xb8\xad\e[1;1Hx
+cursor: 1,2
+screen:
+|x.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== A combining mark joins the previous cell
+source: Unicode UAX #29 (GB9, Extend)
+input: e\xcc\x81x
+cursor: 1,3
+screen:
+|éx........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== A combining mark in the pending wrap joins the last column
+source: Unicode UAX #29 (GB9); xterm ctlseqs DECAWM
+input: 123456789e\xcc\x81
+cursor: 1,10 wrap
+screen:
+|123456789é|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== A combining mark with nothing to join is dropped
+source: Unicode UAX #29; xterm drops combining marks at the line start
+input: \xcc\x81a
+cursor: 1,2
+screen:
+|a.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== A ZWJ sequence is one cluster as wide as its first code point
+source: Unicode UAX #29 (GB11); mode 2027 off by default
+input: \xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9x
+cursor: 1,4
+screen:
+|👨‍👩x.......|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== VS16 does not widen a narrow character without mode 2027
+source: Unicode UTS #51 (emoji presentation); mode 2027 off by default
+input: \xe2\x9d\xa4\xef\xb8\x8fx
+cursor: 1,3
+screen:
+|❤️x........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== A control between code points ends the cluster
+source: Unicode UAX #29 (GB4, GB5)
+input: e\e[C\xcc\x81
+cursor: 1,3
+screen:
+|e.........|
+|..........|
+|..........|
+|..........|
+|..........|

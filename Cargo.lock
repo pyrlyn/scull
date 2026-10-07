@@ -758,9 +758,11 @@ dependencies = [
 name = "scull-term"
 version = "0.0.0"
 dependencies = [
+ "proptest",
  "scull-grid",
  "scull-parser",
  "scull-unicode",
+ "thiserror",
 ]
 
 [[package]]

@@ -1,0 +1,196 @@
+# Left and right margins: DECLRMM and DECSLRM. Most cases start from a 5x5
+# screen of the letters a..y, row by row.
+
+=== CSI s without DECLRMM saves the cursor
+source: xterm ctlseqs (SCOSC when DECLRMM is reset)
+size: 5x5
+input: \e[3;3H\e[2;4s\e[H\e[u
+cursor: 3,3
+
+=== DECSLRM homes the cursor
+source: xterm ctlseqs DECSLRM
+size: 5x5
+input: \e[?69h\e[3;3H\e[2;4s
+cursor: 1,1
+
+=== SU scrolls only between the left and right margins
+source: esctest2 su.py test_SU_RespectsLeftRightScrollRegion
+size: 5x5
+input: abcde\r\nfghij\r\nklmno\r\npqrst\r\nuvwxy
+input: \e[?69h\e[2;4s\e[2;3H\e[2S
+screen:
+|almne|
+|fqrsj|
+|kvwxo|
+|p...t|
+|u...y|
+
+=== SD scrolls only between the left and right margins
+source: esctest2 sd.py test_SD_RespectsLeftRightScrollRegion
+size: 5x5
+input: abcde\r\nfghij\r\nklmno\r\npqrst\r\nuvwxy
+input: \e[?69h\e[2;4s\e[T
+screen:
+|a...e|
+|fbcdj|
+|kghio|
+|plmnt|
+|uqrsy|
+
+=== DL acts only between the left and right margins
+source: esctest2 dl.py test_DL_InLeftRightScrollRegion
+size: 5x5
+input: abcde\r\nfghij\r\nklmno\r\npqrst\r\nuvwxy
+input: \e[?69h\e[2;4s\e[2;3H\e[M
+cursor: 2,2
+screen:
+|abcde|
+|flmnj|
+|kqrso|
+|pvwxt|
+|u...y|
+
+=== DL outside the left and right margins does nothing
+source: esctest2 dl.py test_DL_OutsideLeftRightScrollRegion
+size: 5x5
+input: abcde\r\nfghij\r\nklmno\r\npqrst\r\nuvwxy
+input: \e[?69h\e[2;4s\e[2;5H\e[M
+screen:
+|abcde|
+|fghij|
+|klmno|
+|pqrst|
+|uvwxy|
+
+=== IL acts only between the left and right margins
+source: esctest2 il.py test_IL_RespectsScrollRegion (with DECSLRM)
+size: 5x5
+input: abcde\r\nfghij\r\nklmno\r\npqrst\r\nuvwxy
+input: \e[?69h\e[2;4s\e[2;3H\e[L
+screen:
+|abcde|
+|f...j|
+|kghio|
+|plmnt|
+|uqrsy|
+
+=== ICH stops at the right margin
+source: esctest2 ich.py test_ICH_ScrollOffRightMarginInScrollRegion
+size: 5x5
+input: abcde\e[?69h\e[2;4s\e[1;2H\e[@
+screen:
+|a.bce|
+|.....|
+|.....|
+|.....|
+|.....|
+
+=== DCH pulls in from the right margin
+source: esctest2 dch.py test_DCH_RespectsMargins
+size: 5x5
+input: abcde\e[?69h\e[2;4s\e[1;2H\e[P
+screen:
+|acd.e|
+|.....|
+|.....|
+|.....|
+|.....|
+
+=== DCH outside the left and right margins does nothing
+source: esctest2 dch.py test_DCH_DoesNothingOutsideLeftRightMargin
+size: 5x5
+input: abcde\e[?69h\e[2;4s\e[1;5H\e[P
+screen:
+|abcde|
+|.....|
+|.....|
+|.....|
+|.....|
+
+=== Printing wraps from the right margin to the left margin
+source: esctest2 decset.py test_DECSET_DECAWM_OnRespectsLeftRightMargin
+size: 5x5
+input: \e[?69h\e[2;4s\e[1;2HXYZW
+cursor: 2,3
+screen:
+|.XYZ.|
+|.W...|
+|.....|
+|.....|
+|.....|
+
+=== CR goes to the left margin
+source: esctest2 cr.py test_CR_MovesToLeftMarginWhenRightOfLeftMargin
+size: 5x5
+input: \e[?69h\e[2;4s\e[1;3H\r
+cursor: 1,2
+
+=== CR left of the left margin goes to column one
+source: esctest2 cr.py test_CR_MovesToLeftOfScreenWhenLeftOfLeftMargin
+size: 5x5
+input: \e[?69h\e[3;4s\e[1;2H\r
+cursor: 1,1
+
+=== CUF stops at the right margin
+source: esctest2 cuf.py test_CUF_StopsAtRightMarginInScrollRegion
+size: 5x5
+input: \e[?69h\e[2;4s\e[1;2H\e[9C
+cursor: 1,4
+
+=== CUB stops at the left margin
+source: esctest2 cub.py test_CUB_StopsAtLeftMarginInScrollRegion
+size: 5x5
+input: \e[?69h\e[2;4s\e[1;4H\e[9D
+cursor: 1,2
+
+=== Resetting DECLRMM removes the margins
+source: esctest2 decset.py test_DECSET_DECLRMM
+size: 5x5
+input: \e[?69h\e[2;4s\e[?69l\e[1;2H\e[9C
+cursor: 1,5
+
+=== CUP in origin mode is relative to all four margins
+source: esctest2 cup.py test_CUP_RespectsOriginMode
+size: 5x5
+input: \e[?69h\e[2;4s\e[2;4r\e[?6h\e[1;1H
+cursor: 2,2
+
+=== CUP in origin mode clamps to all four margins
+source: xterm ctlseqs DECOM
+size: 5x5
+input: \e[?69h\e[2;4s\e[2;4r\e[?6h\e[9;9H
+cursor: 4,4
+
+=== IND outside the left and right margins does not scroll
+source: esctest2 ind.py test_IND_MovesDoesNotScrollOutsideLeftRight
+size: 5x5
+input: abcde\r\nfghij\r\nklmno\r\npqrst\r\nuvwxy
+input: \e[?69h\e[2;4s\e[5;5H\eD
+cursor: 5,5
+screen:
+|abcde|
+|fghij|
+|klmno|
+|pqrst|
+|uvwxy|
+
+=== IND inside the left and right margins scrolls only between them
+source: esctest2 ind.py test_IND_Scrolls (with DECSLRM)
+size: 5x5
+input: abcde\r\nfghij\r\nklmno\r\npqrst\r\nuvwxy
+input: \e[?69h\e[2;4s\e[5;3H\eD
+cursor: 5,3
+screen:
+|aghie|
+|flmnj|
+|kqrso|
+|pvwxt|
+|u...y|
+
+=== Scrolling inside left and right margins keeps the scrollback empty
+source: DEC STD 070 (no whole line leaves the screen)
+size: 5x5
+scrollback: 10
+input: abcde\r\nfghij\r\nklmno\r\npqrst\r\nuvwxy
+input: \e[?69h\e[2;4s\e[3S
+history: 0

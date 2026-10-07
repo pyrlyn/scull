@@ -1,0 +1,82 @@
+# Character sets: SCS, SI/SO, LS2/LS3, SS2/SS3, DEC Special Graphics.
+
+=== DEC Special Graphics draws boxes
+source: vttest menu 3 (character sets); VT100 User Guide table 3-9
+input: \e(0lqk\e(Bx
+cursor: 1,5
+screen:
+|┌─┐x......|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DEC Special Graphics leaves capitals alone
+source: VT100 User Guide table 3-9 (only 5/15 to 7/14 change)
+input: \e(0ABC
+screen:
+|ABC.......|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== SO selects G1 and SI returns to G0
+source: vttest menu 3; xterm ctlseqs SI, SO
+input: \e)0a\x0eq\x0fq
+screen:
+|a─q.......|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== SS2 shifts one character into G2
+source: xterm ctlseqs SS2
+input: \e*0\eNqq
+screen:
+|─q........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== SS3 shifts one character into G3
+source: xterm ctlseqs SS3
+input: \e+A\eO##
+screen:
+|£#........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== LS2 locks G2 into GL until SI
+source: xterm ctlseqs LS2
+input: \e*0\enq\x0fq
+screen:
+|─q........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== The UK set replaces the number sign
+source: xterm ctlseqs SCS (A = United Kingdom)
+input: \e(A#
+screen:
+|£.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== An unknown set is ignored
+source: xterm ctlseqs SCS (unsupported sets leave the designation)
+input: \e(0\e(Zq
+screen:
+|─.........|
+|..........|
+|..........|
+|..........|
+|..........|

@@ -52,6 +52,10 @@ c-abi-test:
     ./{{c_abi_out}}/two_threads-asan
     {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/two_threads.c {{c_abi_link}} -o {{c_abi_out}}/two_threads-tsan
     ./{{c_abi_out}}/two_threads-tsan
+    {{c_abi_cc}} -fsanitize=address,undefined -fno-sanitize-recover=all crates/scull-ffi/tests/c/config.c {{c_abi_link}} -o {{c_abi_out}}/config-asan
+    ./{{c_abi_out}}/config-asan
+    {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/config.c {{c_abi_link}} -o {{c_abi_out}}/config-tsan
+    ./{{c_abi_out}}/config-tsan
 
 macos_app := "target/macos/Scull.app"
 

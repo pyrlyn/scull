@@ -12,6 +12,7 @@ mod error;
 mod keybind;
 mod live;
 mod model;
+mod path;
 mod theme;
 
 pub use error::ConfigError;
@@ -21,6 +22,7 @@ pub use model::{
     Font, MAX_ANSI_OVERRIDES, MAX_FAMILY_BYTES, MAX_FILE_BYTES, MAX_FONT_SIZE, MAX_SCROLLBACK,
     MIN_FONT_SIZE, Settings,
 };
+pub use path::default_path;
 pub use theme::{Rgb, Scheme, Theme};
 
 #[cfg(test)]

@@ -21,11 +21,35 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 3
+#define TT_ABI_VERSION_MINOR 4
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 3
+#define TT_ABI_VERSION 4
+
+// `tt_keybind.action`: paste the clipboard.
+#define TT_ACTION_PASTE 1
+
+// Make the font one point larger.
+#define TT_ACTION_FONT_LARGER 2
+
+// Make the font one point smaller.
+#define TT_ACTION_FONT_SMALLER 3
+
+// Back to the configured font size.
+#define TT_ACTION_FONT_RESET 4
+
+// Scroll the history one screen up.
+#define TT_ACTION_SCROLL_PAGE_UP 5
+
+// Scroll the history one screen down.
+#define TT_ACTION_SCROLL_PAGE_DOWN 6
+
+// Scroll to the oldest history row.
+#define TT_ACTION_SCROLL_TO_TOP 7
+
+// Scroll back to the screen.
+#define TT_ACTION_SCROLL_TO_BOTTOM 8
 
 // `tt_event.kind`: the program rang the bell, once or more since the last
 // poll.
@@ -233,6 +257,9 @@ typedef int32_t tt_status;
 #endif // __STDC_VERSION__ >= 202311L
 #endif // __cplusplus
 
+// The configuration. Opaque to the host.
+typedef struct tt_config tt_config;
+
 // A UI-owned frame. Opaque to the host; one per view, used from one
 // thread at a time.
 typedef struct tt_frame tt_frame;
@@ -243,6 +270,91 @@ typedef struct tt_image tt_image;
 
 // One terminal. Opaque to the host.
 typedef struct tt_term tt_term;
+
+// UTF-8 text the host owns: `len` bytes at `ptr`, no terminator. `ptr`
+// may be `NULL` when `len` is 0.
+typedef struct tt_str {
+  // The first byte.
+  const uint8_t *ptr;
+  // Bytes, not characters.
+  size_t len;
+} tt_str;
+
+// Called with the `userdata` given at spawn when the terminal has
+// something new: output to draw or an event to poll. It runs on a core
+// thread and must not block, unwind or call any `tt_*` function: post a
+// redraw to the UI thread and return. It is not called again until the
+// host calls `tt_frame_update` or `tt_term_poll_event` on the terminal,
+// and never after `tt_term_free` returns.
+typedef void (*tt_wakeup_fn)(void *userdata);
+
+// How to open the configuration.
+typedef struct tt_config_options {
+  // `sizeof(tt_config_options)` as the host knows it.
+  uint32_t struct_size;
+  // `TT_ABI_VERSION` as the host was built with it.
+  uint32_t abi_version;
+  // The config file; empty for the default place
+  // (`$XDG_CONFIG_HOME/scull/config.toml`, `~/.config/scull/config.toml`,
+  // `%APPDATA%\scull\config.toml`).
+  struct tt_str path;
+  // Called from a core thread when `tt_config_poll` would answer
+  // something new; `NULL` for none. Same contract as `tt_wakeup_fn`:
+  // it must not block or call `tt_*`, it is not called again until the
+  // host polls, and never after `tt_config_free` returns.
+  tt_wakeup_fn wakeup;
+  // Passed to `wakeup` as is.
+  void *userdata;
+} tt_config_options;
+
+// A key binding: when `key` is pressed with exactly `mods` among Shift,
+// Alt, Control and Super held, do `action`.
+typedef struct tt_keybind {
+  // As `tt_key_event.key`.
+  uint32_t key;
+  // `TT_MOD_*` bits.
+  uint8_t mods;
+  // `TT_ACTION_*`.
+  uint8_t action;
+} tt_keybind;
+
+// The settings in force. Every pointer in it stays valid until the next
+// `tt_config_poll` or `tt_config_free` on the same handle.
+typedef struct tt_config_view {
+  // `sizeof(tt_config_view)` as the host knows it.
+  uint32_t struct_size;
+  // 1 when anything changed since the previous poll (always on the first).
+  uint8_t updated;
+  // 1 when file changes are watched; 0 means only `tt_config_set` and a
+  // new handle see the file.
+  uint8_t watching;
+  // Grows with every change of the settings or of `error`.
+  uint64_t generation;
+  // The font family; empty for the platform's monospace font.
+  struct tt_str font_family;
+  // The font size in points.
+  float font_size;
+  // History rows for terminals opened from now on.
+  uint32_t scrollback;
+  // Default text colour, `0xRRGGBB`.
+  uint32_t foreground;
+  // Default background colour, `0xRRGGBB`.
+  uint32_t background;
+  // Cursor colour, `0xRRGGBB`.
+  uint32_t cursor;
+  // Palette entries 0 to 15, `0xRRGGBB`.
+  uint32_t ansi[16];
+  // The key bindings in force.
+  const struct tt_keybind *keybinds;
+  // Number of `keybinds`.
+  size_t keybinds_len;
+  // Why the file could not be used the last time it was read, with its
+  // name; empty when it was fine. The settings above are then the last
+  // good ones.
+  struct tt_str error;
+  // The config file's path.
+  struct tt_str path;
+} tt_config_view;
 
 // One event. A `u32` kind rather than an enum, so a kind added later is a
 // value an older host skips, not undefined behaviour.
@@ -417,15 +529,6 @@ typedef struct tt_frame_view {
   size_t placements_len;
 } tt_frame_view;
 
-// UTF-8 text the host owns: `len` bytes at `ptr`, no terminator. `ptr`
-// may be `NULL` when `len` is 0.
-typedef struct tt_str {
-  // The first byte.
-  const uint8_t *ptr;
-  // Bytes, not characters.
-  size_t len;
-} tt_str;
-
 // One key event, as Ghostty's embedding API reports it: what was
 // pressed and what text it typed; the core picks the bytes.
 typedef struct tt_key_event {
@@ -473,14 +576,6 @@ typedef struct tt_mouse_event {
   uint32_t y_px;
 } tt_mouse_event;
 
-// Called with the `userdata` given at spawn when the terminal has
-// something new: output to draw or an event to poll. It runs on a core
-// thread and must not block, unwind or call any `tt_*` function: post a
-// redraw to the UI thread and return. It is not called again until the
-// host calls `tt_frame_update` or `tt_term_poll_event` on the terminal,
-// and never after `tt_term_free` returns.
-typedef void (*tt_wakeup_fn)(void *userdata);
-
 // How to create a terminal. Fields a host does not know read as zero;
 // `tt_term_new` reads only up to `scrollback`.
 typedef struct tt_term_options {
@@ -519,6 +614,50 @@ extern "C" {
 
 // The ABI version of this library, `major << 16 | minor`.
 uint32_t tt_abi_version(void);
+
+// Opens the configuration and starts watching it. A missing file is the
+// defaults and a broken one is an `error` in the view, so this fails only
+// for bad arguments or a host with no home directory to put the file in.
+// On `TT_OK` `*out` holds the handle; free it with `tt_config_free`.
+//
+// # Safety
+//
+// `options` is `NULL` or points to `struct_size` readable bytes, its
+// strings valid for their lengths during this call; `out` is `NULL` or
+// writable.
+tt_status tt_config_new(const struct tt_config_options *options, struct tt_config **out);
+
+// Fills `*view` with the settings in force and sets `updated` when they
+// are not what the previous poll returned. Polling lets the next wakeup
+// fire.
+//
+// # Safety
+//
+// `config` is `NULL` or live; `view` is `NULL` or points to `struct_size`
+// writable bytes.
+tt_status tt_config_poll(const struct tt_config *config, struct tt_config_view *view);
+
+// Changes one setting in the config file, keeping the rest of the file as
+// it is, and applies it at once. `key` is one of `font.family`,
+// `font.size`, `colors.scheme`, `colors.foreground`, `colors.background`,
+// `colors.cursor`, `scrollback`; `value` is its text (`13.5`,
+// `solarized-dark`, `#1a2b3c`), and an empty `value` removes the key so its
+// default applies. `TT_INVALID` for an unknown key or a value the config
+// does not accept, with the file untouched; `TT_IO` when it cannot be
+// written.
+//
+// # Safety
+//
+// `config` is `NULL` or live; the strings are valid for their lengths.
+tt_status tt_config_set(const struct tt_config *config, struct tt_str key, struct tt_str value);
+
+// Frees the configuration and stops its watcher. `NULL` is a no-op. No
+// other call may use `config` during or after this one.
+//
+// # Safety
+//
+// `config` is `NULL` or live, and not used again.
+void tt_config_free(struct tt_config *config);
 
 // Takes the next event into `*event`: `TT_OK` with one, `TT_EMPTY` when
 // there is none. Call it until `TT_EMPTY` after every wakeup.

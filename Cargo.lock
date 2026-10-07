@@ -989,6 +989,7 @@ dependencies = [
  "cargo_metadata",
  "cbindgen",
  "csbindgen",
+ "scull-config",
  "scull-grid",
  "scull-input",
  "scull-pty",

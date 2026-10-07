@@ -23,6 +23,9 @@ use crate::row::{Row, RowId};
 use crate::style::{Style, StyleId, StyleTable};
 use crate::{GridError, Marks};
 
+mod resize;
+pub use resize::{Reflow, TrackPoint};
+
 /// Screen plus scrollback rows one grid may hold. Scrollback is configured,
 /// not sent by the PTY, but a typo must not reserve gigabytes: at this cap
 /// a ring of blank rows is a few MiB of row headers.
@@ -42,6 +45,8 @@ pub struct Grid {
     zero: usize,
     history: usize,
     history_limit: usize,
+    /// The scrollback asked for, so a resize can recompute the clamped limit.
+    scrollback: usize,
     screen_rows: u16,
     cols: u16,
     display_offset: usize,
@@ -70,6 +75,7 @@ impl Grid {
             zero: 0,
             history: 0,
             history_limit,
+            scrollback,
             screen_rows,
             cols,
             display_offset: 0,

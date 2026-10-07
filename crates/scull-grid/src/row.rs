@@ -16,7 +16,7 @@
 use std::ops::Range;
 
 use crate::GridError;
-use crate::cell::{Cell, CellFlags};
+use crate::cell::{Cell, CellFlags, Content};
 use crate::intern::Marks;
 
 /// Identity of a logical row, unique within one grid.
@@ -337,11 +337,7 @@ impl Row {
     /// Shrinks the storage to what the content needs, for a row leaving the
     /// screen. Content and generation are unchanged.
     pub fn compact(&mut self) {
-        let keep = self
-            .cells
-            .iter()
-            .rposition(|c| *c != self.fill)
-            .map_or(0, |i| i + 1);
+        let keep = self.stored_len();
         self.cells.truncate(keep);
         if let Some(&first) = self.cells.first()
             && self.cells.len() == usize::from(self.cols)
@@ -364,6 +360,101 @@ impl Row {
                 clusters.mark(id.0);
             }
         }
+    }
+
+    /// A row assembled by reflow from cells and links it already laid out.
+    pub(crate) fn rebuilt(
+        id: RowId,
+        generation: u32,
+        cols: u16,
+        wrapped: bool,
+        fill: Cell,
+        cells: Vec<Cell>,
+        links: Vec<LinkSpan>,
+    ) -> Self {
+        let extra = (!links.is_empty()).then(|| Box::new(RowExtra { links }));
+        let mut row = Self {
+            id,
+            generation,
+            cols,
+            wrapped,
+            fill,
+            cells,
+            extra,
+        };
+        row.compact();
+        row
+    }
+
+    /// The cell standing for every column past the stored prefix.
+    pub(crate) fn fill(&self) -> Cell {
+        self.fill
+    }
+
+    /// Whether the fill is erased space rather than text. Only then may the
+    /// columns it stands for be dropped and re-padded at another width; a
+    /// row compacted into a uniform run of `z` must keep its `z`s.
+    pub(crate) fn fill_is_blank(&self) -> bool {
+        self.fill.content() == Content::Empty && self.fill.flags().is_empty()
+    }
+
+    /// Columns a reflow must carry: up to the last cell that differs from a
+    /// blank fill, or the whole row when the fill itself shows text.
+    pub(crate) fn content_len(&self) -> u16 {
+        if !self.fill_is_blank() {
+            return self.cols;
+        }
+        u16::try_from(self.stored_len()).unwrap_or(self.cols)
+    }
+
+    /// Never written since it was blanked: reflow may drop it from the
+    /// bottom of the screen without losing anything a frame shows.
+    pub(crate) fn is_blank(&self) -> bool {
+        self.stored_len() == 0 && self.fill == Cell::EMPTY && !self.wrapped && self.extra.is_none()
+    }
+
+    /// Whether `other` shows the same cells, links and wrap, whatever the
+    /// widths: a reflowed row that passes keeps its generation.
+    pub(crate) fn same_content(&self, other: &Self) -> bool {
+        self.wrapped == other.wrapped
+            && self.fill == other.fill
+            && self.links() == other.links()
+            && self.cells.get(..self.stored_len()) == other.cells.get(..other.stored_len())
+    }
+
+    /// Bumps the generation for a change made outside the cell setters.
+    pub(crate) fn mark_changed(&mut self) {
+        self.touch();
+    }
+
+    /// Changes the width without rewrapping (the alt screen): a narrower row
+    /// loses its tail and a wide character cut in half, a wider one pads.
+    pub(crate) fn set_cols(&mut self, cols: u16) {
+        let cut = usize::from(cols);
+        if cols > self.cols {
+            if !self.fill_is_blank() {
+                // The fill shows text only up to the old edge; new columns are blank.
+                self.materialize(usize::from(self.cols));
+                self.fill = Cell::EMPTY;
+            }
+        } else if cols < self.cols {
+            let lost = self.stored_len() > cut || !self.fill_is_blank();
+            self.break_wide_edges(cut, cut);
+            self.cells.truncate(cut);
+            self.drop_links(cut, usize::from(self.cols));
+            if lost {
+                self.touch();
+            }
+        }
+        self.cols = cols;
+    }
+
+    /// Stored cells up to the last one that is not the fill.
+    fn stored_len(&self) -> usize {
+        self.cells
+            .iter()
+            .rposition(|c| *c != self.fill)
+            .map_or(0, |i| i + 1)
     }
 
     fn check(&self, col: u16) -> Result<usize, GridError> {

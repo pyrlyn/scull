@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/*", "tools/*"]
-# cargo-fuzz is its own workspace (nightly). CI gates the in-crate corpus instead.
+# cargo-fuzz is its own workspace (nightly). `just check` stays on this
+# workspace; the short fuzz smoke is a separate CI job.
 exclude = ["fuzz"]
 resolver = "3"
 

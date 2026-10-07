@@ -223,6 +223,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "scull-input"
+version = "0.0.0"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "scull-parser"
 version = "0.0.0"
 dependencies = [
@@ -236,6 +243,7 @@ version = "0.0.0"
 dependencies = [
  "scull-grid",
  "scull-image",
+ "scull-input",
  "scull-parser",
  "scull-unicode",
  "thiserror",

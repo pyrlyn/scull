@@ -15,7 +15,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T20 | in progress | P2 | 3 | 75% | Claude Code / claude-sonnet-5-5 |
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
 | T24 | todo | P2 | 2 | 0% | |
-| T25 | todo | P2 | 2 | 0% | |
 
 ### T3. Conformance and benchmark harness
 
@@ -91,6 +90,3 @@ Execution plan (split to fit the budget):
 
 `crates/scull-harness/src/lib.rs:87-92` wraps eagerly at the last column while xterm DECAWM defers the wrap to the next printable; the golden fixtures encode eager-wrap semantics and will diverge when T7 replays the same streams against the real core. Coordinate with the T7 owner before touching fixtures. Done means: the wrap semantics the fixtures assert are the ones the real core will have, or the divergence is documented as intentional for the stub.
 
-### T25. CI: run the fuzz targets and the UCD stale-table check
-
-The `fuzz/` workspace is excluded from CI (`Cargo.toml:4`) with a gitignored corpus, and the stale-table check silently skips without the `target/ucd` cache (`tools/scull-ucd-gen/src/main.rs:384-397`) while `just check` — the only CI gate — never runs `ucd-check`; a hand-edited `tables.rs` would go unnoticed. Done means: a CI job warms the cache and runs `ucd-check`, and a short smoke fuzz run executes on every push.

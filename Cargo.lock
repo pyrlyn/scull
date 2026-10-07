@@ -824,13 +824,13 @@ dependencies = [
 name = "scull-ffi"
 version = "0.0.0"
 dependencies = [
- "cargo_metadata",
  "cbindgen",
  "csbindgen",
  "scull-grid",
  "scull-input",
  "scull-pty",
  "scull-term",
+ "workspace-graph",
 ]
 
 [[package]]
@@ -1403,6 +1403,14 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+
+[[package]]
+name = "workspace-graph"
+version = "0.1.0"
+dependencies = [
+ "cargo_metadata",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "zerocopy"

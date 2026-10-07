@@ -26,8 +26,9 @@ scull-image = { path = "crates/scull-image" }
 
 # Error enums per library crate (rust.md: no anyhow below a binary).
 thiserror = "2.0.21"
-# Dependency-graph test in scull-ffi/tests/deps.rs.
-cargo_metadata = "0.23.1"
+# Shared test support from crates-packages, unpublished, so by path from the sibling checkout:
+# the dependency-graph test in scull-ffi/tests/deps.rs.
+workspace-graph = { path = "../../packages/crates/workspace-graph" }
 # scull-grid interning tables (clippy.toml bans std HashMap: SipHash is slow, order random).
 rustc-hash = "2.1.3"
 # scull-grid cell and SGR flags; scull-input modifier and kitty-flag sets.

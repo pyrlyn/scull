@@ -15,7 +15,7 @@
 | Package | Where | Source | Why here |
 | --- | --- | --- | --- |
 | thiserror | local | https://github.com/dtolnay/thiserror | Error enum per library crate |
-| cargo_metadata | local | https://github.com/oli-obk/cargo_metadata | Crate-graph test (`crates/scull-ffi/tests/deps.rs`) |
+| workspace-graph | local (path `../../packages/crates/workspace-graph`) | https://github.com/pyrlyn/crates-packages/tree/main/workspace-graph | Crate-graph test (`crates/scull-ffi/tests/deps.rs`); shared, unpublished |
 | libfuzzer-sys | local | https://github.com/rust-fuzz/libfuzzer | libFuzzer targets for the parser and the stub grid (`fuzz/`; nightly, not the CI gate) |
 | cargo-nextest | global (mise) | https://github.com/nextest-rs/nextest | Test runner |
 | proptest | local | https://github.com/proptest-rs/proptest | Property tests |

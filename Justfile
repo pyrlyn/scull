@@ -54,8 +54,8 @@ macos_app := "target/macos/Scull.app"
 # The core as a static library for the Swift package to link; arm64 only.
 # `cargo rustc` picks the crate type here so the manifest stays as is.
 [private]
-macos-lib:
-    mise exec -- cargo rustc -p scull-ffi --lib --crate-type staticlib --release --target aarch64-apple-darwin --locked
+macos-lib features="":
+    mise exec -- cargo rustc -p scull-ffi --lib --crate-type staticlib --release --target aarch64-apple-darwin --locked {{ if features == "" { "" } else { "--features " + features } }}
 
 # Build the macOS app into target/macos/Scull.app, signed ad hoc so it runs
 # locally. The Swift side is a debug build, which keeps the scripted-launch
@@ -68,6 +68,8 @@ macos: macos-lib
     cp "$(cd macos && swift build --arch arm64 --show-bin-path)/Scull" {{macos_app}}/Contents/MacOS/
     codesign --force --sign - {{macos_app}}
 
-# The Swift package's tests, against the same static library.
-macos-test: macos-lib
+# The Swift package's tests. The library carries the `test-hooks` feature so
+# a test can poison one terminal; `just macos` rebuilds it without.
+macos-test:
+    just macos-lib test-hooks
     cd macos && swift test --arch arm64

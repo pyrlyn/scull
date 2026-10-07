@@ -37,3 +37,7 @@
 | png | local | https://github.com/image-rs/image-png | PNG decode for iTerm2 images and kitty `f=100` in scull-image |
 | zune-jpeg | local | https://github.com/etemesi254/zune-image | JPEG decode for iTerm2 images in scull-image |
 | flate2 | local | https://github.com/rust-lang/flate2-rs | zlib inflate of kitty `o=z` payloads in scull-image |
+| serde | local | https://github.com/serde-rs/serde | Derives the config file types in scull-config |
+| toml | local | https://github.com/toml-rs/toml | Parses the config file in scull-config (the only module that does) |
+| schemars | local | https://github.com/GREsau/schemars | JSON Schema of the config types, committed as `docs/config.schema.json` (dev-dependency) |
+| serde_json | local | https://github.com/serde-rs/json | Renders and checks the config schema (dev-dependency) |

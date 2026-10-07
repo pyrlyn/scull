@@ -31,6 +31,10 @@ bindings:
 bindings-check:
     mise exec -- cargo nextest run -p scull-ffi --test bindings --locked
 
+# Rewrite docs/config.schema.json from the config types.
+config-schema:
+    SCULL_BLESS=1 mise exec -- cargo nextest run -p scull-config --locked committed_schema
+
 c_abi_out := "target/c-abi"
 c_abi_cc := "cc -std=c11 -g -O1 -fno-omit-frame-pointer -Wall -Wextra -Werror -Icrates/scull-ffi/include"
 c_abi_link := "-Ltarget/debug -lscull_ffi -Wl,-rpath," + justfile_directory() + "/target/debug -lpthread"

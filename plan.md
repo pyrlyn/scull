@@ -21,6 +21,11 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T19 | todo | P2 | 5 | 0% | |
 | T20 | todo | P2 | 3 | 0% | |
 | T21 | todo | P2 | 3 | 0% | |
+| T22 | todo | P2 | 2 | 0% | |
+| T23 | todo | P3 | 2 | 0% | |
+| T24 | todo | P2 | 2 | 0% | |
+| T25 | todo | P2 | 2 | 0% | |
+| T26 | todo | P3 | 2 | 0% | |
 
 ### T3. Conformance and benchmark harness
 

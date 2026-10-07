@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 /// Every module with exports. csbindgen reads each file alone; cbindgen
 /// follows `mod` items from the crate root by itself.
-const SOURCES: [&str; 8] = [
+const SOURCES: [&str; 9] = [
     "src/lib.rs",
     "src/config.rs",
     "src/guard.rs",
@@ -20,6 +20,7 @@ const SOURCES: [&str; 8] = [
     "src/event.rs",
     "src/frame.rs",
     "src/input.rs",
+    "src/text.rs",
 ];
 
 fn crate_dir() -> PathBuf {

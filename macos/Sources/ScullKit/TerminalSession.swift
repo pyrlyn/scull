@@ -34,6 +34,10 @@ public final class TerminalSession {
     /// untouched, so the pane shows a notice and its siblings keep running.
     public private(set) var isPoisoned = false
 
+    /// The screen's text, read once per changed frame: an accessibility
+    /// client asks for it many times per query.
+    private var screenCache: ScreenText?
+
     /// Runs the user's shell. `onWake` runs on the main actor whenever
     /// there is output or an event to look at.
     public init(cols: UInt16, rows: UInt16, env: [String], cwd: String, scrollback: UInt32 = 10_000,
@@ -127,7 +131,33 @@ public final class TerminalSession {
             return isPoisoned && !wasPoisoned
         }
         view = next
+        if next.updated != 0 { screenCache = nil }
         return next.updated != 0
+    }
+
+    /// The viewport's text, a line per row (see `tt_term_read_text`).
+    func screenText() -> ScreenText {
+        if let screenCache { return screenCache }
+        let read = ScreenText(readText() ?? "")
+        screenCache = read
+        return read
+    }
+
+    private func readText() -> String? {
+        var cap = 0
+        // The child can print between asking for the length and reading,
+        // so a few tries; past them the reader gets nothing this frame.
+        for _ in 0..<4 {
+            var bytes = [UInt8](repeating: 0, count: cap)
+            var len = 0
+            let status = bytes.withUnsafeMutableBufferPointer {
+                tt_term_read_text(term, 0, UInt16.max, $0.baseAddress, cap, &len)
+            }
+            if status == TT_OK { return String(decoding: bytes.prefix(len), as: UTF8.self) }
+            guard status == TT_FULL else { return nil }
+            cap = len + len / 8
+        }
+        return nil
     }
 
     public func cell(row: Int, col: Int) -> tt_cell? {
@@ -170,6 +200,14 @@ public final class TerminalSession {
     public func text(_ text: String) -> tt_status {
         var text = text
         return text.withUTF8 { track(tt_term_text(term, $0.baseAddress, $0.count)) }
+    }
+
+    /// Shows an input method's composing text at the cursor from the next
+    /// update, the caret at UTF-8 offset `caret`; empty text clears it.
+    /// It never reaches the child.
+    public func preedit(_ text: String, caret: Int) -> tt_status {
+        var text = text
+        return text.withUTF8 { tt_frame_preedit(frame, $0.baseAddress, $0.count, max(0, caret)) }
     }
 
     public func paste(_ text: String) -> tt_status {

@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 4;
+        internal const uint TT_ABI_VERSION_MINOR = 5;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 4;
+        internal const uint TT_ABI_VERSION = 5;
         /// <summary>
         ///  `tt_keybind.action`: paste the clipboard.
         /// </summary>
@@ -157,6 +157,10 @@ namespace Scull.Native
         ///  Dashed.
         /// </summary>
         internal const byte TT_UNDERLINE_DASHED = 5;
+        /// <summary>
+        ///  Most bytes of composing text a frame shows.
+        /// </summary>
+        internal const nuint TT_MAX_PREEDIT_BYTES = 1024;
         /// <summary>
         ///  `tt_key_event.action`: the key went down.
         /// </summary>
@@ -473,6 +477,22 @@ namespace Scull.Native
         internal static extern tt_status tt_frame_update(tt_frame* frame, tt_term* term, tt_frame_view* view);
 
         /// <summary>
+        ///  Sets the input method's composing text, UTF-8, with the caret at byte
+        ///  `caret` (moved back onto a character boundary); `len` 0 clears it. The
+        ///  next `tt_frame_update` shows it at the cursor (`tt_frame_view.preedit`).
+        ///  It never reaches the child: commit text with `tt_term_text`. Text past
+        ///  `TT_MAX_PREEDIT_BYTES` is cut. `TT_INVALID` for a `NULL` frame or text
+        ///  that is not UTF-8.
+        ///
+        ///  # Safety
+        ///
+        ///  `frame` is `NULL` or live and not used by another thread meanwhile;
+        ///  `bytes` points to `len` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_frame_preedit", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_frame_preedit(tt_frame* frame, byte* bytes, nuint len, nuint caret);
+
+        /// <summary>
         ///  Frees the frame and every buffer its views pointed to. `NULL` is a
         ///  no-op.
         ///
@@ -597,6 +617,24 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_term_scroll_display", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_term_scroll_display(tt_term* term, int delta);
+
+        /// <summary>
+        ///  Copies the text of `rows` viewport rows from `row` into `buf`: UTF-8,
+        ///  one line per row joined by `\n` (line N is row `row + N`), wide
+        ///  characters once, blank and concealed (SGR 8) cells as spaces, trailing
+        ///  spaces trimmed, no NUL. `*len` becomes the text's length. When that is
+        ///  more than `cap`, nothing is copied and the answer is `TT_FULL`: call
+        ///  again with a larger buffer (pass `cap` 0 to ask for the length). Rows
+        ///  past the viewport are not read. `TT_INVALID` for a `NULL` `len`, or a
+        ///  `NULL` `buf` with a `cap`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+        ///  bytes; `len` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_read_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_read_text(tt_term* term, ushort row, ushort rows, byte* buf, nuint cap, nuint* len);
 
 
     }
@@ -1011,6 +1049,29 @@ namespace Scull.Native
     }
 
     /// <summary>
+    ///  Where the frame shows the input method's composing text, set with
+    ///  `tt_frame_preedit`. The text is already in the row's cells and runs and
+    ///  the cursor is at its caret; a renderer only marks the span, usually
+    ///  with an underline. `cols` is 0 when none is shown.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_preedit
+    {
+        /// <summary>
+        ///  Viewport row.
+        /// </summary>
+        public ushort row;
+        /// <summary>
+        ///  First column.
+        /// </summary>
+        public ushort col;
+        /// <summary>
+        ///  Columns covered.
+        /// </summary>
+        public ushort cols;
+    }
+
+    /// <summary>
     ///  An image's pixels, shared and immutable. Opaque to the host: read it
     ///  with `tt_image_pixels`.
     /// </summary>
@@ -1166,6 +1227,11 @@ namespace Scull.Native
         ///  Number of placements.
         /// </summary>
         public nuint placements_len;
+        /// <summary>
+        ///  The composing text's span; its row is in `dirty` whenever it
+        ///  changed.
+        /// </summary>
+        public tt_preedit preedit;
     }
 
     /// <summary>

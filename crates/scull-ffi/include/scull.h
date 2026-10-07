@@ -21,11 +21,11 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 4
+#define TT_ABI_VERSION_MINOR 5
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 4
+#define TT_ABI_VERSION 5
 
 // `tt_keybind.action`: paste the clipboard.
 #define TT_ACTION_PASTE 1
@@ -121,6 +121,9 @@
 
 // Dashed.
 #define TT_UNDERLINE_DASHED 5
+
+// Most bytes of composing text a frame shows.
+#define TT_MAX_PREEDIT_BYTES 1024
 
 // `tt_key_event.action`: the key went down.
 #define TT_KEY_PRESS 1
@@ -487,6 +490,19 @@ typedef struct tt_placement {
   int32_t z;
 } tt_placement;
 
+// Where the frame shows the input method's composing text, set with
+// `tt_frame_preedit`. The text is already in the row's cells and runs and
+// the cursor is at its caret; a renderer only marks the span, usually
+// with an underline. `cols` is 0 when none is shown.
+typedef struct tt_preedit {
+  // Viewport row.
+  uint16_t row;
+  // First column.
+  uint16_t col;
+  // Columns covered.
+  uint16_t cols;
+} tt_preedit;
+
 // What `tt_frame_update` hands back. Set `struct_size` before the call.
 typedef struct tt_frame_view {
   // `sizeof(tt_frame_view)` as the host knows it; on return, the bytes
@@ -529,6 +545,9 @@ typedef struct tt_frame_view {
   const struct tt_placement *placements;
   // Number of placements.
   size_t placements_len;
+  // The composing text's span; its row is in `dirty` whenever it
+  // changed.
+  struct tt_preedit preedit;
 } tt_frame_view;
 
 // One key event, as Ghostty's embedding API reports it: what was
@@ -686,6 +705,19 @@ struct tt_frame *tt_frame_new(void);
 tt_status tt_frame_update(struct tt_frame *frame,
                           const struct tt_term *term,
                           struct tt_frame_view *view);
+
+// Sets the input method's composing text, UTF-8, with the caret at byte
+// `caret` (moved back onto a character boundary); `len` 0 clears it. The
+// next `tt_frame_update` shows it at the cursor (`tt_frame_view.preedit`).
+// It never reaches the child: commit text with `tt_term_text`. Text past
+// `TT_MAX_PREEDIT_BYTES` is cut. `TT_INVALID` for a `NULL` frame or text
+// that is not UTF-8.
+//
+// # Safety
+//
+// `frame` is `NULL` or live and not used by another thread meanwhile;
+// `bytes` points to `len` readable bytes.
+tt_status tt_frame_preedit(struct tt_frame *frame, const uint8_t *bytes, size_t len, size_t caret);
 
 // Frees the frame and every buffer its views pointed to. `NULL` is a
 // no-op.
@@ -863,6 +895,26 @@ tt_status tt_term_resize(const struct tt_term *term,
 //
 // `term` is `NULL` or live, and not used again.
 void tt_term_free(struct tt_term *term);
+
+// Copies the text of `rows` viewport rows from `row` into `buf`: UTF-8,
+// one line per row joined by `\n` (line N is row `row + N`), wide
+// characters once, blank and concealed (SGR 8) cells as spaces, trailing
+// spaces trimmed, no NUL. `*len` becomes the text's length. When that is
+// more than `cap`, nothing is copied and the answer is `TT_FULL`: call
+// again with a larger buffer (pass `cap` 0 to ask for the length). Rows
+// past the viewport are not read. `TT_INVALID` for a `NULL` `len`, or a
+// `NULL` `buf` with a `cap`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+// bytes; `len` is `NULL` or writable.
+tt_status tt_term_read_text(const struct tt_term *term,
+                            uint16_t row,
+                            uint16_t rows,
+                            uint8_t *buf,
+                            size_t cap,
+                            size_t *len);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -25,4 +25,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Rust, nextest and just come from mise.toml, so CI runs the pinned versions.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      # Includes the drift check of the committed C header and C# bindings
+      # (scull-ffi/tests/bindings.rs, `just bindings-check`).
       - run: just check
+      # Ubuntu's kernel randomises mmap with more bits than the sanitizer
+      # runtimes of the runner's compilers can map around.
+      - if: runner.os == 'Linux'
+        run: sudo sysctl vm.mmap_rnd_bits=28
+      # The C ABI driven from C under ASan+UBSan and TSan. The Windows
+      # runner's cc has no sanitizer runtimes.
+      - if: runner.os != 'Windows'
+        run: just c-abi-test

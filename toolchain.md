@@ -8,6 +8,7 @@
 | mise | brew, then `mise install` | Pins every tool below for local work and CI | https://github.com/jdx/mise |
 | just | mise | Task runner: `just check` is the merge gate | https://github.com/casey/just |
 | cargo-fuzz | `cargo install cargo-fuzz`, runs on nightly | `cargo +nightly fuzz run parser` | https://github.com/rust-fuzz/cargo-fuzz |
+| cc (clang or gcc) | system (Xcode Command Line Tools, distro package) | `just c-abi-test`: the C ABI test under ASan, UBSan and TSan (Unix only) | https://github.com/llvm/llvm-project |
 
 ## cargo
 
@@ -28,3 +29,5 @@
 | bitflags | local | https://github.com/bitflags/bitflags | Cell flags and SGR attribute bits in scull-grid; modifier and kitty flag sets in scull-input |
 | portable-pty | local | https://github.com/wezterm/wezterm/tree/main/pty | PTY and ConPTY for scull-pty |
 | parking_lot | local | https://github.com/Amanieu/parking_lot | Terminal lock with `unlock_fair` so a frame read is not starved |
+| cbindgen | local | https://github.com/mozilla/cbindgen | Generates the committed C header `crates/scull-ffi/include/scull.h` (drift test, dev-dependency) |
+| csbindgen | local | https://github.com/Cysharp/csbindgen | Generates the committed C# bindings `crates/scull-ffi/bindings/csharp/NativeMethods.g.cs` (drift test, dev-dependency) |

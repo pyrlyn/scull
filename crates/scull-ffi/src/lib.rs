@@ -22,6 +22,9 @@
 
 // The exported names are the C names; the header is the API.
 #![allow(non_camel_case_types)]
+// Exported constants are plain literals, never shifts or other constants:
+// csbindgen drops a constant it cannot read as a literal from the C#
+// bindings. Each one is checked against its meaning where it is defined.
 
 mod event;
 mod frame;
@@ -55,7 +58,9 @@ pub const TT_ABI_VERSION_MINOR: u32 = 1;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = TT_ABI_VERSION_MAJOR << 16 | TT_ABI_VERSION_MINOR;
+pub const TT_ABI_VERSION: u32 = 0x0000_0001;
+
+const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 
 /// Bits of the minor version in [`TT_ABI_VERSION`].
 const MINOR_BITS: u32 = 16;

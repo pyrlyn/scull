@@ -18,3 +18,5 @@ scull-pty = { workspace = true }
 
 [dev-dependencies]
 cargo_metadata = { workspace = true }
+cbindgen = { workspace = true }
+csbindgen = { workspace = true }

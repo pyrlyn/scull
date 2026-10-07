@@ -16,8 +16,11 @@ pub const TT_EVENT_BELL: u32 = 1;
 /// Reported once, last.
 pub const TT_EVENT_CHILD_EXITED: u32 = 2;
 
-/// `tt_event.exit_code` when the system did not say.
-pub const TT_EXIT_CODE_UNKNOWN: u32 = UNKNOWN_EXIT_CODE;
+/// `tt_event.exit_code` when the system did not say. A literal, not the
+/// PTY crate's constant, so the generated header can spell it.
+pub const TT_EXIT_CODE_UNKNOWN: u32 = 0xFFFF_FFFF;
+
+const _: () = assert!(TT_EXIT_CODE_UNKNOWN == UNKNOWN_EXIT_CODE);
 
 /// One event. A `u32` kind rather than an enum, so a kind added later is a
 /// value an older host skips, not undefined behaviour.

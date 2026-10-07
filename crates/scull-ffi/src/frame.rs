@@ -97,28 +97,28 @@ pub struct tt_row {
 /// `TT_COLOR_RGB | 0xRRGGBB`; the kind is in `TT_COLOR_KIND_MASK`.
 pub const TT_COLOR_DEFAULT: u32 = 0;
 /// Palette colour, index in the low byte.
-pub const TT_COLOR_INDEXED: u32 = 1 << 24;
+pub const TT_COLOR_INDEXED: u32 = 0x0100_0000;
 /// True colour in the low three bytes.
-pub const TT_COLOR_RGB: u32 = 2 << 24;
+pub const TT_COLOR_RGB: u32 = 0x0200_0000;
 /// The bits that hold a colour's kind.
-pub const TT_COLOR_KIND_MASK: u32 = 0xFF << 24;
+pub const TT_COLOR_KIND_MASK: u32 = 0xFF00_0000;
 
 /// `tt_style.attrs` bits.
 pub const TT_ATTR_BOLD: u16 = 1;
 /// Faint.
-pub const TT_ATTR_DIM: u16 = 1 << 1;
+pub const TT_ATTR_DIM: u16 = 0x02;
 /// Italic.
-pub const TT_ATTR_ITALIC: u16 = 1 << 2;
+pub const TT_ATTR_ITALIC: u16 = 0x04;
 /// Blinking.
-pub const TT_ATTR_BLINK: u16 = 1 << 3;
+pub const TT_ATTR_BLINK: u16 = 0x08;
 /// Foreground and background swapped.
-pub const TT_ATTR_INVERSE: u16 = 1 << 4;
+pub const TT_ATTR_INVERSE: u16 = 0x10;
 /// Invisible text.
-pub const TT_ATTR_HIDDEN: u16 = 1 << 5;
+pub const TT_ATTR_HIDDEN: u16 = 0x20;
 /// Struck through.
-pub const TT_ATTR_STRIKE: u16 = 1 << 6;
+pub const TT_ATTR_STRIKE: u16 = 0x40;
 /// Line above.
-pub const TT_ATTR_OVERLINE: u16 = 1 << 7;
+pub const TT_ATTR_OVERLINE: u16 = 0x80;
 
 const _: () = {
     assert!(TT_ATTR_BOLD == Attrs::BOLD.bits());

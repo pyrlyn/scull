@@ -1,0 +1,168 @@
+# Erase: EL, ED, ECH. Each case starts from DECALN (a screen of E).
+
+=== DECALN fills the screen and homes the cursor
+source: esctest2 decaln.py test_DECALN_FillsScreen, test_DECALN_MovesCursorHome
+input: \e[3;3H\e#8
+cursor: 1,1
+screen:
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+
+=== EL 0 erases from the cursor to the end of the line
+source: esctest2 el.py test_EL_0
+input: \e#8\e[1;4H\e[K
+cursor: 1,4
+screen:
+|EEE.......|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+
+=== EL 1 erases from the start of the line through the cursor
+source: esctest2 el.py test_EL_1
+input: \e#8\e[1;4H\e[1K
+cursor: 1,4
+screen:
+|....EEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+
+=== EL 2 erases the whole line
+source: esctest2 el.py test_EL_2
+input: \e#8\e[3;4H\e[2K
+cursor: 3,4
+screen:
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|..........|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+
+=== EL ignores the scroll region
+source: esctest2 el.py test_EL_IgnoresScrollRegion
+input: \e#8\e[2;3r\e[5;4H\e[K
+screen:
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEE.......|
+
+=== EL with an unknown parameter does nothing
+source: xterm ctlseqs EL (Ps 0, 1, 2 only)
+input: \e#8\e[1;4H\e[9K
+screen:
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+
+=== EL in the pending wrap erases the last column and clears the wrap
+source: xterm ctlseqs DECAWM; vttest menu 1
+input: 0123456789\e[K
+cursor: 1,10
+screen:
+|012345678.|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== ED 0 erases from the cursor to the end of the screen
+source: esctest2 ed.py test_ED_0, test_ED_Default
+input: \e#8\e[2;4H\e[J
+cursor: 2,4
+screen:
+|EEEEEEEEEE|
+|EEE.......|
+|..........|
+|..........|
+|..........|
+
+=== ED 1 erases from the start of the screen through the cursor
+source: esctest2 ed.py test_ED_1
+input: \e#8\e[2;4H\e[1J
+cursor: 2,4
+screen:
+|..........|
+|....EEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+
+=== ED 2 erases the screen without moving the cursor
+source: esctest2 ed.py test_ED_2
+input: \e#8\e[2;4H\e[2J
+cursor: 2,4
+screen:
+|..........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== ED ignores the scroll region
+source: esctest2 ed.py test_ED_0_WithScrollRegion
+input: \e#8\e[2;3r\e[2;4H\e[J
+screen:
+|EEEEEEEEEE|
+|EEE.......|
+|..........|
+|..........|
+|..........|
+
+=== ED 3 clears the scrollback and leaves the screen
+source: esctest2 ed.py test_ED_3; xterm ctlseqs ED Ps = 3
+size: 10x2
+scrollback: 5
+input: a\r\nb\r\nc\e[3J
+history: 0
+screen:
+|b.........|
+|c.........|
+
+=== ECH erases cells without moving the rest
+source: esctest2 ech.py test_ECH_ExplicitParam
+input: \e#8\e[1;3H\e[4X
+cursor: 1,3
+screen:
+|EE....EEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+
+=== ECH defaults to one cell
+source: esctest2 ech.py test_ECH_DefaultParam
+input: \e#8\e[1;3H\e[X
+screen:
+|EE.EEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+
+=== ECH stops at the end of the line
+source: esctest2 ech.py test_ECH_IgnoresScrollRegion
+input: \e#8\e[1;8H\e[99X
+screen:
+|EEEEEEE...|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+|EEEEEEEEEE|
+
+=== Erased cells keep the pen background only
+source: xterm ctlseqs, background colour erase (BCE)
+input: \e[1;41m\e[2K\e[m
+cursor: 1,1
+style: 1,1 bg=1
+style: 1,10 bg=1
+style: 2,1 default

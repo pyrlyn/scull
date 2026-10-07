@@ -1,0 +1,77 @@
+# Autowrap (DECAWM is on by default) and the pending-wrap state, plus REP.
+
+=== Filling the last column leaves a pending wrap
+source: vttest menu 1 (autowrap); xterm ctlseqs DECAWM
+input: 0123456789
+cursor: 1,10 wrap
+
+=== The next character wraps to the next line
+source: esctest2 decset.py test_DECSET_DECAWM
+input: 0123456789ab
+cursor: 2,3
+screen:
+|0123456789|
+|ab........|
+|..........|
+|..........|
+|..........|
+
+=== CR in the pending wrap returns to column one
+source: esctest2 decset.py test_DECSET_DECAWM_CursorAtRightMargin
+input: 0123456789\rX
+cursor: 1,2
+screen:
+|X123456789|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== A wrap at the bottom scrolls into the scrollback
+source: vttest menu 1 (autowrap at the last line)
+size: 4x2
+scrollback: 10
+input: abcdefghij
+cursor: 2,3
+history: 1
+screen:
+|efgh|
+|ij..|
+
+=== Backspace in the pending wrap moves off the last column
+source: esctest2 bs.py test_BS_CursorStartsInDoWrapPosition
+input: 0123456789\bX
+cursor: 1,10
+screen:
+|01234567X9|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== REP repeats the last printed character
+source: esctest2 rep.py test_REP_ExplicitParam
+input: a\e[3b
+cursor: 1,5
+screen:
+|aaaa......|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== REP defaults to one and wraps like printing
+source: esctest2 rep.py test_REP_DefaultParam
+input: \e[1;9Hx\e[b\e[b
+cursor: 2,2
+screen:
+|........xx|
+|x.........|
+|..........|
+|..........|
+|..........|
+
+=== REP with nothing printed does nothing
+source: xterm ctlseqs REP (repeats the preceding graphic character)
+input: \e[5b
+cursor: 1,1

@@ -1,0 +1,186 @@
+# Cursor movement. Default size 10x5; positions are 1-based ROW,COL.
+
+=== CUP with no parameters homes the cursor
+source: esctest2 cup.py test_CUP_DefaultParams
+input: abc\e[3;4H\e[H
+cursor: 1,1
+
+=== CUP moves to row and column
+source: esctest2 cup.py test_CUP_RowOnly, test_CUP_ColumnOnly
+input: \e[3;4H
+cursor: 3,4
+
+=== CUP with an empty row parameter uses row 1
+source: esctest2 cup.py test_CUP_ColumnOnly
+input: \e[4;4H\e[;5H
+cursor: 1,5
+
+=== CUP clamps to the screen
+source: esctest2 cup.py test_CUP_OutOfBoundsParams
+input: \e[99;99H
+cursor: 5,10
+
+=== CUP with zero parameters means one
+source: esctest2 cup.py test_CUP_ZeroIsTreatedAsOne
+input: \e[3;3H\e[0;0H
+cursor: 1,1
+
+=== HVP is CUP
+source: esctest2 hvp.py test_HVP_RowOnly, test_HVP_OutOfBoundsParams
+input: \e[2;5f
+cursor: 2,5
+
+=== CUU stops at the top
+source: esctest2 cuu.py test_CUU_StopsAtTopLine
+input: \e[3;3H\e[9A
+cursor: 1,3
+
+=== CUU of zero moves one row
+source: esctest2 cuu.py test_CUU_DefaultParam
+input: \e[3;3H\e[0A
+cursor: 2,3
+
+=== CUU stops at the top margin when it starts inside the region
+source: esctest2 cuu.py test_CUU_StopsAtTopMarginInScrollRegion
+input: \e[2;4r\e[3;1H\e[9A
+cursor: 2,1
+
+=== CUU above the region goes to the top line
+source: esctest2 cuu.py test_CUU_StopsAtTopLineWhenBegunAboveScrollRegion
+input: \e[3;4r\e[2;1H\e[9A
+cursor: 1,1
+
+=== CUD stops at the bottom
+source: esctest2 cud.py test_CUD_StopsAtBottomLine
+input: \e[9B
+cursor: 5,1
+
+=== CUD stops at the bottom margin when it starts inside the region
+source: esctest2 cud.py test_CUD_StopsAtBottomMarginInScrollRegion
+input: \e[2;3r\e[2;1H\e[9B
+cursor: 3,1
+
+=== CUD below the region goes to the bottom line
+source: esctest2 cud.py test_CUD_StopsAtBottomLineWhenBegunBelowScrollRegion
+input: \e[2;3r\e[4;1H\e[9B
+cursor: 5,1
+
+=== CUF stops at the right edge
+source: esctest2 cuf.py test_CUF_StopsAtRightSide
+input: \e[99C
+cursor: 1,10
+
+=== CUF defaults to one
+source: esctest2 cuf.py test_CUF_DefaultParam
+input: \e[1;3H\e[C
+cursor: 1,4
+
+=== CUB stops at the left edge
+source: esctest2 cub.py test_CUB_StopsAtLeftEdge
+input: \e[1;5H\e[99D
+cursor: 1,1
+
+=== CUB defaults to one
+source: esctest2 cub.py test_CUB_DefaultParam
+input: \e[1;5H\e[D
+cursor: 1,4
+
+=== CHA moves within the row
+source: esctest2 cha.py test_CHA_ExplicitParam
+input: \e[2;2H\e[7G
+cursor: 2,7
+
+=== CHA clamps to the right edge
+source: esctest2 cha.py test_CHA_OutOfBoundsLarge
+input: \e[99G
+cursor: 1,10
+
+=== CHA with zero goes to column one
+source: esctest2 cha.py test_CHA_ZeroParam
+input: \e[1;5H\e[0G
+cursor: 1,1
+
+=== HPA is CHA
+source: esctest2 hpa.py test_HPA_DoesNotChangeRow
+input: \e[3;2H\e[4`
+cursor: 3,4
+
+=== VPA moves within the column
+source: esctest2 vpa.py test_VPA_DoesNotChangeColumn
+input: \e[1;3H\e[4d
+cursor: 4,3
+
+=== VPA clamps to the bottom
+source: esctest2 vpa.py test_VPA_StopsAtBottomEdge
+input: \e[1;3H\e[99d
+cursor: 5,3
+
+=== CNL moves down to column one
+source: esctest2 cnl.py test_CNL_ExplicitParam
+input: \e[1;5H\e[2E
+cursor: 3,1
+
+=== CNL stops at the bottom
+source: esctest2 cnl.py test_CNL_StopsAtBottomLine
+input: \e[1;5H\e[99E
+cursor: 5,1
+
+=== CPL moves up to column one
+source: esctest2 cpl.py test_CPL_ExplicitParam
+input: \e[4;5H\e[2F
+cursor: 2,1
+
+=== CPL stops at the top
+source: esctest2 cpl.py test_CPL_StopsAtTopLine
+input: \e[4;5H\e[99F
+cursor: 1,1
+
+=== HPR moves right
+source: esctest2 hpr.py test_HPR_DoesNotChangeRow
+input: \e[1;2H\e[3a
+cursor: 1,5
+
+=== HPR clamps to the right edge
+source: esctest2 hpr.py test_HPR_StopsAtRightEdge
+input: \e[1;2H\e[99a
+cursor: 1,10
+
+=== VPR moves down
+source: esctest2 vpr.py test_VPR_DoesNotChangeColumn
+input: \e[1;2H\e[3e
+cursor: 4,2
+
+=== VPR clamps to the bottom
+source: esctest2 vpr.py test_VPR_StopsAtBottomEdge
+input: \e[1;2H\e[99e
+cursor: 5,2
+
+=== BS moves one column left
+source: esctest2 bs.py test_BS_Basic
+input: abc\b
+cursor: 1,3
+
+=== BS stops at the left edge
+source: esctest2 bs.py test_BS_NoWrapByDefault
+input: \e[2;1H\b\b
+cursor: 2,1
+
+=== CR returns to column one
+source: esctest2 cr.py test_CR_Basic
+input: abc\r
+cursor: 1,1
+
+=== LF keeps the column
+source: esctest2 lf.py test_LF_Basic
+input: ab\n
+cursor: 2,3
+
+=== VT and FF act as LF
+source: xterm ctlseqs, C0 controls (VT and FF are treated as LF)
+input: a\x0b\x0c
+cursor: 3,2
+
+=== A cursor move clears the pending wrap
+source: vttest menu 1 (autowrap), xterm ctlseqs DECAWM
+input: 0123456789\e[1;10H
+cursor: 1,10

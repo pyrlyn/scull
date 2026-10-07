@@ -1,0 +1,79 @@
+# Tab stops: HT, HTS, TBC, CHT, CBT. Default stops are every 8 columns.
+
+=== HT moves to the next default stop
+source: vttest menu 2 (tab stops); xterm ctlseqs HT
+input: \t
+cursor: 1,9
+
+=== HT stops at the right edge
+source: esctest2 decset.py test_DECSET_DECAWM_TabDoesNotWrapAround
+input: \t\t\t
+cursor: 1,10
+
+=== HT does not write cells
+source: vttest menu 2; xterm ctlseqs HT
+input: ab\tc
+cursor: 1,10
+screen:
+|ab......c.|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== HTS sets a stop at the cursor
+source: esctest2 hts.py test_HTS_Basic
+input: \e[1;3H\eH\r\t
+cursor: 1,3
+
+=== TBC 0 clears the stop at the cursor
+source: esctest2 tbc.py test_TBC_0, test_TBC_Default
+input: \e[1;9H\e[g\r\t
+cursor: 1,10
+
+=== TBC 3 clears every stop
+source: esctest2 tbc.py test_TBC_3
+size: 20x2
+input: \e[3g\t
+cursor: 1,20
+
+=== TBC with no stop under the cursor does nothing
+source: esctest2 tbc.py test_TBC_NoOp
+input: \e[1;4H\e[g\r\t
+cursor: 1,9
+
+=== CHT moves one stop by default
+source: esctest2 cht.py test_CHT_OneTabStopByDefault
+size: 20x2
+input: \e[I
+cursor: 1,9
+
+=== CHT moves several stops
+source: esctest2 cht.py test_CHT_ExplicitParameter
+size: 20x2
+input: \e[2I
+cursor: 1,17
+
+=== CHT ignores the scroll region
+source: esctest2 cht.py test_CHT_IgnoresScrollingRegion
+size: 20x5
+input: \e[2;3r\e[5;1H\e[2I
+cursor: 5,17
+
+=== CBT moves back one stop by default
+source: esctest2 cbt.py test_CBT_OneTabStopByDefault
+size: 20x2
+input: \e[1;20H\e[Z
+cursor: 1,17
+
+=== CBT moves back several stops
+source: esctest2 cbt.py test_CBT_ExplicitParameter
+size: 20x2
+input: \e[1;20H\e[2Z
+cursor: 1,9
+
+=== CBT stops at the left edge
+source: esctest2 cbt.py test_CBT_StopsAtLeftEdge
+size: 20x2
+input: \e[1;20H\e[9Z
+cursor: 1,1

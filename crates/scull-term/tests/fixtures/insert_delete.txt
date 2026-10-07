@@ -1,0 +1,178 @@
+# Insert and delete: ICH, DCH, IL, DL.
+
+=== ICH opens blank cells at the cursor
+source: esctest2 ich.py test_ICH_ExplicitParam
+input: abcdef\e[1;2H\e[2@
+cursor: 1,2
+screen:
+|a..bcdef..|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== ICH defaults to one cell
+source: esctest2 ich.py test_ICH_DefaultParam
+input: abcdef\e[1;2H\e[@
+screen:
+|a.bcdef...|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== ICH pushes cells off the right edge
+source: esctest2 ich.py test_ICH_ScrollOffRightEdge
+input: 0123456789\e[1;3H\e[3@
+cursor: 1,3
+screen:
+|01...23456|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== ICH larger than the line clears to the end
+source: esctest2 ich.py test_ICH_ScrollEntirelyOffRightEdge
+input: 0123456789\e[1;3H\e[99@
+screen:
+|01........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== ICH inside a wide character blanks both halves
+source: xterm ctlseqs ICH; wide-character repair (no half characters)
+input: a中b\e[1;3H\e[@
+screen:
+|a...b.....|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DCH removes cells and pulls the line left
+source: esctest2 dch.py test_DCH_ExplicitParam
+input: abcdef\e[1;2H\e[2P
+cursor: 1,2
+screen:
+|adef......|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DCH defaults to one cell
+source: esctest2 dch.py test_DCH_DefaultParam
+input: abcdef\e[1;2H\e[P
+screen:
+|acdef.....|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DCH larger than the line clears to the end
+source: esctest2 dch.py test_DCH_ExplicitParam (count past the line)
+input: 0123456789\e[1;3H\e[99P
+screen:
+|01........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DCH works outside the top and bottom margins
+source: esctest2 dch.py test_DCH_WorksOutsideTopBottomMargin
+input: abcdef\e[2;3r\e[1;2H\e[P
+screen:
+|acdef.....|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== IL inserts blank lines at the cursor row
+source: esctest2 il.py test_IL_DefaultParam
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;3H\e[L
+cursor: 2,1
+screen:
+|a.........|
+|..........|
+|b.........|
+|c.........|
+|d.........|
+
+=== IL with a count pushes lines off the bottom
+source: esctest2 il.py test_IL_ExplicitParam, test_IL_ScrollsOffBottom
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;1H\e[9L
+screen:
+|a.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== IL respects the scroll region
+source: esctest2 il.py test_IL_RespectsScrollRegion
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[3;1H\e[L
+cursor: 3,1
+screen:
+|a.........|
+|b.........|
+|..........|
+|c.........|
+|e.........|
+
+=== IL outside the scroll region does nothing
+source: esctest2 il.py test_IL_AboveScrollRegion
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[1;1H\e[L
+cursor: 1,1
+screen:
+|a.........|
+|b.........|
+|c.........|
+|d.........|
+|e.........|
+
+=== DL removes lines and pulls the screen up
+source: esctest2 dl.py test_DL_ExplicitParam
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;3H\e[2M
+cursor: 2,1
+screen:
+|a.........|
+|d.........|
+|e.........|
+|..........|
+|..........|
+
+=== DL larger than the screen clears to the bottom
+source: esctest2 dl.py test_DL_DeleteMoreThanVisible
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;1H\e[99M
+screen:
+|a.........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== DL respects the scroll region
+source: esctest2 dl.py test_DL_InScrollRegion
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[2;1H\e[M
+screen:
+|a.........|
+|c.........|
+|d.........|
+|..........|
+|e.........|
+
+=== DL outside the scroll region does nothing
+source: esctest2 dl.py test_DL_OutsideScrollRegion
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[5;1H\e[M
+screen:
+|a.........|
+|b.........|
+|c.........|
+|d.........|
+|e.........|

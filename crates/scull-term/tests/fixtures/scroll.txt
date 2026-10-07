@@ -1,0 +1,245 @@
+# Scrolling: SU, SD, IND, RI, NEL, LF and DECSTBM. Most cases start from
+# five lines a..e, which leave the cursor at 5,2.
+
+=== SU scrolls the screen up
+source: esctest2 su.py test_SU_ExplicitParam
+input: a\r\nb\r\nc\r\nd\r\ne\e[2S
+cursor: 5,2
+screen:
+|c.........|
+|d.........|
+|e.........|
+|..........|
+|..........|
+
+=== SU larger than the screen clears it
+source: esctest2 su.py test_SU_CanClearScreen
+input: a\r\nb\r\nc\r\nd\r\ne\e[99S
+screen:
+|..........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== SU respects the scroll region
+source: esctest2 su.py test_SU_RespectsTopBottomScrollRegion
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[S
+screen:
+|a.........|
+|c.........|
+|d.........|
+|..........|
+|e.........|
+
+=== SU of the full screen feeds the scrollback
+source: xterm scrollback behaviour; Alacritty grid scroll_up
+scrollback: 10
+input: a\r\nb\r\nc\r\nd\r\ne\e[2S
+history: 2
+
+=== SU inside a region keeps the scrollback empty
+source: xterm scrollback behaviour (only lines leaving the top of the screen are saved)
+scrollback: 10
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[2S
+history: 0
+cursor: 1,1
+
+=== SD scrolls the screen down
+source: esctest2 sd.py test_SD_ExplicitParam
+input: a\r\nb\r\nc\r\nd\r\ne\e[2T
+screen:
+|..........|
+|..........|
+|a.........|
+|b.........|
+|c.........|
+
+=== SD respects the scroll region
+source: esctest2 sd.py test_SD_RespectsTopBottomScrollRegion
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[T
+screen:
+|a.........|
+|..........|
+|b.........|
+|c.........|
+|e.........|
+
+=== SD larger than the screen clears it
+source: esctest2 sd.py test_SD_CanClearScreen
+input: a\r\nb\r\nc\r\nd\r\ne\e[99T
+screen:
+|..........|
+|..........|
+|..........|
+|..........|
+|..........|
+
+=== IND moves down and keeps the column
+source: esctest2 ind.py test_IND_Basic
+input: \e[1;3H\eD
+cursor: 2,3
+
+=== IND at the bottom scrolls
+source: esctest2 ind.py test_IND_Scrolls
+input: a\r\nb\r\nc\r\nd\r\ne\eD
+cursor: 5,2
+screen:
+|b.........|
+|c.........|
+|d.........|
+|e.........|
+|..........|
+
+=== IND at the bottom margin scrolls the region
+source: esctest2 ind.py test_IND_ScrollsInTopBottomRegionStartingWithin
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[4;1H\eD
+cursor: 4,1
+screen:
+|a.........|
+|c.........|
+|d.........|
+|..........|
+|e.........|
+
+=== IND below the region stops at the bottom line
+source: esctest2 ind.py test_IND_StopsAtBottomLineWhenBegunBelowScrollRegion
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;3r\e[5;1H\eD
+cursor: 5,1
+screen:
+|a.........|
+|b.........|
+|c.........|
+|d.........|
+|e.........|
+
+=== RI moves up and keeps the column
+source: esctest2 ri.py test_RI_Basic
+input: \e[3;3H\eM
+cursor: 2,3
+
+=== RI at the top scrolls down
+source: esctest2 ri.py test_RI_Scrolls
+input: a\r\nb\r\nc\r\nd\r\ne\e[1;1H\eM
+cursor: 1,1
+screen:
+|..........|
+|a.........|
+|b.........|
+|c.........|
+|d.........|
+
+=== RI at the top margin scrolls the region
+source: esctest2 ri.py test_RI_ScrollsInTopBottomRegionStartingWithin
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[2;1H\eM
+screen:
+|a.........|
+|..........|
+|b.........|
+|c.........|
+|e.........|
+
+=== RI above the region stops at the top line
+source: esctest2 ri.py test_RI_StopsAtTopLineWhenBegunAboveScrollRegion
+input: a\r\nb\r\nc\r\nd\r\ne\e[3;4r\e[1;1H\eM
+cursor: 1,1
+screen:
+|a.........|
+|b.........|
+|c.........|
+|d.........|
+|e.........|
+
+=== NEL moves to the start of the next line
+source: esctest2 nel.py test_NEL_Basic
+input: \e[1;5H\eE
+cursor: 2,1
+
+=== NEL at the bottom scrolls
+source: esctest2 nel.py test_NEL_Scrolls
+input: a\r\nb\r\nc\r\nd\r\ne\eE
+cursor: 5,1
+screen:
+|b.........|
+|c.........|
+|d.........|
+|e.........|
+|..........|
+
+=== LF at the bottom margin scrolls the region
+source: esctest2 lf.py test_LF_ScrollsInTopBottomRegionStartingWithin; decstbm.py test_DECSTBM_ScrollsOnNewline
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;4r\e[4;1H\n
+cursor: 4,1
+screen:
+|a.........|
+|c.........|
+|d.........|
+|..........|
+|e.........|
+
+=== LF below the region does not scroll
+source: esctest2 decstbm.py test_DECSTBM_NewlineBelowRegion
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;3r\e[5;1H\n
+cursor: 5,1
+screen:
+|a.........|
+|b.........|
+|c.........|
+|d.........|
+|e.........|
+
+=== DECSTBM moves the cursor home
+source: esctest2 decstbm.py test_DECSTBM_MovsCursorToOrigin
+input: \e[3;4H\e[2;4r
+cursor: 1,1
+
+=== DECSTBM with top not above bottom is ignored
+source: esctest2 decstbm.py test_DECSTBM_TopBelowBottom
+input: a\r\nb\r\nc\r\nd\r\ne\e[3;3r\e[5;1H\n
+cursor: 5,1
+screen:
+|b.........|
+|c.........|
+|d.........|
+|e.........|
+|..........|
+
+=== DECSTBM with no parameters restores the full screen
+source: esctest2 decstbm.py test_DECSTBM_DefaultRestores
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;3r\e[r\e[5;1H\n
+screen:
+|b.........|
+|c.........|
+|d.........|
+|e.........|
+|..........|
+
+=== DECSTBM clamps the bottom to the screen
+source: esctest2 decstbm.py test_DECSTBM_MaxSizeOfRegionIsPageSize
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;99r\e[5;1H\n
+screen:
+|a.........|
+|c.........|
+|d.........|
+|e.........|
+|..........|
+
+=== DECSTBM with a zero top means the top of the screen
+source: esctest2 decstbm.py test_DECSTBM_TopOfZeroIsTopOfScreen
+input: a\r\nb\r\nc\r\nd\r\ne\e[0;3r\e[3;1H\n
+screen:
+|b.........|
+|c.........|
+|..........|
+|d.........|
+|e.........|
+
+=== DECSTBM with a zero bottom means the bottom of the screen
+source: esctest2 decstbm.py test_DECSTBM_BottomOfZeroIsBottomOfScreen
+input: a\r\nb\r\nc\r\nd\r\ne\e[2;0r\e[5;1H\n
+screen:
+|a.........|
+|c.........|
+|d.........|
+|e.........|
+|..........|

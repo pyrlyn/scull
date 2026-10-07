@@ -21,6 +21,9 @@ let c23: [SwiftSetting] = [.unsafeFlags(["-Xcc", "-std=c23"])]
 let package = Package(
     name: "Scull",
     platforms: [.macOS("26.0")],
+    products: [
+        .executable(name: "Scull", targets: ["Scull"]),
+    ],
     targets: [
         .systemLibrary(name: "CScull", path: "Sources/CScull"),
         .target(
@@ -29,6 +32,7 @@ let package = Package(
             swiftSettings: c23,
             linkerSettings: [.unsafeFlags([rustStaticLib])]
         ),
+        .executableTarget(name: "Scull", dependencies: ["ScullKit"], swiftSettings: c23),
         .testTarget(name: "ScullKitTests", dependencies: ["ScullKit"], swiftSettings: c23),
     ]
 )

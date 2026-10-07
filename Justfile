@@ -49,11 +49,24 @@ c-abi-test:
     {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/two_threads.c {{c_abi_link}} -o {{c_abi_out}}/two_threads-tsan
     ./{{c_abi_out}}/two_threads-tsan
 
+macos_app := "target/macos/Scull.app"
+
 # The core as a static library for the Swift package to link; arm64 only.
 # `cargo rustc` picks the crate type here so the manifest stays as is.
 [private]
 macos-lib:
     mise exec -- cargo rustc -p scull-ffi --lib --crate-type staticlib --release --target aarch64-apple-darwin --locked
+
+# Build the macOS app into target/macos/Scull.app, signed ad hoc so it runs
+# locally. The Swift side is a debug build, which keeps the scripted-launch
+# hook (`open target/macos/Scull.app --args -ScullInitialInput ls`).
+macos: macos-lib
+    cd macos && swift build --arch arm64
+    rm -rf {{macos_app}}
+    mkdir -p {{macos_app}}/Contents/MacOS
+    cp macos/Info.plist {{macos_app}}/Contents/
+    cp "$(cd macos && swift build --arch arm64 --show-bin-path)/Scull" {{macos_app}}/Contents/MacOS/
+    codesign --force --sign - {{macos_app}}
 
 # The Swift package's tests, against the same static library.
 macos-test: macos-lib

@@ -204,6 +204,7 @@ name = "scull-image"
 version = "0.0.0"
 dependencies = [
  "base64",
+ "flate2",
  "png",
  "rustc-hash",
  "thiserror",

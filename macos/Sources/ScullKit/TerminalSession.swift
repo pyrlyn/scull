@@ -157,6 +157,14 @@ public final class TerminalSession {
         return text.withUTF8 { tt_term_text(term, $0.baseAddress, $0.count) }
     }
 
+    /// Shows an input method's composing text at the cursor from the next
+    /// update, the caret at UTF-8 offset `caret`; empty text clears it.
+    /// It never reaches the child.
+    public func preedit(_ text: String, caret: Int) -> tt_status {
+        var text = text
+        return text.withUTF8 { tt_frame_preedit(frame, $0.baseAddress, $0.count, max(0, caret)) }
+    }
+
     public func paste(_ text: String) -> tt_status {
         var text = text
         return text.withUTF8 { tt_term_paste(term, $0.baseAddress, $0.count) }

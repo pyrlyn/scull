@@ -8,20 +8,20 @@ import CoreText
 import CScull
 
 public final class TerminalView: NSView {
-    private var session: TerminalSession?
+    var session: TerminalSession?
     private var failure: String?
-    private let palette = Palette()
-    private let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    let palette = Palette()
+    let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     private lazy var bold = NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: .bold)
     private lazy var italic = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic),
                                      size: font.pointSize) ?? font
     private lazy var boldItalic = NSFont(descriptor: bold.fontDescriptor.withSymbolicTraits(.italic),
                                          size: font.pointSize) ?? bold
-    private let cellWidth: CGFloat
-    private let cellHeight: CGFloat
+    let cellWidth: CGFloat
+    let cellHeight: CGFloat
     private var grid = (cols: UInt16(80), rows: UInt16(24))
     private var focused = false
-    private var keyText: String?
+    var textInput = TextInput()
     private var lastMotionCell: (Int, Int)?
     private var scrollRemainder: CGFloat = 0
     #if DEBUG
@@ -60,6 +60,7 @@ public final class TerminalView: NSView {
         if let input = initialInput {
             initialInput = nil
             _ = session.text(input)
+            composeDebugPreedit()
             send(key: UInt32(TT_KEY_ESCAPE) + 1, action: UInt8(TT_KEY_PRESS), mods: 0, text: "")
             if let path = UserDefaults.standard.string(forKey: "ScullSnapshot") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.snapshot(to: path) }
@@ -148,6 +149,7 @@ public final class TerminalView: NSView {
                         width: Int(run.width), row: row, in: ctx)
             }
         }
+        drawPreedit(in: ctx)
         drawCursor(session, in: ctx)
     }
 
@@ -235,16 +237,14 @@ public final class TerminalView: NSView {
         let flags = event.modifierFlags
         guard !flags.contains(.command) else { return super.keyDown(with: event) }
         var text = ""
-        if flags.contains(.control) {
+        if flags.contains(.control) && !textInput.hasMarkedText {
             // Control's own characters are the core's to produce; the
             // event's text is what the key types without it.
             text = event.charactersIgnoringModifiers ?? ""
         } else {
-            // Collects what the input system types, dead keys included.
-            keyText = ""
-            interpretKeyEvents([event])
-            text = keyText ?? ""
-            keyText = nil
+            // An input method may take the key or compose text from it.
+            guard let typed = interpret(event) else { return }
+            text = typed
         }
         text = String(text.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F && !(0xF700...0xF8FF).contains($0.value) })
         sendKey(event, action: event.isARepeat ? TT_KEY_REPEAT : TT_KEY_PRESS, text: text)
@@ -274,15 +274,6 @@ public final class TerminalView: NSView {
         if session.key(event, text: text) == TT_FULL { NSSound.beep() }
         // Typing returns the view to the screen; show it now.
         if session.update() { needsDisplay = true }
-    }
-
-    public override func insertText(_ insertString: Any) {
-        let string = (insertString as? NSAttributedString)?.string ?? (insertString as? String) ?? ""
-        if keyText != nil {
-            keyText? += string
-        } else if session?.text(string) == TT_FULL {
-            NSSound.beep()
-        }
     }
 
     // Keys like Return and the arrows reach the core as keys, not as the

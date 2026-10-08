@@ -24,7 +24,9 @@ pub struct Marks {
 }
 
 impl Marks {
-    pub(crate) fn new(len: usize) -> Self {
+    /// A blank set for ids below `len`. Public so the terminal layer marks
+    /// its own tables (link ids) the same way.
+    pub fn new(len: usize) -> Self {
         Self {
             words: vec![0; len.div_ceil(WORD_BITS)],
             stamp: 0,
@@ -39,7 +41,8 @@ impl Marks {
         }
     }
 
-    pub(crate) fn is_marked(&self, id: usize) -> bool {
+    /// Whether a sweep keeps `id`.
+    pub fn is_marked(&self, id: usize) -> bool {
         self.words
             .get(id / WORD_BITS)
             .is_some_and(|word| word & (1 << (id % WORD_BITS)) != 0)

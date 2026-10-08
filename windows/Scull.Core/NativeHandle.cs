@@ -10,11 +10,17 @@ namespace Scull.Core;
 internal sealed unsafe class NativeHandle : SafeHandle
 {
     private readonly delegate*<nint, void> free;
+    private GCHandle userdata;
 
-    internal NativeHandle(nint pointer, delegate*<nint, void> free)
+    /// <param name="userdata">
+    /// What the core's callbacks for this handle reach; freed only after the
+    /// handle, because the free is what guarantees no callback is still running.
+    /// </param>
+    internal NativeHandle(nint pointer, delegate*<nint, void> free, GCHandle userdata = default)
         : base(0, ownsHandle: true)
     {
         this.free = free;
+        this.userdata = userdata;
         SetHandle(pointer);
     }
 
@@ -23,6 +29,10 @@ internal sealed unsafe class NativeHandle : SafeHandle
     protected override bool ReleaseHandle()
     {
         free(handle);
+        if (userdata.IsAllocated)
+        {
+            userdata.Free();
+        }
         return true;
     }
 }

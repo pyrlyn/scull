@@ -1,7 +1,5 @@
 - T3. Conformance and benchmark harness
 - T13. Selection, search, links, shell integration
-- T13.2. Selection and scrollback search in the core
-- T13.3. Events over the C ABI
 - T13.4. macOS selection, copy and search UI
 - T15. macOS renderer
 - T16. macOS input method and accessibility

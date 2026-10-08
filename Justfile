@@ -84,6 +84,14 @@ windows-core-test:
     mise exec -- cargo rustc -p scull-ffi --lib --crate-type cdylib --locked --features test-hooks
     dotnet test windows/Scull.slnx
 
+# The WinUI 3 shell, windows/Scull.App, into its bin folder with the core
+# beside the executable. Windows only: the Windows App SDK's manifest and
+# resource tools run only there, which is also why the app is not in
+# Scull.slnx. Warnings are errors (windows/Directory.Build.props).
+windows-app:
+    mise exec -- cargo rustc -p scull-ffi --lib --crate-type cdylib --locked
+    dotnet build windows/Scull.App/Scull.App.csproj
+
 macos_app := "target/macos/Scull.app"
 
 # The core as a static library for the Swift package to link; arm64 only.

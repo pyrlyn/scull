@@ -33,7 +33,9 @@ jobs:
         with:
           global-json-file: windows/global.json
       # The C# core is platform-neutral, so its tests run on every runner
-      # against the library this job just built.
+      # against the library this job just built. The renderer builds on
+      # every runner too; its Direct3D tests draw on WARP on Windows and
+      # are skipped on the others.
       - run: just windows-core-test
       # Ubuntu's kernel randomises mmap with more bits than the sanitizer
       # runtimes of the runner's compilers can map around.

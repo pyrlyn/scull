@@ -74,10 +74,12 @@ c-abi-test:
     {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/events.c {{c_abi_link}} -o {{c_abi_out}}/events-tsan
     TSAN_OPTIONS=suppressions={{justfile_directory()}}/crates/scull-ffi/tests/c/tsan.supp ./{{c_abi_out}}/events-tsan
 
-# The C# core (windows/Scull.Core) against the real library, as a shared
-# library in target/debug where the tests look for it. It carries the
+# Every C# project in windows/Scull.slnx against the real library, as a
+# shared library in target/debug where the tests look for it. It carries the
 # `test-hooks` feature so a test can poison one terminal; `c-abi-test`
 # rebuilds it without. Warnings are errors (windows/Directory.Build.props).
+# The renderer (windows/Scull.Render) compiles on every host; its Direct3D
+# tests run on Windows only and are reported as skipped elsewhere.
 windows-core-test:
     mise exec -- cargo rustc -p scull-ffi --lib --crate-type cdylib --locked --features test-hooks
     dotnet test windows/Scull.slnx

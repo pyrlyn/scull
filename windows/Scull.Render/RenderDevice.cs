@@ -84,14 +84,14 @@ internal static unsafe class Com
 
 /// <summary>
 /// Where a frame is drawn: a BGRA render target view of a known size. The
-/// swap chain's back buffer is one (T17.3); <see cref="OffscreenTarget"/> is
+/// swap chain's back buffer is one (<see cref="SwapChainTarget"/>); <see cref="OffscreenTarget"/> is
 /// the other.
 /// </summary>
 public abstract unsafe class RenderTarget : IDisposable
 {
-    public int Width { get; protected init; }
+    public int Width { get; protected set; }
 
-    public int Height { get; protected init; }
+    public int Height { get; protected set; }
 
     internal abstract ID3D11RenderTargetView* View { get; }
 

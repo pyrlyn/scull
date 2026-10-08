@@ -125,6 +125,33 @@ Reuse of Rust crates (wezterm-alacritty.md §4):
 | `alacritty_terminal` | 0.26.0 | Learn from: ring storage, damage bounds, lease read loop |
 | `wezterm-term` and friends | git only | Learn from; fallback is a pinned fork treated as owned code |
 
+### 6.1 Windows host: the C# interop library (T17)
+
+The all-C# host (§8, decision 2) needs Direct3D 11, DXGI and DirectWrite for the renderer, TSF for text input (T18) and UI Automation (T18). Four libraries were compared on 2026-10-08. Versions and dates come from the NuGet registration API (`https://api.nuget.org/v3/registration5-gz-semver2/<id>/index.json`, latest stable entry) and the GitHub REST API (`/repos/<owner>/<repo>`, `/releases/latest`); coverage from each repository's tree on its default branch the same day.
+
+| | Vortice.Windows | TerraFX.Interop.Windows | Microsoft.Windows.CsWin32 | Silk.NET (2.x) |
+| --- | --- | --- | --- | --- |
+| Latest stable on NuGet | `Vortice.Direct3D11` 3.8.3, 2026-03-04 | 10.0.26100.6, 2025-12-12 | 0.3.358, 2026-10-07 | `Silk.NET.Direct3D11` 2.23.0, 2026-01-23 |
+| Repository activity | pushed 2026-10-05; GitHub releases stopped at v1.9.143 (2021), NuGet is the release channel | pushed 2026-07-20; `main` already ported from SDK 10.0.28000.0 | pushed 2026-10-08; release v0.3.355 on 2026-10-07 | pushed 2026-09-30; release v2.23.0 on 2026-01-22; 3.0 developed on `develop/3.0` |
+| D3D11, DXGI | yes (`Vortice.Direct3D11`, `Vortice.DXGI`) | yes (`um/d3d11`, `shared/dxgi1_2`, …) | yes (win32metadata partitions `Direct3D11`, `Dxgi`) | yes (`Silk.NET.Direct3D11`, `Silk.NET.DXGI`) |
+| DirectWrite | yes, inside `Vortice.Direct2D1` | yes (`um/dwrite`) | yes (partition `DirectWrite`) | yes, inside `Silk.NET.Direct2D` (no `Silk.NET.DirectWrite` package) |
+| TSF (`msctf.h`) | no | yes (`um/msctf`, `ITfThreadMgr`, `ITfContextOwner`) | yes (partition `Tsf`: `textstor.h`, `msctf.h`) | no |
+| UIA (`UIAutomationCore.h`) | no | no (`ITextProvider`, `IRawElementProviderSimple` absent) | yes (partition `WinAuto`) | no |
+| WinUI 3 `ISwapChainPanelNative` | yes (`Vortice.WinUI`) | system XAML only (`windows.ui.xaml.media.dxinterop`) | no | no |
+| Shape of a COM object | class over SharpGen's `ComObject`; every returned interface is a managed object | blittable struct with `lpVtbl` and `delegate* unmanaged` calls | `allowMarshaling: false`: blittable structs; default `true`: `[ComImport]` interfaces (built-in COM, RCWs) | blittable struct with `LpVtbl`, `ComPtr<T>` struct handles |
+| Allocations per frame | a wrapper per COM object handed out | none from the binding | none with `allowMarshaling: false` | none from the binding |
+| AOT and trimming | no `IsAotCompatible` or `IsTrimmable` in its `Directory.Build.props`; depends on `SharpGen.Runtime` 2.4.2-beta, a prerelease | `IsAotCompatible` true; package tags `naot`, `trimmable`; one large assembly, `net10.0` only | source generator and `developmentDependency`: only the APIs named in `NativeMethods.txt` are generated into our assembly, nothing ships beside it | no AOT flag; targets netstandard2.0/2.1, netcoreapp3.1, net5.0 |
+| Licence | MIT | MIT | MIT | MIT |
+
+Sources: https://www.nuget.org/packages/Vortice.Direct3D11/3.8.3, https://github.com/amerkoleci/Vortice.Windows (`src/Vortice.Direct3D11/ID3D11Device.cs`, `Directory.Build.props`, `Directory.Packages.props`); https://www.nuget.org/packages/TerraFX.Interop.Windows/10.0.26100.6, https://github.com/terrafx/terrafx.interop.windows (`Directory.Build.props`, `sources/Interop/Windows/DirectX/um/d3d11/ID3D11Device.cs`); https://www.nuget.org/packages/Microsoft.Windows.CsWin32/0.3.358, https://github.com/microsoft/CsWin32 (`src/Microsoft.Windows.CsWin32/settings.schema.json`: `allowMarshaling` "Emit COM interfaces instead of structs", default true), https://github.com/microsoft/win32metadata (`generation/WinSDK/Partitions/{Direct3D11,Dxgi,DirectWrite,Tsf,WinAuto}`); https://www.nuget.org/packages/Silk.NET.Direct3D11/2.23.0, https://github.com/dotnet/Silk.NET (`src/Microsoft/Silk.NET.Direct3D11/Structs/ID3D11Device.gen.cs`).
+
+Two facts narrow what the library has to cover, both from the Windows App SDK reference (checked 2026-10-08):
+
+- A WinUI 3 control exposes UIA text through its XAML automation peer: `Microsoft.UI.Xaml.Automation.Provider.ITextProvider` is a WinRT interface a custom control implements for `AutomationPeer.GetPattern` with `PatternInterface.Text` (https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.automation.provider.itextprovider, Windows App SDK 1.0 to 2.0). It comes with the Windows App SDK projection, not the interop library; raw `UIAutomationCore.h` is a fallback only.
+- WinUI 3's `ISwapChainPanelNative` is declared in the Windows App SDK's `microsoft.ui.xaml.media.dxinterop.h`, not the Windows SDK (https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/win32/microsoft.ui.xaml.media.dxinterop/nn-microsoft-ui-xaml-media-dxinterop-iswapchainpanelnative). Neither win32metadata nor TerraFX carries it, so T17.2 declares that one-method interface itself; its IID is to be taken from the Windows App SDK header then (**unverified** here).
+
+**Pick: Microsoft.Windows.CsWin32 with `allowMarshaling: false`.** It is the only candidate that covers all five APIs, TSF and UIA included, from Microsoft's own metadata, and it is the most active (a release the day before this check). With marshalling off every COM interface is a blittable struct called through function pointers, so a frame allocates nothing in the binding, and the generated code is plain unsafe C# that AOT compiles and trimming has nothing to remove from. Being a source generator it adds no runtime assembly, only the APIs listed in `NativeMethods.txt`. TerraFX is the close second (same struct shape, `IsAotCompatible`), but has no UIA and its last release is ten months old. Vortice allocates a wrapper per COM object and leans on a prerelease runtime; Silk.NET 2.x lacks TSF and UIA and is being replaced by 3.0. The risk of CsWin32 is its 0.x version line: generated shapes may change between releases, so the version is pinned exactly and bumped deliberately.
+
 ## 7. Architecture plan
 
 ```
@@ -161,7 +188,7 @@ The creator accepted the recommendations below except 2, where the choice is all
 | # | Decision | Recommendation |
 | --- | --- | --- |
 | 1 | "Wrapp" means Warp | Confirmed |
-| 2 | Windows host language | Recommended: C# WinUI 3 shell plus a C++/WinRT surface control (Windows Terminal's own split). **Creator chose all C#**; the D3D/DirectWrite interop library is still to be evaluated |
+| 2 | Windows host language | Recommended: C# WinUI 3 shell plus a C++/WinRT surface control (Windows Terminal's own split). **Creator chose all C#**; the interop library is Microsoft.Windows.CsWin32 (§6.1) |
 | 3 | VT core | Our own Rust state and grid on leaf crates, not libghostty-vt (unstable API, adds a Zig toolchain) |
 | 4 | PTY | Inside the core |
 | 5 | Minimum macOS | Recommended: 14, for `CAMetalDisplayLink`. **Creator chose 26** |
@@ -174,4 +201,4 @@ The creator accepted the recommendations below except 2, where the choice is all
 - kitty's position on sixel: the word does not appear in the repository.
 - How much of esctest and vttest runs headlessly.
 - The six items listed at the end of foot-contour.md, and the "Not verified" sections of warp.md and wezterm-alacritty.md.
-- A D3D/DirectWrite interop library for an all-C# Windows host: none was evaluated.
+- The C# interop library for the Windows host was compared on paper (§6.1); its per-frame cost on a real renderer is not measured yet (T17.3).

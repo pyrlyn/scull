@@ -18,7 +18,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T24 | todo | P2 | 2 | 0% | |
 | T25 | todo | P2 | 2 | 0% | |
 | T26 | todo | P3 | 2 | 0% | |
-| T28 | in progress | P2 | 2 | 0% | Claude Code / claude-opus-5-5 |
 
 ### T3. Conformance and benchmark harness
 
@@ -105,12 +104,3 @@ The `fuzz/` workspace is excluded from CI (`Cargo.toml:4`) with a gitignored cor
 ### T26. Close grid-layer test gaps
 
 `LEADING_SPACER` (`crates/scull-grid/src/cell.rs:36-38`) has no test for the end-of-row wide-wrap path; `scull-bench` measures a single pass (`src/lib.rs:56-62`) so baseline numbers are noisy. Done means: both covered or averaged.
-
-### T28. Powerline separators from cell geometry
-
-The Powerline separators of shell prompts come from the bundled symbols font (T27), whose glyphs do not fill the cell exactly, so thin seams show where prompt segments meet. Done when U+E0B0–U+E0BF are drawn from the cell's own geometry, like the box sprites, and their edges reach the cell edges.
-
-Execution plan:
-1. `Renderer/Sprites.swift`: `covers` and `bitmap` take U+E0B0–U+E0BF; the painter fills the solid arrows, half circles and corner triangles as paths to the cell edges, and strokes the thin chevrons, arcs and diagonals at the light line width.
-2. `SpritesTests.swift`: every code point has a sprite; a solid arrow inks the full left column and tapers to the right edge's middle; mirrored shapes mirror; a corner triangle fills its half.
-3. Verify with `just macos-test` and a debug snapshot of the oh-my-posh prompt.

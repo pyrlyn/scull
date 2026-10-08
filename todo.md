@@ -10,4 +10,3 @@
 - T24. Reconcile harness eager-wrap with xterm's deferred DECAWM
 - T25. CI: run the fuzz targets and the UCD stale-table check
 - T26. Close grid-layer test gaps
-- T28. Powerline separators from cell geometry

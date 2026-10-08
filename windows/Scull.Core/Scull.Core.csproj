@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The core over the C ABI, with no WinUI types, so it builds and tests
+       on any host the Rust library builds on. -->
+  <PropertyGroup>
+    <RootNamespace>Scull.Core</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Linked, not copied: the drift test in scull-ffi keeps this one file
+         current with the exports. -->
+    <Compile Include="../../crates/scull-ffi/bindings/csharp/NativeMethods.g.cs" Link="Native/NativeMethods.g.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Scull.Core.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -11,6 +11,7 @@
 | cc (clang or gcc) | system (Xcode Command Line Tools, distro package) | `just c-abi-test`: the C ABI test under ASan, UBSan and TSan (Unix only) | https://github.com/llvm/llvm-project |
 | Xcode (Swift 6.4, SwiftPM, AppKit/SwiftUI SDK) | Mac App Store or developer.apple.com (27.0) | `just macos`, `just macos-test`: build and test the macOS app in `macos/` (arm64 only) | https://developer.apple.com/xcode/ |
 | codesign | system (Xcode) | `just macos`: ad-hoc signs `target/macos/Scull.app` so it launches locally | https://developer.apple.com/documentation/security/code-signing-services |
+| .NET SDK (`dotnet`, C# compiler, MSBuild) | mise or https://dot.net (pinned to 10.0.401 in `windows/global.json`; CI: `actions/setup-dotnet`) | `just windows-core-test`: build and test the C# core in `windows/` | https://github.com/dotnet/sdk |
 
 ## Bundled files
 
@@ -49,3 +50,10 @@
 | serde_json | local | https://github.com/serde-rs/json | Renders and checks the config schema (dev-dependency) |
 | toml_edit | local | https://github.com/toml-rs/toml | Edits a single setting in the config file in place, keeping comments (scull-config) |
 | notify | local | https://github.com/notify-rs/notify | Watches the config directory for live reload (scull-config) |
+
+## NuGet
+
+| Package | Where | Source | Why here |
+| --- | --- | --- | --- |
+| MSTest | local (`windows/Scull.Core.Tests`) | https://github.com/microsoft/testfx | Test framework of the C# core; the default of `dotnet new mstest` (the `xunit` template pins the deprecated xunit 2.9.3) |
+| Microsoft.Windows.CsWin32 | local from T17.2 (picked in T17.1, not referenced yet) | https://github.com/microsoft/CsWin32 | Direct3D 11, DXGI, DirectWrite, TSF and UIA from C# as blittable structs (`allowMarshaling: false`); the comparison is in `research.md` §6.1 |

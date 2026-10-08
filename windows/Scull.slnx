@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Scull.Core/Scull.Core.csproj" />
+  <Project Path="Scull.Core.Tests/Scull.Core.Tests.csproj" />
+</Solution>

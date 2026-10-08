@@ -11,7 +11,7 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T16 | in progress | P1 | 4 | 85% | Claude Code / claude-opus-5-5 |
 | T17 | in progress | P1 | 5 | 55% | Claude Code / claude-opus-5-5 |
 | T17.3 | in progress | P1 | 4 | 60% | Claude Code / claude-opus-5-5 |
-| T17.3.2 | todo | P1 | 3 | 0% | |
+| T17.3.2 | in progress | P1 | 3 | 0% | Claude Code / claude-opus-5-5 |
 | T18 | todo | P2 | 5 | 0% | |
 | T20 | in progress | P2 | 3 | 75% | Claude Code / claude-sonnet-5-5 |
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |

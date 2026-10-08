@@ -9,6 +9,12 @@ public struct Palette: Sendable {
     public var foreground: UInt32 = 0xE5E5E5
     public var background: UInt32 = 0x141414
     public var cursor: UInt32 = 0xE5E5E5
+    /// Backgrounds of selected cells, search matches and the current match.
+    public var selection: UInt32 = 0x264F78
+    public var match: UInt32 = 0x6B5A1A
+    public var currentMatch: UInt32 = 0xF2A33A
+    /// Text on the current match, whose background is bright in any theme.
+    public var currentMatchText: UInt32 = 0x000000
     public internal(set) var indexed: [UInt32]
 
     public init() {
@@ -49,6 +55,23 @@ public struct Palette: Sendable {
         let fg = rgb(style.fg, fallback: foreground)
         let bg = rgb(style.bg, fallback: background)
         return style.attrs & UInt16(TT_ATTR_INVERSE) != 0 ? (bg, fg) : (fg, bg)
+    }
+
+    /// The background a cell shows: the current match over the selection
+    /// over other matches over its own `bg`.
+    public func background(flags: UInt8, bg: UInt32) -> UInt32 {
+        let flags = Int32(flags)
+        if flags & TT_CELL_CURRENT_MATCH != 0 { return currentMatch }
+        if flags & TT_CELL_SELECTED != 0 { return selection }
+        return flags & TT_CELL_MATCH != 0 ? match : bg
+    }
+
+    /// `top` laid over `bottom` with opacity `alpha`.
+    public static func blend(_ top: UInt32, over bottom: UInt32, alpha: Double) -> UInt32 {
+        [16, 8, 0].reduce(0) { rgb, shift in
+            let (t, b) = (Double(top >> shift & 0xFF), Double(bottom >> shift & 0xFF))
+            return rgb | UInt32((t * alpha + b * (1 - alpha)).rounded()) << shift
+        }
     }
 
     public static func cgColor(_ rgb: UInt32, alpha: CGFloat = 1) -> CGColor {

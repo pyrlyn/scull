@@ -255,22 +255,28 @@ public final class MetalRenderer {
         }
         for col in 0..<grid.cols {
             guard let cell = session.cell(row: row, col: col) else { break }
-            let bg = palette.colors(of: session.style(cell.style)).bg
+            let bg = palette.background(flags: cell.flags, bg: palette.colors(of: session.style(cell.style)).bg)
             if bg != current {
                 flush(col, &content)
                 (start, current) = (col, bg)
             }
         }
         flush(grid.cols, &content)
+        let isCurrent = { (col: Int) -> Bool in
+            session.cell(row: row, col: col).map { Int32($0.flags) & TT_CELL_CURRENT_MATCH != 0 } ?? false
+        }
         for (run, text) in session.runs(row: row) {
-            addRun(run, text: text, style: session.style(run.style), to: &content)
+            addRun(run, text: text, style: session.style(run.style), current: isCurrent, to: &content)
         }
         version += 1
         content.version = version
         rows[slotOfRow[row]] = content
     }
 
-    private func addRun(_ run: tt_run, text: String, style: tt_style, to content: inout RowContent) {
+    /// `current` says which columns are the current match, whose text is
+    /// drawn in its own colour.
+    private func addRun(_ run: tt_run, text: String, style: tt_style, current: (Int) -> Bool,
+                        to content: inout RowContent) {
         let attrs = style.attrs
         guard attrs & UInt16(TT_ATTR_HIDDEN) == 0 else { return }
         let fg = palette.colors(of: style).fg
@@ -284,9 +290,10 @@ public final class MetalRenderer {
             let isSprite = if case .sprite = glyph.key { true } else { false }
             let pen = isSprite ? col.rounded(.down) : (col + CGFloat(glyph.dx) * scale).rounded()
             let baseline = metrics.baseline - (CGFloat(glyph.dy) * scale).rounded()
+            let tint = current(Int(run.col) + Int(glyph.column)) ? Self.rgba(palette.currentMatchText, alpha: alpha) : color
             content.fg.append(Quad(x: Float(pen) + Float(entry.left), y: Float(baseline) - Float(entry.top),
                                    w: Float(entry.width), h: Float(entry.height), u: entry.x, v: entry.y,
-                                   color: entry.isColor ? Self.rgba(0xFFFFFF, alpha: alpha) : color,
+                                   color: entry.isColor ? Self.rgba(0xFFFFFF, alpha: alpha) : tint,
                                    kind: entry.isColor ? 2 : 1))
             content.shelves.insert(entry.shelf)
         }

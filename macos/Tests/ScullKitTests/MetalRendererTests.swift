@@ -149,3 +149,42 @@ private func renderer() throws -> MetalRenderer {
     #expect(at(30, 60) == 0xE5 && at(20, 40) == 0xE5)
     #expect(at(40, 30) == 0x14)
 }
+
+@MainActor
+@Test func rendererShadesSelectedAndMatchedCellsWhenOnlyTheirFlagsChange() throws {
+    let session = try TerminalSession(cols: 8, rows: 2)
+    let renderer = try renderer()
+    _ = session.feed(Array("ab ab\r\nxy".utf8))
+    _ = try render(session, renderer)
+    // Neither text nor style changes below, only the frame's flags, so the
+    // rows are rebuilt from damage alone.
+    #expect(session.select(TT_SELECT_CELL, row: 1, col: 0) == TT_OK)
+    #expect(session.extendSelection(row: 1, col: 1) == TT_OK)
+    #expect(session.search("ab", ignoreCase: false) == TT_OK)
+    #expect(session.searchStep(forward: true) != nil)
+    let pixels = try render(session, renderer)
+    let palette = Palette()
+    let at = { (row: Int, col: Int) in rgb(pixels, cols: 8, row: row, col: col, dx: 0, dy: 1) }
+    #expect(at(0, 0) == palette.currentMatch && at(0, 1) == palette.currentMatch)
+    #expect(at(0, 3) == palette.match && at(0, 2) == palette.background)
+    #expect(at(1, 0) == palette.selection && at(1, 1) == palette.selection && at(1, 3) == palette.background)
+    // The current match's text is drawn dark on its bright background.
+    let ink = (0..<cellPixels.h).flatMap { dy in (0..<cellPixels.w).map { rgb(pixels, cols: 8, row: 0, col: 0, dx: $0, dy: dy) } }
+    #expect(ink.contains(palette.currentMatchText) && !ink.contains(palette.foreground))
+    _ = session.clearSelection()
+    _ = session.search("", ignoreCase: false)
+    let cleared = try render(session, renderer)
+    #expect(rgb(cleared, cols: 8, row: 0, col: 0, dx: 0, dy: 1) == palette.background)
+    #expect(rgb(cleared, cols: 8, row: 1, col: 0, dx: 0, dy: 1) == palette.background)
+}
+
+@Test func paletteLayersCellMarksAndBlends() {
+    let palette = Palette()
+    let (selected, match, current) = (UInt8(TT_CELL_SELECTED), UInt8(TT_CELL_MATCH), UInt8(TT_CELL_CURRENT_MATCH))
+    #expect(palette.background(flags: 0, bg: 0x123456) == 0x123456)
+    #expect(palette.background(flags: match, bg: 0x123456) == palette.match)
+    #expect(palette.background(flags: selected | match, bg: 0) == palette.selection)
+    #expect(palette.background(flags: selected | match | current, bg: 0) == palette.currentMatch)
+    #expect(Palette.blend(0xFF0080, over: 0x000000, alpha: 0.5) == 0x800040)
+    #expect(Palette.blend(0x0A0B0C, over: 0xFFFFFF, alpha: 1) == 0x0A0B0C)
+}

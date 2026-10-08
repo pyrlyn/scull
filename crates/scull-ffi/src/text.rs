@@ -30,26 +30,45 @@ pub unsafe extern "C" fn tt_term_read_text(
     len: *mut usize,
 ) -> tt_status {
     let body = |t: &tt_term| {
-        if len.is_null() || (buf.is_null() && cap > 0) {
+        if !out_ok(buf, cap, len) {
             return tt_status::TT_INVALID;
         }
         let mut text = String::new();
         let end = row.saturating_add(rows);
         t.core().lock().term.read_text(row..end, &mut text);
-        // SAFETY: non-null and writable by the caller's contract.
-        unsafe { len.write(text.len()) };
-        if text.len() > cap {
-            return tt_status::TT_FULL;
-        }
-        if !text.is_empty() {
-            // SAFETY: `buf` holds `cap` writable bytes, at least the text's
-            // length, and cannot overlap a String the core just built.
-            unsafe { buf.copy_from_nonoverlapping(text.as_ptr(), text.len()) };
-        }
-        tt_status::TT_OK
+        // SAFETY: the caller's contract, checked by `out_ok`.
+        unsafe { copy_out(text.as_bytes(), buf, cap, len) }
     };
     // SAFETY: the caller's contract.
     unsafe { with_term(term, body) }
+}
+
+/// Whether a sized copy-out's arguments can be used: `len` set, and `buf`
+/// set unless `cap` is 0.
+pub(crate) fn out_ok(buf: *mut u8, cap: usize, len: *mut usize) -> bool {
+    !len.is_null() && (!buf.is_null() || cap == 0)
+}
+
+/// The sized copy-out every text export shares: `*len` becomes the text's
+/// length, and the text is copied only when it fits `cap`, else `TT_FULL`
+/// and the buffer is left alone, so the host can call again with more room.
+///
+/// # Safety
+///
+/// [`out_ok`] holds; `buf` is `NULL` or points to `cap` writable bytes;
+/// `len` is writable.
+pub(crate) unsafe fn copy_out(text: &[u8], buf: *mut u8, cap: usize, len: *mut usize) -> tt_status {
+    // SAFETY: non-null and writable by the caller's contract.
+    unsafe { len.write(text.len()) };
+    if text.len() > cap {
+        return tt_status::TT_FULL;
+    }
+    if !text.is_empty() {
+        // SAFETY: `buf` holds `cap` writable bytes, at least the text's
+        // length, and cannot overlap bytes the core owns.
+        unsafe { buf.copy_from_nonoverlapping(text.as_ptr(), text.len()) };
+    }
+    tt_status::TT_OK
 }
 
 #[cfg(test)]

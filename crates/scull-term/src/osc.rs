@@ -291,14 +291,12 @@ impl State {
         true
     }
 
-    pub(crate) fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> bool {
+    pub(crate) fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> Option<bool> {
         if data.len() > MAX_CLIPBOARD {
-            return false;
+            return None;
         }
-        let Some(pending) = self.take_clip(id) else {
-            return false;
-        };
-        self.reply_clip(pending.selection, data, pending.bell)
+        let pending = self.take_clip(id)?;
+        Some(self.reply_clip(pending.selection, data, pending.bell))
     }
 
     fn take_clip(&mut self, id: u64) -> Option<Pending> {
@@ -401,9 +399,10 @@ impl crate::terminal::Terminal {
         self.state.clipboard_deny(id)
     }
 
-    /// Answers an OSC 52 read. False if `id` is not open or `data` is over the
-    /// cap; also false, with an empty answer sent, when the reply queue is full.
-    pub fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> bool {
+    /// Answers an OSC 52 read: `Some(true)` once queued. `None`, doing
+    /// nothing, if `id` is not open or `data` is over the cap; `Some(false)`,
+    /// with an empty answer sent instead, when the reply queue is full.
+    pub fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> Option<bool> {
         self.state.clipboard_reply(id, data)
     }
 }
@@ -434,7 +433,8 @@ mod tests {
         let Event::Clipboard(clip) = term.poll_event().unwrap() else {
             panic!("read");
         };
-        assert!(term.clipboard_reply(clip.id, b"hi"));
+        assert_eq!(term.clipboard_reply(clip.id, b"hi"), Some(true));
+        assert_eq!(term.clipboard_reply(clip.id, b"hi"), None, "answered once");
         assert_eq!(term.take_replies(), b"\x1b]52;p;aGk=\x1b\\");
     }
 
@@ -527,8 +527,10 @@ mod tests {
         let Some(Event::Clipboard(clip)) = term.poll_event() else {
             panic!("read");
         };
-        let data = vec![b'a'; crate::events::MAX_CLIPBOARD];
-        assert!(term.clipboard_reply(clip.id, &data));
+        let mut data = vec![b'a'; crate::events::MAX_CLIPBOARD + 1];
+        assert_eq!(term.clipboard_reply(clip.id, &data), None, "over the cap");
+        data.pop();
+        assert_eq!(term.clipboard_reply(clip.id, &data), Some(true));
         let reply = term.take_replies();
         assert!(reply.starts_with(b"\x1b]52;c;YWFh"));
         assert!(reply.ends_with(b"\x07"));

@@ -1,7 +1,9 @@
 # The Rust library is not built with -Zsanitizer=thread, so TSan cannot see
-# the core's parking_lot mutex or any of its atomics. Image pixels are the one
-# buffer the reader thread writes and the host reads: an Image is built whole
-# and then published under the core lock (crates/scull-ffi/src/frame.rs), so
-# these reads are ordered. Only the reads of that buffer are suppressed; the
-# rest of the C side stays checked.
-race:touch_image
+# the core's parking_lot mutex, std's channels or any of their atomics. All
+# it sees of the library are the malloc, free and memcpy calls it intercepts,
+# and with the ordering invisible each of them looks like a race: image
+# pixels built whole and then published under the core lock
+# (crates/scull-ffi/src/frame.rs), configuration views handed over through
+# std's mpmc channel. Interceptors called from the library are ignored; the
+# C side's own accesses stay checked.
+called_from_lib:libscull_ffi

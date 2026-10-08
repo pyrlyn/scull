@@ -213,4 +213,61 @@ public sealed class WindowsInputTests
         Assert.AreEqual(double.IsFinite(x) ? (uint)Math.Clamp(x, 0, uint.MaxValue) : 0, px);
         Assert.AreEqual(double.IsFinite(y) ? (uint)Math.Clamp(y, 0, uint.MaxValue) : 0, py);
     }
+
+    [TestMethod]
+    public void HeldModifiersComeFromTheKeyStates()
+    {
+        // Down for Shift, Control (AltGr's half) and Right Windows; Caps Lock only locked, Num Lock only down.
+        var states = new Dictionary<int, int> { [0x10] = 1, [0x11] = 1, [0x5C] = 3, [0x14] = 2, [0x90] = 1 };
+
+        Assert.AreEqual(KeyModifiers.Shift | Ctrl | KeyModifiers.Super | KeyModifiers.CapsLock,
+            WindowsKeys.Held(key => states.GetValueOrDefault(key)));
+        Assert.AreEqual(KeyModifiers.Alt | KeyModifiers.NumLock, WindowsKeys.Held(key => key is 0x12 or 0x90 ? 3 : 0));
+        Assert.AreEqual(KeyModifiers.None, WindowsKeys.Held(_ => 0));
+    }
+
+    [TestMethod]
+    [DataRow(1, MouseAction.Press, MouseButton.Left)]
+    [DataRow(2, MouseAction.Release, MouseButton.Left)]
+    [DataRow(3, MouseAction.Press, MouseButton.Right)]
+    [DataRow(4, MouseAction.Release, MouseButton.Right)]
+    [DataRow(5, MouseAction.Press, MouseButton.Middle)]
+    [DataRow(6, MouseAction.Release, MouseButton.Middle)]
+    [DataRow(7, MouseAction.Press, MouseButton.Back)]
+    [DataRow(8, MouseAction.Release, MouseButton.Back)]
+    [DataRow(9, MouseAction.Press, MouseButton.Forward)]
+    [DataRow(10, MouseAction.Release, MouseButton.Forward)]
+    public void UpdateKindsBecomePressesAndReleases(int updateKind, MouseAction action, MouseButton button)
+    {
+        var pointer = new WindowsPointer();
+
+        // A button change is sent even in the cell of the last event.
+        pointer.Update(1, true, false, false, Ctrl, (3, 4, 35, 90));
+
+        Assert.AreEqual(new MouseInput(action, button, Ctrl, 3, 4, 35, 90), pointer.Update(updateKind, false, false, false, Ctrl, (3, 4, 35, 90)));
+    }
+
+    [TestMethod]
+    public void MotionIsSentOnlyWhenTheCellChanges()
+    {
+        var pointer = new WindowsPointer();
+
+        Assert.AreEqual(new MouseInput(MouseAction.Motion, MouseButton.None, 0, 1, 1, 15, 25), pointer.Update(0, false, false, false, 0, (1, 1, 15, 25)));
+        Assert.IsNull(pointer.Update(0, false, false, false, 0, (1, 1, 18, 29)));
+        Assert.AreEqual(new MouseInput(MouseAction.Motion, MouseButton.Left, 0, 2, 1, 21, 29), pointer.Update(0, true, true, false, 0, (2, 1, 21, 29)));
+        Assert.AreEqual(MouseButton.Middle, pointer.Update(0, false, true, true, 0, (3, 1, 31, 29))?.Button);
+        Assert.AreEqual(MouseButton.Right, pointer.Update(0, false, false, true, 0, (3, 2, 31, 41))?.Button);
+        // A wheel step counts as an event in its cell.
+        pointer.Wheel(1, false, 0, (5, 5, 55, 105));
+        Assert.IsNull(pointer.Update(0, false, false, false, 0, (5, 5, 56, 106)));
+    }
+
+    [TestMethod]
+    [DataRow(1, false, MouseButton.WheelUp)]
+    [DataRow(-2, false, MouseButton.WheelDown)]
+    [DataRow(3, true, MouseButton.WheelRight)]
+    [DataRow(-1, true, MouseButton.WheelLeft)]
+    public void WheelStepsPressAWheelButton(int steps, bool horizontal, MouseButton button) =>
+        Assert.AreEqual(new MouseInput(MouseAction.Press, button, KeyModifiers.Shift, 7, 8, 70, 160),
+            new WindowsPointer().Wheel(steps, horizontal, KeyModifiers.Shift, (7, 8, 70, 160)));
 }

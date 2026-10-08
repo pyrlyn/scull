@@ -193,3 +193,9 @@ Delivered: `Sprites.covers` and `Sprites.bitmap` take U+E0B0–U+E0BF. Even code
 
 Delivered: skipping ids past the marks' length would not have closed the hazard, since an intern between `marks()` and `sweep()` may reuse a freed id inside that length. `Interner` now counts every insert, `marks()` stamps the count into `Marks`, and a sweep with a stale stamp frees nothing and returns 0, so reclaim only waits for the next sweep. `StyleTable::sweep` and `ClusterTable::sweep` document it. A new test in `intern.rs` interns after `marks()`, appended and reused from the free list, and checks both survive while fresh marks still sweep. `just check` passes (540 tests).
 
+### T26. Close grid-layer test gaps
+
+`LEADING_SPACER` (`crates/scull-grid/src/cell.rs:36-38`) has no test for the end-of-row wide-wrap path; `scull-bench` measures a single pass (`src/lib.rs:56-62`) so baseline numbers are noisy. Done means: both covered or averaged.
+
+Delivered: three unit tests in `crates/scull-term/src/terminal.rs` check the cells the `unicode.txt` fixture does not: a wide character past the last column leaves an empty `LEADING_SPACER`, marks the row wrapped, lands whole on the next row and `read_text` reads `abcd` then the character; with autowrap off it overwrites the last two columns and nothing wraps; from the pending wrap it wraps with no spacer. `time_stub` in `crates/scull-bench` now runs one untimed warm-up and returns the median of nine feeds, and the table text says so. `docs/benchmarks/baseline.md` was not regenerated: the machine ran at load average about 109, and medians still ranged 1.9–4.6 ms, so a new table would record the load. Regenerate it with `just bench` on an idle machine. `just check` passes (543 tests).
+

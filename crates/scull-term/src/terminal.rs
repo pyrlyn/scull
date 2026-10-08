@@ -276,6 +276,53 @@ pub(crate) mod tests {
         proptest::collection::vec(piece, 0..400).prop_map(|p| p.concat())
     }
 
+    fn flags(term: &Terminal, row: u16, col: u16) -> CellFlags {
+        term.grid()
+            .screen_row(row)
+            .and_then(|r| r.cell(col))
+            .map(Cell::flags)
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_wide_character_past_the_last_column_leaves_a_leading_spacer() {
+        let mut term = Terminal::new(5, 2, 0).unwrap();
+        term.feed("abcd中".as_bytes());
+        let spacer = term.grid().screen_row(0).and_then(|r| r.cell(4)).unwrap();
+        assert!(spacer.flags().contains(CellFlags::LEADING_SPACER));
+        assert_eq!(spacer.content(), Content::Empty);
+        assert!(term.grid().screen_row(0).unwrap().wrapped());
+        let head = term.grid().screen_row(1).and_then(|r| r.cell(0)).unwrap();
+        assert_eq!(head.content(), Content::Char('中'));
+        assert!(head.flags().contains(CellFlags::WIDE));
+        assert!(flags(&term, 1, 1).contains(CellFlags::SPACER));
+        assert_eq!((term.cursor().row, term.cursor().col), (1, 2));
+        let mut text = String::new();
+        term.read_text(0..2, &mut text);
+        assert_eq!(text, "abcd\n中");
+    }
+
+    #[test]
+    fn without_autowrap_a_wide_character_overwrites_the_last_two_columns() {
+        let mut term = Terminal::new(5, 2, 0).unwrap();
+        term.feed("\x1b[?7labcd中".as_bytes());
+        assert!((0..5).all(|c| !flags(&term, 0, c).contains(CellFlags::LEADING_SPACER)));
+        assert!(flags(&term, 0, 3).contains(CellFlags::WIDE));
+        assert!(!term.grid().screen_row(0).unwrap().wrapped());
+        let mut text = String::new();
+        term.read_text(0..2, &mut text);
+        assert_eq!(text, "abc中\n");
+    }
+
+    #[test]
+    fn a_wide_character_from_the_pending_wrap_leaves_no_spacer() {
+        let mut term = Terminal::new(5, 2, 0).unwrap();
+        term.feed("abcde中".as_bytes());
+        assert!((0..5).all(|c| !flags(&term, 0, c).contains(CellFlags::LEADING_SPACER)));
+        assert!(term.grid().screen_row(0).unwrap().wrapped());
+        assert!(flags(&term, 1, 0).contains(CellFlags::WIDE));
+    }
+
     #[test]
     fn a_zero_sized_terminal_is_an_error() {
         assert!(Terminal::new(0, 5, 0).is_err());

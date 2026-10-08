@@ -16,7 +16,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
 | T24 | todo | P2 | 2 | 0% | |
 | T25 | todo | P2 | 2 | 0% | |
-| T26 | todo | P3 | 2 | 0% | |
 
 ### T3. Conformance and benchmark harness
 
@@ -95,7 +94,3 @@ Execution plan (split to fit the budget):
 ### T25. CI: run the fuzz targets and the UCD stale-table check
 
 The `fuzz/` workspace is excluded from CI (`Cargo.toml:4`) with a gitignored corpus, and the stale-table check silently skips without the `target/ucd` cache (`tools/scull-ucd-gen/src/main.rs:384-397`) while `just check` — the only CI gate — never runs `ucd-check`; a hand-edited `tables.rs` would go unnoticed. Done means: a CI job warms the cache and runs `ucd-check`, and a short smoke fuzz run executes on every push.
-
-### T26. Close grid-layer test gaps
-
-`LEADING_SPACER` (`crates/scull-grid/src/cell.rs:36-38`) has no test for the end-of-row wide-wrap path; `scull-bench` measures a single pass (`src/lib.rs:56-62`) so baseline numbers are noisy. Done means: both covered or averaged.

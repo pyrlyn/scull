@@ -67,8 +67,15 @@ impl State {
         }
         let style = self.pen.text_id(&mut self.grid);
         let col = self.cursor.col;
-        if let Some(row) = self.cursor_row() {
-            let _ = row.put(col, Cell::char(ch, style), cells == WIDE);
+        let wrote = self
+            .cursor_row()
+            .is_some_and(|row| row.put(col, Cell::char(ch, style), cells == WIDE).is_ok());
+        if wrote
+            && let Some(link) = self.links.current
+            && let Some(row) = self.cursor_row()
+        {
+            // The spacer of a wide character is part of the hover range.
+            row.set_link(col..col.saturating_add(span), Some(link));
         }
         self.advance(col, span);
         self.last_char = Some(ch);

@@ -176,7 +176,7 @@ impl Terminal {
     /// Whether BEL arrived since the last call. Bells in between are one
     /// bell: a host rings once per look, however fast a program beeps.
     pub fn take_bell(&mut self) -> bool {
-        std::mem::take(&mut self.state.bell)
+        self.state.events.take_bell()
     }
 
     /// Takes the replies queued for the program (device attributes, status

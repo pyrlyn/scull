@@ -13,7 +13,7 @@ mod tests {
     use std::path::Path;
 
     use scull_grid::{Attrs, CellFlags, Color, Content, Row, Style, Underline};
-    use scull_term::Terminal;
+    use scull_term::{Event, Terminal, TitleWhich};
 
     /// One case: a byte stream and what it must leave behind.
     #[derive(Debug, Default)]
@@ -29,6 +29,8 @@ mod tests {
         styles: Vec<(u16, u16, String)>,
         history: Option<usize>,
         replies: Option<Vec<u8>>,
+        events: Option<Vec<String>>,
+        links: Option<Vec<String>>,
     }
 
     fn unescape(text: &str) -> Vec<u8> {
@@ -100,17 +102,73 @@ mod tests {
                         style.trim().to_owned(),
                     ));
                 }
-                "screen" => {
-                    while let Some(row) = lines.peek().and_then(|l| l.trim().strip_prefix('|')) {
-                        case.screen
-                            .push(row.strip_suffix('|').expect("row ends in |").to_owned());
-                        lines.next();
-                    }
-                }
+                "screen" => case.screen = pipes(&mut lines),
+                "events" => case.events = Some(pipes(&mut lines)),
+                "links" => case.links = Some(pipes(&mut lines)),
                 other => panic!("{file}: unknown field {other}"),
             }
         }
         cases
+    }
+
+    fn pipes(lines: &mut std::iter::Peekable<std::str::Lines<'_>>) -> Vec<String> {
+        let mut out = Vec::new();
+        while let Some(row) = lines.peek().and_then(|line| line.trim().strip_prefix('|')) {
+            out.push(row.strip_suffix('|').expect("row ends in |").to_owned());
+            lines.next();
+        }
+        out
+    }
+
+    fn show_event(event: &Event) -> String {
+        match event {
+            Event::Bell => "bell".to_owned(),
+            Event::Title { which, text } => {
+                let code: u8 = match which {
+                    TitleWhich::Both => 0,
+                    TitleWhich::Icon => 1,
+                    TitleWhich::Window => 2,
+                };
+                format!("title {code} {text}")
+            }
+            Event::WorkingDirectory(uri) => format!("cwd {uri}"),
+            Event::Shell { mark, extra } => {
+                if extra.is_empty() {
+                    format!("shell {mark}")
+                } else {
+                    format!("shell {mark} {extra}")
+                }
+            }
+            Event::Clipboard(clip) => {
+                let op = if clip.read { "read" } else { "write" };
+                let sel = char::from(clip.selection);
+                if clip.read {
+                    format!("clip {op} {sel}")
+                } else {
+                    format!("clip {op} {sel} {}", String::from_utf8_lossy(&clip.data))
+                }
+            }
+            Event::Link { id, uri } => format!("link {id} {uri}"),
+        }
+    }
+
+    fn link_dump(term: &Terminal, rows: u16) -> Vec<String> {
+        let mut out = Vec::new();
+        for row in 0..rows {
+            let Some(line) = term.grid().screen_row(row) else {
+                continue;
+            };
+            for span in line.links() {
+                out.push(format!(
+                    "{} {}..{}={}",
+                    row + 1,
+                    span.start,
+                    span.end,
+                    span.link.0
+                ));
+            }
+        }
+        out
     }
 
     fn row_text(term: &Terminal, row: &Row) -> String {
@@ -225,6 +283,21 @@ mod tests {
         {
             let _ = writeln!(errors, "  history: want {want}, got {}", grid.history_len());
         }
+        if let Some(want) = &case.events {
+            let mut got = Vec::new();
+            while let Some(event) = term.poll_event() {
+                got.push(show_event(&event));
+            }
+            if &got != want {
+                let _ = writeln!(errors, "  events:\n    want {want:?}\n    got  {got:?}");
+            }
+        }
+        if let Some(want) = &case.links {
+            let got = link_dump(&term, case.rows);
+            if &got != want {
+                let _ = writeln!(errors, "  links:\n    want {want:?}\n    got  {got:?}");
+            }
+        }
         errors
     }
 
@@ -247,7 +320,9 @@ mod tests {
                         || !case.screen.is_empty()
                         || !case.styles.is_empty()
                         || case.history.is_some()
-                        || case.replies.is_some(),
+                        || case.replies.is_some()
+                        || case.events.is_some()
+                        || case.links.is_some(),
                     "{}: {} checks nothing",
                     case.file,
                     case.name

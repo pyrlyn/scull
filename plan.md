@@ -16,7 +16,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
 | T24 | todo | P2 | 2 | 0% | |
 | T25 | todo | P2 | 2 | 0% | |
-| T30 | in progress | P1 | 2 | 10% | Claude Code / claude-opus-5-5 |
 
 ### T3. Conformance and benchmark harness
 
@@ -95,13 +94,3 @@ Execution plan (split to fit the budget):
 ### T25. CI: run the fuzz targets and the UCD stale-table check
 
 The `fuzz/` workspace is excluded from CI (`Cargo.toml:4`) with a gitignored corpus, and the stale-table check silently skips without the `target/ucd` cache (`tools/scull-ucd-gen/src/main.rs:384-397`) while `just check` — the only CI gate — never runs `ucd-check`; a hand-edited `tables.rs` would go unnoticed. Done means: a CI job warms the cache and runs `ucd-check`, and a short smoke fuzz run executes on every push.
-
-### T30. Config watcher never misses a reload under load
-
-Five live-reload tests (`scull-config` `live_tests.rs`, `scull-ffi` `config.rs`) time out under heavy load. Cause, reproduced with a traced watcher: when its client queue overflows, FSEvents drops the queued events and reports one `Rescan` event naming the watched directory ("rescan: user dropped"); the watcher only reacts to events naming `config.toml`, so the lost write is never reloaded. A second flake: an in-place write (truncate, then write) read in between yields an empty file, so a test that asserts the last good settings after a broken edit can see the defaults. Done when a dropped event still leads to a reload and the tests stop depending on scheduling.
-
-Execution plan:
-1. `crates/scull-config/src/live.rs`: treat a rescan event as relevant (filter extracted into a function with a unit test).
-2. Same file: a resync on the watcher thread; with no event for a while it compares the file's modification time and length with the last reload and reloads on a difference, which covers drops a backend does not report. The stamp is taken before the first load, so a write between the load and the watch start is not lost either.
-3. Tests that assert the last good settings after a broken edit replace the file by rename, as editors do, so no half-written file is read.
-4. Verify: a temporary probe (flooding the directory with a slowed FSEvents client) fails before and passes after; the five tests under `cargo nextest --stress-count`; `just check`.

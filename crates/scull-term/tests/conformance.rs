@@ -189,6 +189,7 @@ mod tests {
                 }
             }
             Event::Link { id, uri } => format!("link {id} {uri}"),
+            Event::Notification { title, body } => format!("notify {title}|{body}"),
         }
     }
 

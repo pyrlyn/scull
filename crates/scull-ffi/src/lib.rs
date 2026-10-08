@@ -46,7 +46,11 @@ pub use config::{
     tt_config_poll, tt_config_set, tt_config_view, tt_keybind,
 };
 pub use event::{
-    TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, TT_EXIT_CODE_UNKNOWN, tt_event, tt_term_poll_event,
+    TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, TT_EVENT_CLIPBOARD_READ, TT_EVENT_CLIPBOARD_WRITE,
+    TT_EVENT_LINK, TT_EVENT_NOTIFICATION, TT_EVENT_SHELL_MARK, TT_EVENT_TEXT_BODY,
+    TT_EVENT_TEXT_TITLE, TT_EVENT_TITLE, TT_EVENT_WORKING_DIRECTORY, TT_EXIT_CODE_UNKNOWN,
+    TT_TITLE_BOTH, TT_TITLE_ICON, TT_TITLE_WINDOW, tt_event, tt_term_clipboard_deny,
+    tt_term_clipboard_reply, tt_term_event_text, tt_term_link_uri, tt_term_poll_event,
 };
 
 pub use frame::{
@@ -85,11 +89,11 @@ pub const TT_ABI_VERSION_MAJOR: u32 = 0;
 
 /// Additions (new functions, fields appended to a struct) bump the minor.
 /// While the major is 0 every minor may break, so the minor must match too.
-pub const TT_ABI_VERSION_MINOR: u32 = 6;
+pub const TT_ABI_VERSION_MINOR: u32 = 7;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = 0x0000_0006;
+pub const TT_ABI_VERSION: u32 = 0x0000_0007;
 
 const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 

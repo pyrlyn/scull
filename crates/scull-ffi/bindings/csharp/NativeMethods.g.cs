@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 6;
+        internal const uint TT_ABI_VERSION_MINOR = 7;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 6;
+        internal const uint TT_ABI_VERSION = 7;
         /// <summary>
         ///  `tt_keybind.action`: paste the clipboard.
         /// </summary>
@@ -74,6 +74,63 @@ namespace Scull.Native
         ///  Reported once, last.
         /// </summary>
         internal const uint TT_EVENT_CHILD_EXITED = 2;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 0, 1 or 2 named the window or icon. `detail` is a
+        ///  `TT_TITLE_*`; the text is the name.
+        /// </summary>
+        internal const uint TT_EVENT_TITLE = 3;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 7 reported the working directory; the text is its
+        ///  `file://` URI as the program sent it.
+        /// </summary>
+        internal const uint TT_EVENT_WORKING_DIRECTORY = 4;
+        /// <summary>
+        ///  `tt_event.kind`: an OSC 133 shell mark. `detail` is the marker letter
+        ///  (`A` prompt, `B` command, `C` output, `D` done); the text is what
+        ///  followed it, often an exit code.
+        /// </summary>
+        internal const uint TT_EVENT_SHELL_MARK = 5;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 52 asks for the clipboard. `id` is the request:
+        ///  answer it with `tt_term_clipboard_reply` or `tt_term_clipboard_deny`.
+        ///  `detail` is the selection byte (`c`, `p`, `q`, `s`, `0`-`7`).
+        /// </summary>
+        internal const uint TT_EVENT_CLIPBOARD_READ = 6;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 52 sets the clipboard; the text is the decoded
+        ///  bytes, which need not be UTF-8. `detail` is the selection byte.
+        /// </summary>
+        internal const uint TT_EVENT_CLIPBOARD_WRITE = 7;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 8 opened a hyperlink. `id` is its link id; the text
+        ///  is the URI. `tt_term_link_uri` resolves the id later.
+        /// </summary>
+        internal const uint TT_EVENT_LINK = 8;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 9 or OSC 777 `notify` asks for a notification. The
+        ///  text is the message, `TT_EVENT_TEXT_TITLE` its title (empty for OSC 9).
+        /// </summary>
+        internal const uint TT_EVENT_NOTIFICATION = 9;
+        /// <summary>
+        ///  `tt_event.detail` of `TT_EVENT_TITLE`: OSC 0, icon name and window title.
+        /// </summary>
+        internal const uint TT_TITLE_BOTH = 0;
+        /// <summary>
+        ///  `tt_event.detail` of `TT_EVENT_TITLE`: OSC 1, the icon name.
+        /// </summary>
+        internal const uint TT_TITLE_ICON = 1;
+        /// <summary>
+        ///  `tt_event.detail` of `TT_EVENT_TITLE`: OSC 2, the window title.
+        /// </summary>
+        internal const uint TT_TITLE_WINDOW = 2;
+        /// <summary>
+        ///  `tt_term_event_text` part: the event's text, `text_len` bytes.
+        /// </summary>
+        internal const uint TT_EVENT_TEXT_BODY = 0;
+        /// <summary>
+        ///  `tt_term_event_text` part: a notification's title, `title_len` bytes.
+        /// </summary>
+        internal const uint TT_EVENT_TEXT_TITLE = 1;
         /// <summary>
         ///  `tt_event.exit_code` when the system did not say. A literal, not the
         ///  PTY crate's constant, so the generated header can spell it.
@@ -489,7 +546,8 @@ namespace Scull.Native
 
         /// <summary>
         ///  Takes the next event into `*event`: `TT_OK` with one, `TT_EMPTY` when
-        ///  there is none. Call it until `TT_EMPTY` after every wakeup.
+        ///  there is none. Call it until `TT_EMPTY` after every wakeup. The event's
+        ///  text stays readable through `tt_term_event_text` until the next poll.
         ///
         ///  # Safety
         ///
@@ -498,6 +556,60 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_term_poll_event", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_term_poll_event(tt_term* term, tt_event* @event);
+
+        /// <summary>
+        ///  Copies part `part` (`TT_EVENT_TEXT_*`) of the text of event `serial`
+        ///  into `buf`, as `tt_term_read_text` does: `*len` becomes its length, and
+        ///  `TT_FULL` with nothing copied when that is more than `cap`. Only the
+        ///  event polled last is held: an older `serial` answers `TT_EMPTY`.
+        ///  `TT_INVALID` for an unknown part, a `NULL` `len`, or a `NULL` `buf` with
+        ///  a `cap`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+        ///  bytes; `len` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_event_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_event_text(tt_term* term, ulong serial, uint part, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Copies the URI of link `id` (from `TT_EVENT_LINK`) into `buf`, sized
+        ///  as for `tt_term_event_text`. An id stays valid while text on the screen
+        ///  or in history carries it; `TT_EMPTY` once it is gone, after which the
+        ///  core may hand the id to a new link.
+        ///
+        ///  # Safety
+        ///
+        ///  As for `tt_term_event_text`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_uri", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_uri(tt_term* term, uint id, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Answers the OSC 52 read `id` with `len` bytes of clipboard content,
+        ///  which the core base64-encodes for the program. `TT_INVALID` when `id`
+        ///  is not an open read (unknown, or answered already), when the content is
+        ///  over 1 MiB, or for `NULL` `data` with a `len`; `TT_FULL` when the reply
+        ///  did not fit and the program got an empty answer instead.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `data` points to `len` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_clipboard_reply", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_clipboard_reply(tt_term* term, ulong id, byte* data, nuint len);
+
+        /// <summary>
+        ///  Refuses the OSC 52 read `id`: the program gets an empty answer, so it
+        ///  does not wait. `TT_INVALID` when `id` is not an open read.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_clipboard_deny", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_clipboard_deny(tt_term* term, ulong id);
 
         /// <summary>
         ///  A new, empty frame; the first update fills it. `NULL` only if the core
@@ -1023,6 +1135,28 @@ namespace Scull.Native
         ///  `TT_EVENT_CHILD_EXITED`: 1 when a signal ended the child.
         /// </summary>
         public byte signaled;
+        /// <summary>
+        ///  Names this event to `tt_term_event_text`; never 0.
+        /// </summary>
+        public ulong serial;
+        /// <summary>
+        ///  The clipboard request of `TT_EVENT_CLIPBOARD_*`, the link id of
+        ///  `TT_EVENT_LINK`; 0 otherwise.
+        /// </summary>
+        public ulong id;
+        /// <summary>
+        ///  Per kind: a `TT_TITLE_*`, a shell marker letter, a clipboard
+        ///  selection byte; 0 otherwise.
+        /// </summary>
+        public uint detail;
+        /// <summary>
+        ///  Bytes of the text (`TT_EVENT_TEXT_BODY`); 0 when there is none.
+        /// </summary>
+        public uint text_len;
+        /// <summary>
+        ///  Bytes of a notification's title (`TT_EVENT_TEXT_TITLE`).
+        /// </summary>
+        public uint title_len;
     }
 
     /// <summary>
@@ -1526,7 +1660,8 @@ namespace Scull.Native
         /// </summary>
         TT_PANIC = 4,
         /// <summary>
-        ///  Nothing to report: the event queue is empty.
+        ///  Nothing to report: the event queue is empty, or the event text or
+        ///  link asked for is no longer held.
         /// </summary>
         TT_EMPTY = 5,
         /// <summary>

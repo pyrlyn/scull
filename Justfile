@@ -16,8 +16,20 @@ ucd:
     mise exec -- cargo run --locked -p scull-ucd-gen
 
 # Fail when the committed tables differ from what the pinned data files produce.
+# Downloads missing files into target/ucd first, so this does not skip the way
+# the in-crate test does when that cache is empty. Kept out of `check`: an
+# offline local gate should not need the Unicode host.
 ucd-check:
     mise exec -- cargo run --locked -p scull-ucd-gen -- --check
+
+# A few seconds on every libFuzzer target. Nightly only (`cargo +nightly`),
+# so the pinned toolchain stays the one `check` uses. Not part of `check`.
+fuzz-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for target in $(cargo +nightly fuzz list); do
+        cargo +nightly fuzz run "$target" -- -max_total_time=5
+    done
 
 # Baseline table for the stub and the reference terminals.
 bench:
@@ -39,7 +51,8 @@ c_abi_out := "target/c-abi"
 c_abi_cc := "cc -std=c11 -g -O1 -fno-omit-frame-pointer -Wall -Wextra -Werror -Icrates/scull-ffi/include"
 c_abi_link := "-Ltarget/debug -lscull_ffi -Wl,-rpath," + justfile_directory() + "/target/debug -lpthread"
 
-# Build the C ABI as a shared library and drive it from C on two threads,
+# Build the C ABI as a shared library and drive it from C on two threads
+# (frames, config, events),
 # under AddressSanitizer with UndefinedBehaviorSanitizer, then under
 # ThreadSanitizer. Unix only: the sanitizers instrument the C side, which
 # is where a host's misuse of the ABI would show. A just recipe, not a
@@ -56,6 +69,10 @@ c-abi-test:
     ./{{c_abi_out}}/config-asan
     {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/config.c {{c_abi_link}} -o {{c_abi_out}}/config-tsan
     TSAN_OPTIONS=suppressions={{justfile_directory()}}/crates/scull-ffi/tests/c/tsan.supp ./{{c_abi_out}}/config-tsan
+    {{c_abi_cc}} -fsanitize=address,undefined -fno-sanitize-recover=all crates/scull-ffi/tests/c/events.c {{c_abi_link}} -o {{c_abi_out}}/events-asan
+    ./{{c_abi_out}}/events-asan
+    {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/events.c {{c_abi_link}} -o {{c_abi_out}}/events-tsan
+    TSAN_OPTIONS=suppressions={{justfile_directory()}}/crates/scull-ffi/tests/c/tsan.supp ./{{c_abi_out}}/events-tsan
 
 macos_app := "target/macos/Scull.app"
 

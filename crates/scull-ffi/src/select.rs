@@ -11,7 +11,7 @@ use scull_term::{
 use crate::guard::{SizedStruct, can_write, tt_status, with_term, write_sized, zeroed};
 use crate::spawn::{text, tt_str};
 use crate::term::tt_term;
-use crate::text::{buffer_ok, copy_out};
+use crate::text::{copy_out, out_ok};
 
 /// `tt_term_select_start` kind: cell by cell, for a drag.
 pub const TT_SELECT_CELL: u32 = 0;
@@ -155,7 +155,7 @@ pub unsafe extern "C" fn tt_term_selection_text(
     len: *mut usize,
 ) -> tt_status {
     let body = |t: &tt_term| {
-        if !buffer_ok(buf, cap, len) {
+        if !out_ok(buf, cap, len) {
             return tt_status::TT_INVALID;
         }
         let mut text = String::new();
@@ -165,7 +165,7 @@ pub unsafe extern "C" fn tt_term_selection_text(
             core.term.selection().is_some()
         };
         // SAFETY: the caller's contract, checked above.
-        let status = unsafe { copy_out(&text, buf, cap, len) };
+        let status = unsafe { copy_out(text.as_bytes(), buf, cap, len) };
         if selected {
             status
         } else {

@@ -8,6 +8,9 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | --- | --- | --- | --- | --- | --- |
 | T3 | in progress | P0 | 3 | 80% | Cursor / grok 4.7 |
 | T13 | in progress | P1 | 3 | 55% | Claude Code / claude-opus-5-5 |
+| T13.2 | in progress | P1 | 3 | 0% | Claude Code / claude-opus-5-5 |
+| T13.3 | in progress | P1 | 3 | 0% | Claude Code / claude-opus-5-5 |
+| T13.4 | todo | P1 | 3 | 0% | |
 | T15 | in progress | P1 | 5 | 90% | Claude Code / claude-opus-5-5 |
 | T16 | in progress | P1 | 4 | 85% | Claude Code / claude-opus-5-5 |
 | T17 | todo | P1 | 5 | 0% | |
@@ -31,9 +34,10 @@ Selection and scrollback search in the core. OSC 8 links as per-row ranges. OSC 
 
 Execution plan:
 1. Reuse `Row::set_link` / `LinkSpan` in scull-grid and the coalesced bell flag (`take_bell`). No selection or OSC 7/8/52/133 handler exists under apps, packages or tools. `base64` is already a workspace dependency (scull-image); OSC 52 uses it for a one-shot decode.
-2. This slice, inside the line budget: a capped polled event queue in scull-term for OSC 0/1/2 titles, BEL, OSC 7, OSC 133, OSC 52 (the host may deny or answer a read) and OSC 8 stamped onto printed cells. The host reads a title or directory from the event; `link_uri` resolves an id later. Golden fixtures in `tests/fixtures/shell.txt`.
-3. Left: selection, scrollback search, OSC 9 / OSC 777 notifications, and C ABI event kinds beyond the existing bell. Link ids are never reclaimed: after 1024 OSC 8 targets a session links no more text, so they need a sweep like the style and cluster interners. The Rust queue is what golden tests drain; `tt_term_poll_event` still reports only the bell and child exit.
-
+2. T13.1, landed: a capped polled event queue in scull-term for OSC 0/1/2 titles, BEL, OSC 7, OSC 133, OSC 52 (the host may deny or answer a read) and OSC 8 stamped onto printed cells. The host reads a title or directory from the event; `link_uri` resolves an id later. Golden fixtures in `tests/fixtures/shell.txt`.
+3. T13.2 Selection and scrollback search in the core: a selection (cell, word, line; anchored to absolute rows so it survives scrolling and clears when its rows are overwritten), its text (wrapped rows joined, wide cells once, trailing blanks trimmed), and a capped search over screen and scrollback returning match ranges. The frame view marks selected and matched cells. C ABI exports for both, ABI minor bump, `just bindings`. Verify: golden tests, Rust tests for every export, `just check`, `just c-abi-test`.
+4. T13.3 Events over the C ABI: OSC 9 and OSC 777 notifications into the queue; `tt_term_poll_event` kinds for title, directory, shell mark, clipboard read and write, link and notification, with their text copied out by a sized call; exports to answer or deny a clipboard read and to resolve a link id; link ids reclaimed by a sweep of ids no row holds, so OSC 8 keeps working past 1024 targets. macOS `TerminalSession` sets the window title and writes OSC 52 writes to the pasteboard; reads are denied until a setting allows them. Verify: Rust and C tests, `just check`, `just c-abi-test`, `just macos-test`.
+5. T13.4 macOS selection, copy and search UI over T13.2 (waits for it): mouse drag, double and triple click, Cmd-C, Cmd-F find bar with next and previous. Verify: `just macos-test`, a `-ScullSnapshot` with a selection and a highlighted match.
 ### T15. macOS renderer
 
 A Swift Metal renderer with a CoreText glyph atlas that has eviction, a shaped-run cache, ligatures, colour emoji, geometry-drawn box characters, and dirty-row uploads. Done when input latency and throughput are recorded against the T3 baseline.

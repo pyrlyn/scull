@@ -3,11 +3,12 @@
 //! poll. A file that stops being valid keeps the last good settings and
 //! reports why, so a typo mid-edit never resets the terminal.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
@@ -16,6 +17,11 @@ use crate::{ConfigError, Settings, edit};
 /// Editors save in several steps (truncate, write, rename); changes this
 /// close together are one reload, so a half-written file is not read.
 const QUIET: Duration = Duration::from_millis(60);
+
+/// A backend may lose events without saying so; after this long without one
+/// the file's stamp is compared with the last reload's, so a lost change
+/// still applies.
+const RESYNC: Duration = Duration::from_secs(2);
 
 /// What a host polls: the settings in force, and why the file on disk is
 /// not (yet) what they came from.
@@ -94,6 +100,9 @@ impl LiveConfig {
     /// that cannot be used is an error in the snapshot with default settings,
     /// and a watcher that cannot start only means no live reload.
     pub fn open(path: PathBuf, on_change: impl Fn() + Send + Sync + 'static) -> Self {
+        // Before the load: a write between the load and the watch start then
+        // differs from it and is picked up by the resync.
+        let seen = stamp(&path);
         let (settings, error) = match Settings::load(&path) {
             Ok(settings) => (settings, None),
             Err(e) => (Settings::default(), Some(e.to_string())),
@@ -107,7 +116,7 @@ impl LiveConfig {
             }),
             on_change: Box::new(on_change),
         });
-        let (watcher, thread) = match watch(&shared) {
+        let (watcher, thread) = match watch(&shared, seen) {
             Some((watcher, thread)) => (Some(watcher), Some(thread)),
             None => (None, None),
         };
@@ -157,9 +166,31 @@ impl Drop for LiveConfig {
     }
 }
 
+/// What a change to the file changes, or `None` while there is no file.
+type Stamp = Option<(SystemTime, u64)>;
+
+fn stamp(path: &Path) -> Stamp {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
+
+/// Whether `event` may mean the file named `name` changed. Reading the file
+/// raises access events on some systems; reacting to them would reload
+/// forever. A backend whose queue overflowed drops the queued events and
+/// reports one rescan of the directory instead, which may hide a change.
+pub(crate) fn relevant(event: &notify::Result<notify::Event>, name: &OsStr) -> bool {
+    match event {
+        Ok(e) => {
+            e.need_rescan()
+                || (!e.kind.is_access() && e.paths.iter().any(|p| p.file_name() == Some(name)))
+        }
+        Err(_) => true,
+    }
+}
+
 /// Watches the file's directory, not the file: editors replace a file by
 /// renaming another over it, which a watch on the old file would lose.
-fn watch(shared: &Arc<Shared>) -> Option<(RecommendedWatcher, JoinHandle<()>)> {
+fn watch(shared: &Arc<Shared>, mut seen: Stamp) -> Option<(RecommendedWatcher, JoinHandle<()>)> {
     let dir = shared.path.parent()?.to_owned();
     let name = shared.path.file_name()?.to_owned();
     // There is nothing to watch in a directory that does not exist yet, and
@@ -167,13 +198,7 @@ fn watch(shared: &Arc<Shared>) -> Option<(RecommendedWatcher, JoinHandle<()>)> {
     std::fs::create_dir_all(&dir).ok()?;
     let (tx, rx) = mpsc::channel::<()>();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        // Reading the file raises access events on some systems; reacting to
-        // them would reload forever.
-        let relevant = match &event {
-            Ok(e) => !e.kind.is_access() && e.paths.iter().any(|p| p.file_name() == Some(&name)),
-            Err(_) => true,
-        };
-        if relevant {
+        if relevant(&event, &name) {
             let _ = tx.send(());
         }
     })
@@ -183,14 +208,21 @@ fn watch(shared: &Arc<Shared>) -> Option<(RecommendedWatcher, JoinHandle<()>)> {
     let thread = thread::Builder::new()
         .name("scull-config".into())
         .spawn(move || {
-            while rx.recv().is_ok() {
-                loop {
-                    match rx.recv_timeout(QUIET) {
-                        Ok(()) => {}
-                        Err(RecvTimeoutError::Timeout) => break,
-                        Err(RecvTimeoutError::Disconnected) => return,
-                    }
+            loop {
+                match rx.recv_timeout(RESYNC) {
+                    Ok(()) => loop {
+                        match rx.recv_timeout(QUIET) {
+                            Ok(()) => {}
+                            Err(RecvTimeoutError::Timeout) => break,
+                            Err(RecvTimeoutError::Disconnected) => return,
+                        }
+                    },
+                    Err(RecvTimeoutError::Timeout) if stamp(&shared.path) == seen => continue,
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => return,
                 }
+                // Before the read, so a write during it differs next time.
+                seen = stamp(&shared.path);
                 shared.reload();
             }
         })

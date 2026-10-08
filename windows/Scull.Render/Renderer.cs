@@ -423,7 +423,8 @@ public sealed unsafe class Renderer : IDisposable
         var viewport = new D3D11_VIEWPORT { Width = target.Width, Height = target.Height, MaxDepth = 1 };
         c->RSSetViewports(1, &viewport);
         c->RSSetState(raster);
-        c->OMSetBlendState(blend, null, 0xFFFF_FFFF);
+        // A null blend factor: the span overload would demand four floats.
+        c->OMSetBlendState(blend, (float*)null, 0xFFFF_FFFF);
         c->IASetInputLayout(layout);
         c->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY.D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
         c->VSSetShader(vertexShader, null, 0);

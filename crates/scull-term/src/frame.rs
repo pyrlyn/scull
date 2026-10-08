@@ -48,7 +48,7 @@ pub struct FrameCell {
     /// Columns the character covers: 1, 2 for a wide head, 0 for the
     /// spacer behind it.
     pub width: u8,
-    /// [`FrameCell::CLUSTER`] or nothing.
+    /// [`FrameCell::CLUSTER`] and the highlight bits, or nothing.
     pub flags: u8,
 }
 
@@ -56,6 +56,21 @@ impl FrameCell {
     /// The text has more code points than `codepoint`; the full cluster is
     /// in the row's text runs.
     pub const CLUSTER: u8 = 1;
+    /// The cell is selected.
+    pub const SELECTED: u8 = 2;
+    /// The cell is part of a search match.
+    pub const MATCH: u8 = 4;
+    /// The cell is part of the current search match (also [`Self::MATCH`]).
+    pub const CURRENT_MATCH: u8 = 8;
+}
+
+/// Highlight bits laid over columns `start..end` of viewport row `row`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Mark {
+    pub(crate) row: u16,
+    pub(crate) start: u16,
+    pub(crate) end: u16,
+    pub(crate) flags: u8,
 }
 
 /// Neighbouring cells of one style and one width, with their text, for the
@@ -255,6 +270,9 @@ pub struct Frame {
     /// Where the last update laid the preedit; it rides in the same row
     /// hash as the images, so damage repaints its row and never scrolls it.
     shown_preedit: Option<PreeditLayout>,
+    /// Selection and search highlights by row; they ride in the row hash
+    /// too, so a row repaints when its highlights change.
+    marks: Vec<Mark>,
 }
 
 impl Frame {
@@ -359,6 +377,7 @@ impl Frame {
         std::mem::swap(&mut self.old_slices, &mut self.slices);
         self.collect_placements(term);
         self.lay_out_preedit(term);
+        self.collect_marks(term);
         let (now, before) = (&self.slices, &self.old_slices);
         let same = |r: u16, from: u16| now.get(usize::from(r)) == before.get(usize::from(from));
         self.damage
@@ -390,6 +409,18 @@ impl Frame {
             && let Some(slot) = self.slices.get_mut(usize::from(p.row))
         {
             *slot = self.hasher.hash_one((*slot, self.preedit.text(), p));
+        }
+    }
+
+    fn collect_marks(&mut self, term: &Terminal) {
+        self.marks.clear();
+        term.selection_marks(&mut self.marks);
+        term.search_marks(&mut self.marks);
+        self.marks.sort_by_key(|m| m.row);
+        for m in &self.marks {
+            if let Some(slot) = self.slices.get_mut(usize::from(m.row)) {
+                *slot = self.hasher.hash_one((*slot, m.start, m.end, m.flags));
+            }
         }
     }
 
@@ -493,6 +524,7 @@ impl Frame {
             styles,
             preedit,
             shown_preedit,
+            marks,
             ..
         } = self;
         let (Some(cells), Some(line)) =
@@ -533,6 +565,13 @@ impl Frame {
         }
         if let Some(p) = over {
             fill_preedit(p, preedit.text(), cells);
+        }
+        let first = marks.partition_point(|m| m.row < r);
+        for m in marks.iter().skip(first).take_while(|m| m.row == r) {
+            let end = usize::from(m.end).min(cells.len());
+            for cell in cells.get_mut(usize::from(m.start)..end).unwrap_or_default() {
+                cell.flags |= m.flags;
+            }
         }
     }
 }
@@ -923,6 +962,75 @@ mod tests {
         i32,
     );
 
+    fn flags(f: &Frame, r: u16) -> Vec<u8> {
+        f.row_cells(r).iter().map(|c| c.flags).collect()
+    }
+
+    #[test]
+    fn selected_cells_are_flagged_and_only_their_row_repaints() {
+        let mut t = term();
+        t.feed(b"abc\r\ndef");
+        let mut f = fresh(&mut t);
+        let at = t.viewport_point(1, 1);
+        t.select_start(crate::SelectionKind::Cell, at);
+        t.select_extend(t.viewport_point(1, 2));
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().dirty(), [1]);
+        const S: u8 = FrameCell::SELECTED;
+        assert_eq!(flags(&f, 1), [0, S, S, 0, 0, 0, 0, 0]);
+        t.select_clear();
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().dirty(), [1]);
+        assert_eq!(flags(&f, 1), [0; 8]);
+    }
+
+    #[test]
+    fn a_selection_scrolled_with_its_text_keeps_its_flags() {
+        let mut t = term();
+        t.feed(b"a\r\nb\r\nc\r\nd");
+        let at = t.viewport_point(1, 0);
+        t.select_start(crate::SelectionKind::Line, at);
+        let mut f = fresh(&mut t);
+        t.feed(b"\r\n");
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().scrolls().len(), 1, "moved, not repainted");
+        assert!(flags(&f, 0).iter().all(|&b| b == FrameCell::SELECTED));
+        assert!(flags(&f, 1).iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn matches_are_flagged_and_the_current_one_stands_out() {
+        let mut t = term();
+        t.feed("ab \u{4e2d} ab\r\nab".as_bytes());
+        assert!(t.search_set("AB", false));
+        let mut f = fresh(&mut t);
+        const M: u8 = FrameCell::MATCH;
+        assert_eq!(flags(&f, 0), [M, M, 0, 0, 0, 0, M, M]);
+        assert_eq!(t.search_next(None).map(|m| m.start.col), Some(0));
+        updated(&mut t, &mut f);
+        const C: u8 = M | FrameCell::CURRENT_MATCH;
+        assert_eq!(flags(&f, 0), [C, C, 0, 0, 0, 0, M, M]);
+        assert!(t.search_set("\u{4e2d}", true));
+        updated(&mut t, &mut f);
+        assert_eq!(
+            flags(&f, 0),
+            [0, 0, 0, M, M, 0, 0, 0],
+            "a wide match covers its spacer"
+        );
+        assert_eq!(f.damage().dirty(), [0, 1]);
+    }
+
+    #[test]
+    fn a_match_from_above_the_viewport_is_flagged_where_it_shows() {
+        let mut t = term();
+        t.feed(b"......abcd\r\n1\r\n2\r\n3");
+        assert_eq!(t.grid().history_len(), 1, "the \"ab\" half is in history");
+        assert!(t.search_set("abcd", true));
+        let f = fresh(&mut t);
+        const M: u8 = FrameCell::MATCH;
+        assert_eq!(flags(&f, 0), [M, M, 0, 0, 0, 0, 0, 0]);
+    }
+
     /// A row as a UI would put it on screen: every cell with its style
     /// resolved, every run with its text, and the image slices over it.
     #[derive(Clone, Debug, PartialEq)]
@@ -1029,6 +1137,10 @@ mod tests {
     enum Step {
         Feed(Vec<u8>),
         View(i8),
+        Select(u8, u16, u16),
+        Extend(u16, u16),
+        Search(&'static str),
+        Next(bool),
     }
 
     fn step() -> impl Strategy<Value = Step> {
@@ -1037,6 +1149,10 @@ mod tests {
             4 => proptest::collection::vec(proptest::sample::select(SEQUENCES), 1..6)
                 .prop_map(|s| Step::Feed(s.concat())),
             1 => any::<i8>().prop_map(Step::View),
+            1 => (0..4u8, 0..8u16, 0..18u16).prop_map(|(k, r, c)| Step::Select(k, r, c)),
+            1 => (0..8u16, 0..18u16).prop_map(|(r, c)| Step::Extend(r, c)),
+            1 => proptest::sample::select(&["1", "ab", "\u{4e2d}", "x y", ""][..]).prop_map(Step::Search),
+            1 => any::<bool>().prop_map(Step::Next),
         ]
     }
 
@@ -1059,6 +1175,26 @@ mod tests {
                 match step {
                     Step::Feed(bytes) => t.feed(&bytes),
                     Step::View(delta) => t.scroll_display(isize::from(delta)),
+                    Step::Select(kind, r, c) => {
+                        let kinds = [
+                            crate::SelectionKind::Cell,
+                            crate::SelectionKind::Word,
+                            crate::SelectionKind::Line,
+                            crate::SelectionKind::Block,
+                        ];
+                        let at = t.viewport_point(r, c);
+                        t.select_start(kinds[usize::from(kind)], at);
+                    }
+                    Step::Extend(r, c) => t.select_extend(t.viewport_point(r, c)),
+                    Step::Search(pattern) => {
+                        t.search_set(pattern, false);
+                    }
+                    Step::Next(true) => {
+                        t.search_next(None);
+                    }
+                    Step::Next(false) => {
+                        t.search_prev(None);
+                    }
                 }
                 now += Duration::from_millis(pause);
                 let shown = paint_all(&frame);

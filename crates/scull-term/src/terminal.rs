@@ -11,6 +11,8 @@ use scull_unicode::WidthOptions;
 
 use crate::error::TermError;
 use crate::modes::Modes;
+use crate::search::Search;
+use crate::selection::Selection;
 use crate::state::{Cursor, Margins, State};
 use crate::sync::SyncGate;
 
@@ -24,6 +26,8 @@ pub struct Terminal {
     parser: Parser,
     pub(crate) state: State,
     sync: SyncGate,
+    pub(crate) selection: Option<Selection>,
+    pub(crate) search: Option<Search>,
 }
 
 impl Terminal {
@@ -48,6 +52,8 @@ impl Terminal {
             parser: Parser::new(),
             state: State::new(grid, alt, width),
             sync: SyncGate::default(),
+            selection: None,
+            search: None,
         })
     }
 
@@ -58,6 +64,9 @@ impl Terminal {
         // Once per feed rather than per scrolled line: placements are
         // anchored to absolute lines, so stale ones only cost memory.
         self.state.images.prune();
+        if self.selection.is_some() {
+            self.check_selection();
+        }
         if self
             .sync
             .fed(self.state.modes.synchronized_output, bytes.len())
@@ -103,9 +112,18 @@ impl Terminal {
     ///
     /// During an interactive resize call this once with the final size,
     /// with PTY output paused meanwhile (the contract on
-    /// `scull_grid::Grid::resize`).
+    /// `scull_grid::Grid::resize`). A change of size drops the selection
+    /// and forgets the current search match: rewrapping moves their cells.
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), TermError> {
-        self.state.resize(cols, rows)
+        let before = (self.state.cols(), self.state.rows());
+        self.state.resize(cols, rows)?;
+        if before != (cols, rows) {
+            self.selection = None;
+            if let Some(s) = &mut self.search {
+                s.forget_current();
+            }
+        }
+        Ok(())
     }
 
     /// Sets the size of a cell in pixels, which turns image sizes into

@@ -1,0 +1,142 @@
+# Selection and search. A selection is made after `input` and before
+# `then`; its text is checked line by line. Matches are listed oldest
+# first as `LINE,COL-LINE,COL`, absolute lines and columns 0-based, both
+# ends inclusive.
+
+=== A drag joins soft-wrapped rows and ends hard lines with a newline
+source: xterm and Alacritty copy behaviour
+size: 4x3
+input: abcdef\r\nxy\s\s
+select: cell 1,2 3,4
+selection:
+|bcdef|
+|xy|
+
+=== A drag over a wide character copies it once
+source: UAX #11; foot and Alacritty
+size: 6x2
+input: a\xe4\xb8\xadb
+select: cell 1,3 1,4
+selection:
+|中b|
+
+=== A double click stops at blanks and separators but not at path characters
+source: Alacritty semantic_escape_chars
+size: 20x2
+input: cat "~/a-b/c.txt"
+select: word 1,8 1,8
+selection:
+|~/a-b/c.txt|
+
+=== A double click on a separator takes it alone
+source: Alacritty semantic_escape_chars
+size: 20x2
+input: f(x)
+select: word 1,2 1,2
+selection:
+|(|
+
+=== A triple click takes the whole soft-wrapped line
+source: xterm triple click; Alacritty line selection
+size: 4x4
+input: abcdefg\r\nnext
+select: line 2,1 2,1
+selection:
+|abcdefg|
+
+=== A block takes the same columns of every row
+source: xterm and Alacritty block selection
+size: 6x3
+input: abcdef\r\nghijkl\r\nmn
+select: block 1,2 3,3
+selection:
+|bc|
+|hi|
+|n|
+
+=== Concealed text is copied as blanks
+source: xterm ctlseqs SGR 8
+size: 10x1
+input: pw \e[8msecret\e[m!
+select: line 1,1 1,1
+selection:
+|pw       !|
+
+=== Writing into a selected row drops the selection
+source: Alacritty clears a selection its rows are written into
+size: 6x3
+input: one\r\ntwo
+select: cell 1,1 1,3
+then: \e[1;2HX
+selection:
+
+=== Writing elsewhere keeps it
+source: Alacritty clears a selection its rows are written into
+size: 6x3
+input: one\r\ntwo
+select: cell 1,1 1,3
+then: \e[3;1Hxyz
+selection:
+|one|
+
+=== Output scrolling the selection into history keeps it
+source: xterm and Alacritty
+size: 6x2
+scrollback: 10
+input: one\r\ntwo
+select: line 1,1 1,1
+then: \r\n3\r\n4
+selection:
+|one|
+
+=== Entering the alternate screen drops the selection
+source: Alacritty clears the selection on a screen switch
+size: 6x2
+input: one
+select: line 1,1 1,1
+then: \e[?1049h
+selection:
+
+=== A case-sensitive search finds only the exact text
+source: literal search as in kitty, Alacritty and Ghostty
+size: 10x3
+input: Foo foo\r\nFOO
+search: foo
+matches:
+|0,4-0,6|
+
+=== A case-insensitive search folds both sides
+source: literal search as in kitty, Alacritty and Ghostty
+size: 10x3
+input: Foo foo\r\nFOO
+isearch: fOO
+matches:
+|0,0-0,2|
+|0,4-0,6|
+|1,0-1,2|
+
+=== A match crosses a soft wrap but not a hard line end
+source: Alacritty regex search over wrapped lines
+size: 4x4
+input: xxabcd\r\nab\r\ncd
+search: abcd
+matches:
+|0,2-1,1|
+
+=== A match in the scrollback is found
+source: kitty, Alacritty and Ghostty search the scrollback
+size: 8x2
+scrollback: 10
+input: needle\r\n1\r\n2\r\nneedle
+search: needle
+matches:
+|0,0-0,5|
+|3,0-3,5|
+
+=== A wide match ends on its spacer and skips the padding before a wrap
+source: UAX #11; foot and Alacritty leading spacer
+size: 5x2
+input: abcd\xe4\xb8\xad
+search: d\xe4\xb8\xad
+matches:
+|0,3-1,1|

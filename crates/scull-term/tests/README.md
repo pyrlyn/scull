@@ -85,6 +85,21 @@ line is `ROW START..END=ID` for one span on a screen row (row 1-based,
 columns 0-based and half-open). A clipboard read is denied or answered in
 `src/osc.rs` tests.
 
+## Cases (T13.2)
+
+| File | Cases | Sources |
+| --- | --- | --- |
+| `selection.txt` | cell, word, line and block selections; soft wraps joined, wide characters once, concealed text as blanks; the selection dropped by a write into it or a screen switch and kept by scrolling; case-sensitive and folded search, matches across a soft wrap, in the scrollback and over wide characters | xterm and Alacritty selection and copy; Alacritty `semantic_escape_chars`; kitty, Alacritty and Ghostty scrollback search |
+
+`select: KIND ROW,COL ROW,COL` (kind `cell`, `word`, `line` or `block`,
+cells 1-based in the viewport) starts a selection at the first cell and
+extends it to the second after `input`; `then:` is fed after that, with
+the escapes of `input`. `selection:` lists the selected text line by line,
+no lines when there is no selection. `search:` (case-sensitive) or
+`isearch:` sets a pattern and `matches:` lists every match as
+`LINE,COL-LINE,COL`, absolute lines and columns 0-based, both ends
+inclusive.
+
 Not covered: tests that need a real host or features this core does not
 have (DECCOLM and 132-column switching, reverse wraparound, DECSCA and
 selective erase protection, DECRQCRA checksums, printer, locator and

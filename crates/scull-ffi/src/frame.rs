@@ -36,13 +36,23 @@ pub struct tt_cell {
     pub style: u16,
     /// Columns covered: 1, 2 for a wide character, 0 for the cell behind it.
     pub width: u8,
-    /// `TT_CELL_CLUSTER` or 0.
+    /// `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH` and
+    /// `TT_CELL_CURRENT_MATCH` bits.
     pub flags: u8,
 }
 
 /// The cell holds more code points than `codepoint`; the whole cluster is
 /// in its row's text.
 pub const TT_CELL_CLUSTER: u8 = 1;
+
+/// The cell is selected.
+pub const TT_CELL_SELECTED: u8 = 2;
+
+/// The cell is part of a search match.
+pub const TT_CELL_MATCH: u8 = 4;
+
+/// The cell is part of the current search match (`TT_CELL_MATCH` is set too).
+pub const TT_CELL_CURRENT_MATCH: u8 = 8;
 
 /// Neighbouring cells of one style and width with their text, the unit the
 /// platform shaper takes. Blank cells belong to no run.
@@ -71,6 +81,9 @@ const _: () = {
     assert!(offset_of!(tt_cell, width) == offset_of!(FrameCell, width));
     assert!(offset_of!(tt_cell, flags) == offset_of!(FrameCell, flags));
     assert!(TT_CELL_CLUSTER == FrameCell::CLUSTER);
+    assert!(TT_CELL_SELECTED == FrameCell::SELECTED);
+    assert!(TT_CELL_MATCH == FrameCell::MATCH);
+    assert!(TT_CELL_CURRENT_MATCH == FrameCell::CURRENT_MATCH);
     assert!(size_of::<tt_run>() == size_of::<TextRun>());
     assert!(align_of::<tt_run>() == align_of::<TextRun>());
     assert!(offset_of!(tt_run, col) == offset_of!(TextRun, col));

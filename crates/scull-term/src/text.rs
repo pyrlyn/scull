@@ -5,7 +5,7 @@
 
 use std::ops::Range;
 
-use scull_grid::{Attrs, CellFlags, Content};
+use scull_grid::{Attrs, Cell, CellFlags, Content, Grid};
 
 use crate::terminal::Terminal;
 
@@ -26,27 +26,37 @@ impl Terminal {
             }
             let start = out.len();
             for cell in grid.visible_row(r).into_iter().flat_map(|row| row.cells()) {
-                if cell.flags().contains(CellFlags::SPACER) {
-                    continue;
-                }
-                // Concealed text, such as a typed password, is not read out.
-                let hidden = grid
-                    .styles()
-                    .get(cell.style())
-                    .is_some_and(|s| s.attrs.contains(Attrs::HIDDEN));
-                match cell.content() {
-                    Content::Char(c) if !hidden => out.push(c),
-                    Content::Cluster(id) if !hidden => {
-                        out.push_str(grid.clusters().get(id).unwrap_or(MISSING_CLUSTER));
-                    }
-                    _ => out.push(' '),
+                if !cell.flags().contains(CellFlags::SPACER) {
+                    push_cell(grid, cell, out);
                 }
             }
-            let kept = out
-                .get(start..)
-                .map_or(0, |line| line.trim_end_matches(' ').len());
-            out.truncate(start + kept);
+            trim_line(out, start);
         }
+    }
+}
+
+/// Drops the trailing spaces of the line that begins at byte `start`.
+pub(crate) fn trim_line(out: &mut String, start: usize) {
+    let kept = out
+        .get(start..)
+        .map_or(0, |line| line.trim_end_matches(' ').len());
+    out.truncate(start + kept);
+}
+
+/// Appends what `cell` reads as: its text, or a space when it is blank or
+/// concealed (SGR 8), so a typed password is neither read out nor copied.
+/// Skipping spacers is the caller's choice.
+pub(crate) fn push_cell(grid: &Grid, cell: Cell, out: &mut String) {
+    let hidden = grid
+        .styles()
+        .get(cell.style())
+        .is_some_and(|s| s.attrs.contains(Attrs::HIDDEN));
+    match cell.content() {
+        Content::Char(c) if !hidden => out.push(c),
+        Content::Cluster(id) if !hidden => {
+            out.push_str(grid.clusters().get(id).unwrap_or(MISSING_CLUSTER));
+        }
+        _ => out.push(' '),
     }
 }
 

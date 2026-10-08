@@ -13,7 +13,10 @@ mod tests {
     use std::path::Path;
 
     use scull_grid::{Attrs, CellFlags, Color, Content, Row, Style, Underline};
-    use scull_term::{Event, Terminal, TitleWhich};
+    use scull_term::{Event, Match, SelectionKind, Terminal, TitleWhich};
+
+    /// A selection's kind and its two 0-based viewport cells.
+    type Select = (SelectionKind, (u16, u16), (u16, u16));
 
     /// One case: a byte stream and what it must leave behind.
     #[derive(Debug, Default)]
@@ -31,6 +34,11 @@ mod tests {
         replies: Option<Vec<u8>>,
         events: Option<Vec<String>>,
         links: Option<Vec<String>>,
+        select: Option<Select>,
+        then: Vec<u8>,
+        selection: Option<Vec<String>>,
+        search: Option<(String, bool)>,
+        matches: Option<Vec<String>>,
     }
 
     fn unescape(text: &str) -> Vec<u8> {
@@ -105,10 +113,42 @@ mod tests {
                 "screen" => case.screen = pipes(&mut lines),
                 "events" => case.events = Some(pipes(&mut lines)),
                 "links" => case.links = Some(pipes(&mut lines)),
+                "select" => case.select = Some(selection_field(value)),
+                "then" => case.then.extend(unescape(value)),
+                "selection" => case.selection = Some(pipes(&mut lines)),
+                "search" | "isearch" => {
+                    let pattern = String::from_utf8(unescape(value)).unwrap();
+                    case.search = Some((pattern, key == "search"));
+                }
+                "matches" => case.matches = Some(pipes(&mut lines)),
                 other => panic!("{file}: unknown field {other}"),
             }
         }
         cases
+    }
+
+    /// `KIND ROW,COL ROW,COL`, 1-based viewport cells.
+    fn selection_field(value: &str) -> Select {
+        let mut parts = value.split_whitespace();
+        let kind = match parts.next() {
+            Some("cell") => SelectionKind::Cell,
+            Some("word") => SelectionKind::Word,
+            Some("line") => SelectionKind::Line,
+            Some("block") => SelectionKind::Block,
+            other => panic!("unknown selection kind {other:?}"),
+        };
+        let mut cell = || {
+            let (r, c) = parts.next().unwrap().split_once(',').unwrap();
+            (r.parse::<u16>().unwrap() - 1, c.parse::<u16>().unwrap() - 1)
+        };
+        (kind, cell(), cell())
+    }
+
+    fn show_match(m: &Match) -> String {
+        format!(
+            "{},{}-{},{}",
+            m.start.line, m.start.col, m.end.line, m.end.col
+        )
     }
 
     fn pipes(lines: &mut std::iter::Peekable<std::str::Lines<'_>>) -> Vec<String> {
@@ -234,7 +274,37 @@ mod tests {
     fn check(case: &Case) -> String {
         let mut term = Terminal::new(case.cols, case.rows, case.scrollback).unwrap();
         term.feed(&case.input);
+        if let Some((kind, a, b)) = case.select {
+            let (a, b) = (term.viewport_point(a.0, a.1), term.viewport_point(b.0, b.1));
+            term.select_start(kind, a);
+            term.select_extend(b);
+        }
+        term.feed(&case.then);
         let mut errors = String::new();
+        if let Some(want) = &case.selection {
+            let mut text = String::new();
+            term.selection_text(&mut text);
+            let got: Vec<String> = match term.selection() {
+                Some(_) => text.split('\n').map(str::to_owned).collect(),
+                None => Vec::new(),
+            };
+            if &got != want {
+                let _ = writeln!(errors, "  selection:\n    want {want:?}\n    got  {got:?}");
+            }
+        }
+        if let (Some((pattern, case_sensitive)), Some(want)) = (&case.search, &case.matches) {
+            assert!(
+                term.search_set(pattern, *case_sensitive),
+                "{}: bad pattern",
+                case.name
+            );
+            let mut found = Vec::new();
+            term.search_matches(&mut found);
+            let got: Vec<String> = found.iter().map(show_match).collect();
+            if &got != want {
+                let _ = writeln!(errors, "  matches:\n    want {want:?}\n    got  {got:?}");
+            }
+        }
         if let Some(want) = &case.replies {
             let got = term.take_replies();
             if &got != want {
@@ -323,7 +393,9 @@ mod tests {
                         || case.history.is_some()
                         || case.replies.is_some()
                         || case.events.is_some()
-                        || case.links.is_some(),
+                        || case.links.is_some()
+                        || case.selection.is_some()
+                        || case.matches.is_some(),
                     "{}: {} checks nothing",
                     case.file,
                     case.name

@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 6;
+        internal const uint TT_ABI_VERSION_MINOR = 7;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 6;
+        internal const uint TT_ABI_VERSION = 7;
         /// <summary>
         ///  `tt_keybind.action`: paste the clipboard.
         /// </summary>
@@ -141,6 +141,18 @@ namespace Scull.Native
         ///  in its row's text.
         /// </summary>
         internal const byte TT_CELL_CLUSTER = 1;
+        /// <summary>
+        ///  The cell is selected.
+        /// </summary>
+        internal const byte TT_CELL_SELECTED = 2;
+        /// <summary>
+        ///  The cell is part of a search match.
+        /// </summary>
+        internal const byte TT_CELL_MATCH = 4;
+        /// <summary>
+        ///  The cell is part of the current search match (`TT_CELL_MATCH` is set too).
+        /// </summary>
+        internal const byte TT_CELL_CURRENT_MATCH = 8;
         /// <summary>
         ///  A colour: `TT_COLOR_DEFAULT`, `TT_COLOR_INDEXED | index` or
         ///  `TT_COLOR_RGB | 0xRRGGBB`; the kind is in `TT_COLOR_KIND_MASK`.
@@ -344,6 +356,38 @@ namespace Scull.Native
         ///  One wheel step right.
         /// </summary>
         internal const byte TT_MOUSE_WHEEL_RIGHT = 7;
+        /// <summary>
+        ///  `tt_term_select_start` kind: cell by cell, for a drag.
+        /// </summary>
+        internal const uint TT_SELECT_CELL = 0;
+        /// <summary>
+        ///  Whole words, for a double click.
+        /// </summary>
+        internal const uint TT_SELECT_WORD = 1;
+        /// <summary>
+        ///  Whole lines, soft wraps included, for a triple click.
+        /// </summary>
+        internal const uint TT_SELECT_LINE = 2;
+        /// <summary>
+        ///  A rectangle of columns.
+        /// </summary>
+        internal const uint TT_SELECT_BLOCK = 3;
+        /// <summary>
+        ///  `tt_term_search_set` flag: fold case.
+        /// </summary>
+        internal const uint TT_SEARCH_IGNORE_CASE = 1;
+        /// <summary>
+        ///  Longest pattern, in bytes, `tt_term_search_set` accepts.
+        /// </summary>
+        internal const nuint TT_MAX_SEARCH_PATTERN = 256;
+        /// <summary>
+        ///  Most matches `tt_term_search_count` counts.
+        /// </summary>
+        internal const nuint TT_MAX_SEARCH_MATCHES = 10000;
+        /// <summary>
+        ///  Most bytes `tt_term_selection_text` hands out; longer text is cut.
+        /// </summary>
+        internal const nuint TT_MAX_SELECTION_BYTES = 16777216;
 
 
 
@@ -748,6 +792,98 @@ namespace Scull.Native
         [DllImport(__DllName, EntryPoint = "tt_term_read_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_term_read_text(tt_term* term, ushort row, ushort rows, byte* buf, nuint cap, nuint* len);
 
+        /// <summary>
+        ///  Starts a selection of `kind` (`TT_SELECT_*`) at viewport cell `row`,
+        ///  `col` (clamped), replacing any other. It covers that cell, word or line
+        ///  until extended; clear it on a click that did not drag. Output that
+        ///  rewrites its rows, a resize and a screen switch drop it. `TT_INVALID`
+        ///  for an unknown kind.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_select_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_select_start(tt_term* term, uint kind, ushort row, ushort col);
+
+        /// <summary>
+        ///  Moves the selection's free end to viewport cell `row`, `col` (clamped).
+        ///  No selection is no change.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_select_extend", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_select_extend(tt_term* term, ushort row, ushort col);
+
+        /// <summary>
+        ///  Drops the selection.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_select_clear", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_select_clear(tt_term* term);
+
+        /// <summary>
+        ///  Copies the selected text into `buf` as `tt_term_read_text` does:
+        ///  UTF-8, soft-wrapped rows joined, hard line ends as `\n`, wide characters
+        ///  once, blank and concealed cells as spaces, trailing spaces trimmed per
+        ///  line, no NUL, at most `TT_MAX_SELECTION_BYTES`. `*len` becomes its
+        ///  length; `TT_FULL` with nothing copied when that is more than `cap`.
+        ///  `TT_EMPTY` with `*len` 0 when nothing is selected. `TT_INVALID` for a
+        ///  `NULL` `len`, or a `NULL` `buf` with a `cap`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+        ///  bytes; `len` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_selection_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_selection_text(tt_term* term, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Searches the scrollback and the screen for `pattern`, literal UTF-8,
+        ///  with `flags` (`TT_SEARCH_IGNORE_CASE` or 0), replacing any earlier
+        ///  search; the frame marks every match in the viewport. An empty pattern
+        ///  ends the search. `TT_INVALID`, ending the search, for text that is not
+        ///  UTF-8, longer than `TT_MAX_SEARCH_PATTERN` bytes, or an unknown flag.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `pattern` is valid for its length.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_search_set", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_search_set(tt_term* term, tt_str pattern, uint flags);
+
+        /// <summary>
+        ///  Steps to the next match (`forward` 1) or the previous one (0): from the
+        ///  current match, or else from the top (bottom) of the viewport, wrapping
+        ///  round at the ends. The viewport scrolls to show it and the frame marks
+        ///  it `TT_CELL_CURRENT_MATCH`. `TT_OK` with the match written to `*found`
+        ///  (which may be `NULL`), `TT_EMPTY` when there is no search or no match.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `found` is `NULL` or points to `struct_size`
+        ///  writable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_search_step", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_search_step(tt_term* term, byte forward, tt_match* found);
+
+        /// <summary>
+        ///  Writes the number of matches, up to `TT_MAX_SEARCH_MATCHES`, to
+        ///  `*count`; 0 without a search. `TT_INVALID` for a `NULL` `count`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `count` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_search_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_search_count(tt_term* term, nuint* count);
+
 
     }
 
@@ -1042,7 +1178,8 @@ namespace Scull.Native
         /// </summary>
         public byte width;
         /// <summary>
-        ///  `TT_CELL_CLUSTER` or 0.
+        ///  `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH` and
+        ///  `TT_CELL_CURRENT_MATCH` bits.
         /// </summary>
         public byte flags;
     }
@@ -1462,6 +1599,36 @@ namespace Scull.Native
         ///  Pixels from the top of the text area.
         /// </summary>
         public uint y_px;
+    }
+
+    /// <summary>
+    ///  A search match: first and last cell, inclusive. Lines are absolute
+    ///  (counted from the first line ever output), so a match keeps its
+    ///  numbers while the text scrolls.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_match
+    {
+        /// <summary>
+        ///  `sizeof(tt_match)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  Column of the first cell.
+        /// </summary>
+        public ushort start_col;
+        /// <summary>
+        ///  Column of the last cell (a wide character's right half included).
+        /// </summary>
+        public ushort end_col;
+        /// <summary>
+        ///  Line of the first cell.
+        /// </summary>
+        public ulong start_line;
+        /// <summary>
+        ///  Line of the last cell.
+        /// </summary>
+        public ulong end_line;
     }
 
 

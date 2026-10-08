@@ -5,7 +5,8 @@
  * The C ABI as a host uses it, from two threads: one feeds output, images,
  * resizes and input, the other updates a frame and reads every byte the view
  * points to, image pixels included. One image is kept past the frame and
- * the terminal, as a texture cache would. Built and run under the
+ * the terminal, as a texture cache would. Meanwhile the drawing thread
+ * selects, copies and searches as a user would. Built and run under the
  * sanitizers by `just c-abi-test`; a sanitizer report or a wrong status
  * fails it.
  */
@@ -174,6 +175,45 @@ static tt_status update(tt_frame *frame, tt_term *term, tt_frame_view *view,
     return TT_OK;
 }
 
+/* One frame's worth of a user's mouse and find bar while output streams
+ * in: rows are rewritten under the selection and matches come and go. */
+static tt_status select_and_search(tt_term *term, unsigned long frame,
+                                   char *buf, size_t cap) {
+    uint16_t row = (uint16_t)(frame * 7 % ROWS), col = (uint16_t)(frame * 13 % COLS);
+    if (frame % 3 == 0)
+        CHECK(tt_term_select_start(term, (uint32_t)(frame / 3 % 4), row, col));
+    else
+        CHECK(tt_term_select_extend(term, row, col));
+    size_t len = 0;
+    tt_status copy = tt_term_selection_text(term, (uint8_t *)buf, cap, &len);
+    if (copy != TT_OK && copy != TT_FULL && copy != TT_EMPTY)
+        return copy;
+    /* Counting and stepping scan the history, so they come at a
+     * keypress's pace and leave the frames room to race the feeder. */
+    if (frame % 64 == 0) {
+        static const char PATTERN[] = "LINE 1";
+        tt_str pattern = {(const uint8_t *)PATTERN, sizeof PATTERN - 1};
+        CHECK(tt_term_search_set(term, pattern, TT_SEARCH_IGNORE_CASE));
+    }
+    if (frame % 256 == 128) {
+        size_t count = 0;
+        CHECK(tt_term_search_count(term, &count));
+        if (count > TT_MAX_SEARCH_MATCHES)
+            return TT_INVALID;
+    }
+    if (frame % 16 != 8)
+        return TT_OK;
+    tt_match found;
+    memset(&found, 0, sizeof found);
+    found.struct_size = sizeof found;
+    tt_status step = tt_term_search_step(term, (uint8_t)(frame / 16 & 1), &found);
+    if (step != TT_OK && step != TT_EMPTY)
+        return step;
+    if (step == TT_OK && (found.end_line < found.start_line || found.end_col >= COLS))
+        return TT_INVALID;
+    return TT_OK;
+}
+
 /* Draws until the feeder is done, then retains the image on the last row
  * into `*kept`. */
 static tt_status draw_until_done(struct shared *shared, const tt_image **kept) {
@@ -198,8 +238,15 @@ static tt_status draw_until_done(struct shared *shared, const tt_image **kept) {
                                            sizeof text, &text_len);
         if (status == TT_OK && read != TT_OK && read != TT_FULL)
             status = read;
+        if (status == TT_OK)
+            status = select_and_search(shared->term, frames, text, sizeof text);
         frames++;
     }
+    /* Back to the screen for the check below, as closing a find bar is. */
+    if (status == TT_OK)
+        status = tt_term_search_set(shared->term, (tt_str){NULL, 0}, 0);
+    if (status == TT_OK)
+        status = tt_term_scroll_display(shared->term, -(1 << 30));
     /* The last line fed is on the screen once the feeder is done. */
     if (status == TT_OK)
         status = tt_frame_preedit(frame, NULL, 0, 0);

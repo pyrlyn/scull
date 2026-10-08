@@ -14,7 +14,7 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T18 | todo | P2 | 5 | 0% | |
 | T20 | in progress | P2 | 3 | 75% | Claude Code / claude-sonnet-5-5 |
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
-| T23 | todo | P3 | 2 | 0% | |
+| T23 | in progress | P3 | 2 | 0% | Claude Code / claude-opus-5-5 |
 | T24 | todo | P2 | 2 | 0% | |
 | T25 | todo | P2 | 2 | 0% | |
 | T26 | todo | P3 | 2 | 0% | |
@@ -92,6 +92,11 @@ Execution plan (split to fit the budget):
 ### T23. Guard the interner Marks/sweep contract against interleaved interns
 
 `crates/scull-grid/src/intern.rs:27-32` silently ignores an out-of-range mark, and `sweep()` at `intern.rs:128-142` frees every unmarked slot — a caller that interns between `marks()` and `sweep()` gets live ids reclaimed (wrong styles/text, not UB). The only current call path (`grid.rs:345-360`) is safe today. Done means: `sweep` skips ids at or beyond the marks' length (or the lengths are asserted), so the hazard cannot resurface.
+
+Execution plan:
+1. Skipping ids past the marks' length is not enough: an intern between `marks()` and `sweep()` may reuse a freed id below that length, which is unmarked too. So `Interner` counts every insert, `marks()` stamps the count into `Marks`, and `sweep` with marks whose stamp no longer matches frees nothing and returns 0. A skipped sweep only delays reclaim.
+2. Tests in `intern.rs`: an intern after `marks()`, both appended and reused from the free list, survives the sweep; marks taken after it sweep as before.
+3. Verify with `just check`.
 
 ### T24. Reconcile harness eager-wrap with xterm's deferred DECAWM
 

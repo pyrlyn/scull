@@ -16,23 +16,31 @@ const WORD_BITS: usize = u64::BITS as usize;
 
 /// One bit per id: which entries a sweep must keep.
 #[derive(Debug, Clone)]
-pub struct Marks(Vec<u64>);
+pub struct Marks {
+    words: Vec<u64>,
+    /// The table's insert count when the set was made; an id handed out
+    /// after that is live but unmarked.
+    stamp: u64,
+}
 
 impl Marks {
     pub(crate) fn new(len: usize) -> Self {
-        Self(vec![0; len.div_ceil(WORD_BITS)])
+        Self {
+            words: vec![0; len.div_ceil(WORD_BITS)],
+            stamp: 0,
+        }
     }
 
     /// Keeps `id` alive through the next sweep. Ids past the table are ignored.
     pub fn mark(&mut self, id: u32) {
         let id = id as usize;
-        if let Some(word) = self.0.get_mut(id / WORD_BITS) {
+        if let Some(word) = self.words.get_mut(id / WORD_BITS) {
             *word |= 1 << (id % WORD_BITS);
         }
     }
 
     pub(crate) fn is_marked(&self, id: usize) -> bool {
-        self.0
+        self.words
             .get(id / WORD_BITS)
             .is_some_and(|word| word & (1 << (id % WORD_BITS)) != 0)
     }
@@ -48,6 +56,8 @@ pub(crate) struct Interner<T> {
     cap: usize,
     pinned: usize,
     inserts_since_sweep: usize,
+    /// Every insert ever, so a sweep can tell its marks went stale.
+    inserts: u64,
 }
 
 impl<T: Hash + Eq + Clone> Interner<T> {
@@ -59,6 +69,7 @@ impl<T: Hash + Eq + Clone> Interner<T> {
             cap,
             pinned: 0,
             inserts_since_sweep: 0,
+            inserts: 0,
         };
         for value in pinned {
             if table.intern(&value, T::clone).is_some() {
@@ -101,6 +112,7 @@ impl<T: Hash + Eq + Clone> Interner<T> {
         };
         self.index.insert(value, id);
         self.inserts_since_sweep += 1;
+        self.inserts += 1;
         Some(id)
     }
 
@@ -121,11 +133,20 @@ impl<T: Hash + Eq + Clone> Interner<T> {
 
     /// A blank mark set sized for this table.
     pub(crate) fn marks(&self) -> Marks {
-        Marks::new(self.slots.len())
+        Marks {
+            stamp: self.inserts,
+            ..Marks::new(self.slots.len())
+        }
     }
 
     /// Frees every unpinned entry `live` does not mark; returns how many.
+    /// Marks made before the latest insert free nothing: that entry, appended
+    /// or reusing a freed id, is live but unmarked. Skipping only delays
+    /// reclaim to the next sweep.
     pub(crate) fn sweep(&mut self, live: &Marks) -> usize {
+        if live.stamp != self.inserts {
+            return 0;
+        }
         let mut freed = 0;
         for (id, slot) in self.slots.iter_mut().enumerate().skip(self.pinned) {
             if live.is_marked(id) {
@@ -184,6 +205,32 @@ mod tests {
         assert_eq!(t.get(b), None);
         assert_eq!(t.intern(&3, |v| *v), Some(b), "freed id is reused");
         assert_eq!(t.inserts_since_sweep(), 1);
+    }
+
+    #[test]
+    fn interns_between_marks_and_sweep_survive() {
+        let mut t = table();
+        let a = t.intern(&1, |v| *v).unwrap();
+        let mut live = t.marks();
+        live.mark(a);
+        let appended = t.intern(&2, |v| *v).unwrap();
+        assert_eq!(t.sweep(&live), 0, "stale marks free nothing");
+        assert_eq!(t.get(appended), Some(&2));
+
+        // A freed id handed out again lies inside the marks' length.
+        let mut live = t.marks();
+        live.mark(a);
+        assert_eq!(t.sweep(&live), 1);
+        let live = t.marks();
+        let reused = t.intern(&3, |v| *v).unwrap();
+        assert_eq!(reused, appended, "freed id is reused");
+        assert_eq!(t.sweep(&live), 0);
+        assert_eq!(t.get(reused), Some(&3));
+        assert_eq!(t.get(a), Some(&1));
+
+        let live = t.marks();
+        assert_eq!(t.sweep(&live), 2, "fresh marks sweep as before");
+        assert_eq!(t.get(0), Some(&0));
     }
 
     #[test]

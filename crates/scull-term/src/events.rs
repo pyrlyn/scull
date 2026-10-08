@@ -77,6 +77,13 @@ pub enum Event {
         /// The URI.
         uri: String,
     },
+    /// OSC 9 (title empty) or OSC 777 `notify`: a desktop notification.
+    Notification {
+        /// OSC 777's title.
+        title: String,
+        /// The message.
+        body: String,
+    },
 }
 
 /// The queue plus the coalesced bell flag.

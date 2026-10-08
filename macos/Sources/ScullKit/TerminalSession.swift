@@ -3,8 +3,8 @@
 // a core thread, so it only posts to the main queue and the work runs
 // there.
 
+import AppKit
 import CScull
-import Foundation
 
 public enum ScullError: Error, Equatable {
     case status(Int32)
@@ -39,6 +39,13 @@ public final class TerminalSession {
     /// The screen's text, read once per changed frame: an accessibility
     /// client asks for it many times per query.
     private var screenCache: ScreenText?
+
+    /// The window title the program set last (OSC 0 or 2).
+    public private(set) var title: String?
+    /// The directory the shell reported last (OSC 7), as a path.
+    public private(set) var workingDirectory: String?
+    /// Where OSC 52 writes go; a test passes a private one.
+    var pasteboard = NSPasteboard.general
 
     /// Runs the user's shell. `onWake` runs on the main actor whenever
     /// there is output or an event to look at.
@@ -107,7 +114,8 @@ public final class TerminalSession {
     }
 
     /// Takes every pending event; true once the child has exited. Rings the
-    /// bell through `bell`.
+    /// bell through `bell`, keeps the title and directory, and writes OSC 52
+    /// clipboard writes to `pasteboard`.
     public func drainEvents(bell: () -> Void) -> Bool {
         var event = tt_event()
         event.struct_size = UInt32(MemoryLayout<tt_event>.size)
@@ -116,10 +124,38 @@ public final class TerminalSession {
             switch Int32(event.kind) {
             case TT_EVENT_BELL: bell()
             case TT_EVENT_CHILD_EXITED: exited = true
+            case TT_EVENT_TITLE where Int32(event.detail) != TT_TITLE_ICON:
+                if let bytes = eventText(event) { title = String(decoding: bytes, as: UTF8.self) }
+            case TT_EVENT_WORKING_DIRECTORY:
+                // Only a local file URL names a directory this Mac can open.
+                let url = eventText(event).flatMap { URL(string: String(decoding: $0, as: UTF8.self)) }
+                if let url, url.isFileURL { workingDirectory = url.path }
+            case TT_EVENT_CLIPBOARD_WRITE:
+                // The child's bytes need not be text; anything else is dropped.
+                if let bytes = eventText(event), let text = String(bytes: bytes, encoding: .utf8) {
+                    pasteboard.clearContents()
+                    pasteboard.setString(text, forType: .string)
+                }
+            case TT_EVENT_CLIPBOARD_READ:
+                // A read hands the user's clipboard to whatever the shell
+                // runs, a remote host included; refused until a setting
+                // lets the user allow it. The answer keeps it from waiting.
+                track(tt_term_clipboard_deny(term, event.id))
             default: break
             }
         }
         return exited
+    }
+
+    /// The text of `event`, the one polled last, sized from the event.
+    private func eventText(_ event: tt_event) -> [UInt8]? {
+        let count = Int(event.text_len)
+        var bytes = [UInt8](repeating: 0, count: count)
+        var len = 0
+        let status = bytes.withUnsafeMutableBufferPointer {
+            track(tt_term_event_text(term, event.serial, UInt32(TT_EVENT_TEXT_BODY), $0.baseAddress, count, &len))
+        }
+        return status == TT_OK ? Array(bytes.prefix(len)) : nil
     }
 
     /// Refreshes `view`; true when it changed.

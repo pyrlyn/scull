@@ -51,7 +51,8 @@ c_abi_out := "target/c-abi"
 c_abi_cc := "cc -std=c11 -g -O1 -fno-omit-frame-pointer -Wall -Wextra -Werror -Icrates/scull-ffi/include"
 c_abi_link := "-Ltarget/debug -lscull_ffi -Wl,-rpath," + justfile_directory() + "/target/debug -lpthread"
 
-# Build the C ABI as a shared library and drive it from C on two threads,
+# Build the C ABI as a shared library and drive it from C on two threads
+# (frames, config, events),
 # under AddressSanitizer with UndefinedBehaviorSanitizer, then under
 # ThreadSanitizer. Unix only: the sanitizers instrument the C side, which
 # is where a host's misuse of the ABI would show. A just recipe, not a
@@ -68,6 +69,10 @@ c-abi-test:
     ./{{c_abi_out}}/config-asan
     {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/config.c {{c_abi_link}} -o {{c_abi_out}}/config-tsan
     TSAN_OPTIONS=suppressions={{justfile_directory()}}/crates/scull-ffi/tests/c/tsan.supp ./{{c_abi_out}}/config-tsan
+    {{c_abi_cc}} -fsanitize=address,undefined -fno-sanitize-recover=all crates/scull-ffi/tests/c/events.c {{c_abi_link}} -o {{c_abi_out}}/events-asan
+    ./{{c_abi_out}}/events-asan
+    {{c_abi_cc}} -fsanitize=thread crates/scull-ffi/tests/c/events.c {{c_abi_link}} -o {{c_abi_out}}/events-tsan
+    TSAN_OPTIONS=suppressions={{justfile_directory()}}/crates/scull-ffi/tests/c/tsan.supp ./{{c_abi_out}}/events-tsan
 
 # The C# core (windows/Scull.Core) against the real library, as a shared
 # library in target/debug where the tests look for it. It carries the

@@ -21,11 +21,11 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 5
+#define TT_ABI_VERSION_MINOR 6
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 5
+#define TT_ABI_VERSION 6
 
 // `tt_keybind.action`: paste the clipboard.
 #define TT_ACTION_PASTE 1
@@ -58,6 +58,51 @@
 // `tt_event.kind`: the child ended and all its output has been parsed.
 // Reported once, last.
 #define TT_EVENT_CHILD_EXITED 2
+
+// `tt_event.kind`: OSC 0, 1 or 2 named the window or icon. `detail` is a
+// `TT_TITLE_*`; the text is the name.
+#define TT_EVENT_TITLE 3
+
+// `tt_event.kind`: OSC 7 reported the working directory; the text is its
+// `file://` URI as the program sent it.
+#define TT_EVENT_WORKING_DIRECTORY 4
+
+// `tt_event.kind`: an OSC 133 shell mark. `detail` is the marker letter
+// (`A` prompt, `B` command, `C` output, `D` done); the text is what
+// followed it, often an exit code.
+#define TT_EVENT_SHELL_MARK 5
+
+// `tt_event.kind`: OSC 52 asks for the clipboard. `id` is the request:
+// answer it with `tt_term_clipboard_reply` or `tt_term_clipboard_deny`.
+// `detail` is the selection byte (`c`, `p`, `q`, `s`, `0`-`7`).
+#define TT_EVENT_CLIPBOARD_READ 6
+
+// `tt_event.kind`: OSC 52 sets the clipboard; the text is the decoded
+// bytes, which need not be UTF-8. `detail` is the selection byte.
+#define TT_EVENT_CLIPBOARD_WRITE 7
+
+// `tt_event.kind`: OSC 8 opened a hyperlink. `id` is its link id; the text
+// is the URI. `tt_term_link_uri` resolves the id later.
+#define TT_EVENT_LINK 8
+
+// `tt_event.kind`: OSC 9 or OSC 777 `notify` asks for a notification. The
+// text is the message, `TT_EVENT_TEXT_TITLE` its title (empty for OSC 9).
+#define TT_EVENT_NOTIFICATION 9
+
+// `tt_event.detail` of `TT_EVENT_TITLE`: OSC 0, icon name and window title.
+#define TT_TITLE_BOTH 0
+
+// `tt_event.detail` of `TT_EVENT_TITLE`: OSC 1, the icon name.
+#define TT_TITLE_ICON 1
+
+// `tt_event.detail` of `TT_EVENT_TITLE`: OSC 2, the window title.
+#define TT_TITLE_WINDOW 2
+
+// `tt_term_event_text` part: the event's text, `text_len` bytes.
+#define TT_EVENT_TEXT_BODY 0
+
+// `tt_term_event_text` part: a notification's title, `title_len` bytes.
+#define TT_EVENT_TEXT_TITLE 1
 
 // `tt_event.exit_code` when the system did not say. A literal, not the
 // PTY crate's constant, so the generated header can spell it.
@@ -240,7 +285,8 @@ enum tt_status
   TT_POISONED = 3,
   // This call panicked inside the core; the terminal is now poisoned.
   TT_PANIC = 4,
-  // Nothing to report: the event queue is empty.
+  // Nothing to report: the event queue is empty, or the event text or
+  // link asked for is no longer held.
   TT_EMPTY = 5,
   // The terminal has no child to talk to: it was made by
   // `tt_term_new`, or its child has gone.
@@ -372,6 +418,18 @@ typedef struct tt_event {
   uint32_t exit_code;
   // `TT_EVENT_CHILD_EXITED`: 1 when a signal ended the child.
   uint8_t signaled;
+  // Names this event to `tt_term_event_text`; never 0.
+  uint64_t serial;
+  // The clipboard request of `TT_EVENT_CLIPBOARD_*`, the link id of
+  // `TT_EVENT_LINK`; 0 otherwise.
+  uint64_t id;
+  // Per kind: a `TT_TITLE_*`, a shell marker letter, a clipboard
+  // selection byte; 0 otherwise.
+  uint32_t detail;
+  // Bytes of the text (`TT_EVENT_TEXT_BODY`); 0 when there is none.
+  uint32_t text_len;
+  // Bytes of a notification's title (`TT_EVENT_TEXT_TITLE`).
+  uint32_t title_len;
 } tt_event;
 
 // The cursor in viewport rows.
@@ -681,13 +739,68 @@ tt_status tt_config_set(const struct tt_config *config, struct tt_str key, struc
 void tt_config_free(struct tt_config *config);
 
 // Takes the next event into `*event`: `TT_OK` with one, `TT_EMPTY` when
-// there is none. Call it until `TT_EMPTY` after every wakeup.
+// there is none. Call it until `TT_EMPTY` after every wakeup. The event's
+// text stays readable through `tt_term_event_text` until the next poll.
 //
 // # Safety
 //
 // `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
 // writable bytes.
 tt_status tt_term_poll_event(const struct tt_term *term, struct tt_event *event);
+
+// Copies part `part` (`TT_EVENT_TEXT_*`) of the text of event `serial`
+// into `buf`, as `tt_term_read_text` does: `*len` becomes its length, and
+// `TT_FULL` with nothing copied when that is more than `cap`. Only the
+// event polled last is held: an older `serial` answers `TT_EMPTY`.
+// `TT_INVALID` for an unknown part, a `NULL` `len`, or a `NULL` `buf` with
+// a `cap`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+// bytes; `len` is `NULL` or writable.
+tt_status tt_term_event_text(const struct tt_term *term,
+                             uint64_t serial,
+                             uint32_t part,
+                             uint8_t *buf,
+                             size_t cap,
+                             size_t *len);
+
+// Copies the URI of link `id` (from `TT_EVENT_LINK`) into `buf`, sized
+// as for `tt_term_event_text`. An id stays valid while text on the screen
+// or in history carries it; `TT_EMPTY` once it is gone, after which the
+// core may hand the id to a new link.
+//
+// # Safety
+//
+// As for `tt_term_event_text`.
+tt_status tt_term_link_uri(const struct tt_term *term,
+                           uint32_t id,
+                           uint8_t *buf,
+                           size_t cap,
+                           size_t *len);
+
+// Answers the OSC 52 read `id` with `len` bytes of clipboard content,
+// which the core base64-encodes for the program. `TT_INVALID` when `id`
+// is not an open read (unknown, or answered already), when the content is
+// over 1 MiB, or for `NULL` `data` with a `len`; `TT_FULL` when the reply
+// did not fit and the program got an empty answer instead.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `data` points to `len` readable bytes.
+tt_status tt_term_clipboard_reply(const struct tt_term *term,
+                                  uint64_t id,
+                                  const uint8_t *data,
+                                  size_t len);
+
+// Refuses the OSC 52 read `id`: the program gets an empty answer, so it
+// does not wait. `TT_INVALID` when `id` is not an open read.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_clipboard_deny(const struct tt_term *term, uint64_t id);
 
 // A new, empty frame; the first update fills it. `NULL` only if the core
 // failed. Free it with `tt_frame_free`.

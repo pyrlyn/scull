@@ -75,10 +75,12 @@ public final class TerminalView: NSView {
 
     private func wake() {
         guard let session else { return }
+        let title = session.title
         if session.drainEvents(bell: { NSSound.beep() }) {
             if let onChildExit { onChildExit() } else { window?.close() }
             return
         }
+        if session.title != title { showTitle(window?.firstResponder === self) }
         if session.update() {
             needsDisplay = true
             screenChanged()
@@ -275,7 +277,15 @@ public final class TerminalView: NSView {
     public override func becomeFirstResponder() -> Bool {
         setFocused(window?.isKeyWindow ?? false)
         onFocus?()
+        // The window is not told its new first responder until this returns.
+        showTitle(true)
         return true
+    }
+
+    /// The program's title names the window while this pane has the keyboard.
+    private func showTitle(_ hasKeyboard: Bool) {
+        guard hasKeyboard, let title = session?.title else { return }
+        window?.title = title
     }
 
     public override func resignFirstResponder() -> Bool {

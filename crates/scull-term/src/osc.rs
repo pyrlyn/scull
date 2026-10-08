@@ -1,11 +1,12 @@
-//! OSC that is not an image: titles, directory, shell marks, clipboard and
-//! hyperlinks, from the published specs (xterm ctlseqs, OSC 8, OSC 7, OSC 133).
+//! OSC that is not an image: titles, directory, shell marks, clipboard,
+//! hyperlinks and notifications, from the published specs (xterm ctlseqs,
+//! OSC 8, OSC 7, OSC 133, iTerm2's OSC 9, rxvt-unicode's OSC 777 `notify`).
 //! Nothing here is taken from kitty.
 
 use base64::Engine as _;
 use base64::alphabet::STANDARD;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
-use scull_grid::LinkId;
+use scull_grid::{LinkId, Marks};
 use scull_parser::Osc;
 
 use crate::events::{
@@ -20,6 +21,14 @@ const B64: GeneralPurpose = GeneralPurpose::new(
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
 
+/// A link sweep walks every row of both screens, so it runs only after
+/// `MAX_LINKS / LINK_SWEEP_DIVISOR` opens since the last one, the grid's
+/// rule for its own tables: the walk stays a constant factor of the work.
+const LINK_SWEEP_DIVISOR: usize = 8;
+
+/// ConEmu's OSC 9 subcommands are numbered up to this.
+const CONEMU_LAST: u8 = 12;
+
 /// A read the host has not answered.
 #[derive(Clone, Debug)]
 pub(crate) struct Pending {
@@ -30,16 +39,26 @@ pub(crate) struct Pending {
 
 #[derive(Clone, Debug)]
 struct Hyperlink {
-    id: LinkId,
     key: String,
     uri: String,
 }
 
-/// The open link and the URIs ids point at.
+/// Every id is taken; a sweep may free some.
+struct NoSlot;
+
+/// The open link and the URIs ids point at. Slot `n` is id `n + 1`, so 0
+/// stays "no link"; an empty slot is an id a sweep freed.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Links {
-    items: Vec<Hyperlink>,
+    slots: Vec<Option<Hyperlink>>,
+    free: Vec<u32>,
     pub(crate) current: Option<LinkId>,
+    /// New ids asked for since the last sweep, granted or not.
+    opens_since_sweep: usize,
+}
+
+fn slot_of(id: u32) -> Option<usize> {
+    usize::try_from(id.checked_sub(1)?).ok()
 }
 
 impl Links {
@@ -48,44 +67,74 @@ impl Links {
     }
 
     fn uri(&self, id: u32) -> Option<&str> {
-        self.items
-            .iter()
-            .find(|link| link.id.0 == id)
-            .map(|link| link.uri.as_str())
+        let link = self.slots.get(slot_of(id)?)?.as_ref()?;
+        Some(link.uri.as_str())
     }
 
     /// An explicit id with the same URI is one link, so adjacent runs join.
     /// No id means a new link: the id is what says two runs are the same.
-    fn open(&mut self, key: &str, uri: &str) -> Option<LinkId> {
+    /// `Ok(None)`: that link is already the open one.
+    fn open(&mut self, key: &str, uri: &str) -> Result<Option<LinkId>, NoSlot> {
         if !key.is_empty()
-            && let Some(id) = self
-                .items
-                .iter()
-                .find(|link| link.key == key && link.uri == uri)
-                .map(|link| link.id)
+            && let Some(id) = self.find(key, uri)
         {
-            return (self.current.replace(id) != Some(id)).then_some(id);
+            return Ok((self.current.replace(id) != Some(id)).then_some(id));
         }
         // A link with no slot leaves its text unlinked; keeping the open
         // link would stamp the old URI onto it.
         self.current = None;
-        if self.items.len() >= MAX_LINKS {
-            return None;
-        }
-        let Ok(n) = u32::try_from(self.items.len()) else {
-            return None;
-        };
-        let id = LinkId(n.saturating_add(1));
-        if id.0 == 0 {
-            return None;
-        }
-        self.items.push(Hyperlink {
-            id,
+        self.opens_since_sweep += 1;
+        let link = Hyperlink {
             key: key.to_owned(),
             uri: uri.to_owned(),
-        });
-        self.current = Some(id);
-        Some(id)
+        };
+        let id = if let Some(id) = self.free.pop() {
+            let slot = slot_of(id)
+                .and_then(|at| self.slots.get_mut(at))
+                .ok_or(NoSlot)?;
+            *slot = Some(link);
+            id
+        } else if self.slots.len() < MAX_LINKS {
+            self.slots.push(Some(link));
+            u32::try_from(self.slots.len()).map_err(|_| NoSlot)?
+        } else {
+            return Err(NoSlot);
+        };
+        self.current = Some(LinkId(id));
+        Ok(Some(LinkId(id)))
+    }
+
+    fn find(&self, key: &str, uri: &str) -> Option<LinkId> {
+        self.slots.iter().zip(1..).find_map(|(slot, id)| {
+            slot.as_ref()
+                .filter(|link| link.key == key && link.uri == uri)
+                .map(|_| LinkId(id))
+        })
+    }
+
+    fn sweep_pays(&self) -> bool {
+        self.opens_since_sweep * LINK_SWEEP_DIVISOR >= MAX_LINKS
+    }
+
+    /// Marks with the open link kept: its text may not be printed yet.
+    fn marks(&self) -> Marks {
+        let mut live = Marks::new(self.slots.len() + 1);
+        if let Some(id) = self.current {
+            live.mark(id.0);
+        }
+        live
+    }
+
+    /// Frees every id `live` does not mark. Nothing between marking and
+    /// sweeping can open a link, so the grid's insert stamp is not needed.
+    fn sweep(&mut self, live: &Marks) {
+        for (slot, id) in self.slots.iter_mut().zip(1u32..) {
+            if slot.is_some() && !live.is_marked(id as usize) {
+                *slot = None;
+                self.free.push(id);
+            }
+        }
+        self.opens_since_sweep = 0;
     }
 }
 
@@ -102,8 +151,15 @@ impl State {
             b"0" | b"1" | b"2" => self.osc_title(code, rest),
             b"7" => self.osc_directory(rest),
             b"8" => self.osc_link(rest),
+            b"9" if !conemu(rest) => self.osc_notify(b"", rest),
             b"52" => self.osc_clipboard(rest, osc.bell_terminated),
             b"133" => self.osc_shell(rest),
+            b"777" => {
+                if let Some((b"notify", args)) = split_semi(rest) {
+                    let (title, body) = split_semi(args).unwrap_or((args, b""));
+                    self.osc_notify(title, body);
+                }
+            }
             _ => {}
         }
     }
@@ -154,9 +210,41 @@ impl State {
         let (Some(key), Some(uri)) = (link_key(params), uri_text(uri)) else {
             return;
         };
-        if let Some(id) = self.links.open(&key, &uri) {
+        let opened = match self.links.open(&key, &uri) {
+            Err(NoSlot) if self.links.sweep_pays() => {
+                self.sweep_links();
+                self.links.open(&key, &uri)
+            }
+            other => other,
+        };
+        if let Ok(Some(id)) = opened {
             let _ = self.events.push(Event::Link { id: id.0, uri });
         }
+    }
+
+    /// Frees the link ids no row of either screen holds, history included,
+    /// so an id is never reused while text still points at it.
+    fn sweep_links(&mut self) {
+        let mut live = self.links.marks();
+        for grid in [&self.grid, &self.alt] {
+            let rows = grid.history_len() + usize::from(grid.screen_rows());
+            for row in (0..rows).filter_map(|i| grid.row(i)) {
+                for span in row.links() {
+                    live.mark(span.link.0);
+                }
+            }
+        }
+        self.links.sweep(&live);
+    }
+
+    fn osc_notify(&mut self, title: &[u8], body: &[u8]) {
+        let (Some(title), Some(body)) = (owned_text(title), owned_text(body)) else {
+            return;
+        };
+        if title.is_empty() && body.is_empty() {
+            return;
+        }
+        let _ = self.events.push(Event::Notification { title, body });
     }
 
     fn osc_clipboard(&mut self, rest: &[u8], bell: bool) {
@@ -203,14 +291,12 @@ impl State {
         true
     }
 
-    pub(crate) fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> bool {
+    pub(crate) fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> Option<bool> {
         if data.len() > MAX_CLIPBOARD {
-            return false;
+            return None;
         }
-        let Some(pending) = self.take_clip(id) else {
-            return false;
-        };
-        self.reply_clip(pending.selection, data, pending.bell)
+        let pending = self.take_clip(id)?;
+        Some(self.reply_clip(pending.selection, data, pending.bell))
     }
 
     fn take_clip(&mut self, id: u64) -> Option<Pending> {
@@ -242,6 +328,18 @@ fn clip_reply(selection: u8, data: &[u8], bell: bool) -> Vec<u8> {
         reply.extend_from_slice(b"\x1b\\");
     }
     reply
+}
+
+/// ConEmu's OSC 9 subcommands (`9;4;state;progress` and the rest) start
+/// with their number. They are not notification text, and this core does
+/// not implement them, so they are dropped rather than shown.
+fn conemu(rest: &[u8]) -> bool {
+    let number = split_semi(rest).map_or(rest, |(first, _)| first);
+    std::str::from_utf8(number)
+        .ok()
+        .filter(|n| n.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=CONEMU_LAST).contains(&n))
 }
 
 fn split_semi(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
@@ -301,16 +399,19 @@ impl crate::terminal::Terminal {
         self.state.clipboard_deny(id)
     }
 
-    /// Answers an OSC 52 read. False if `id` is not open or `data` is over the
-    /// cap; also false, with an empty answer sent, when the reply queue is full.
-    pub fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> bool {
+    /// Answers an OSC 52 read: `Some(true)` once queued. `None`, doing
+    /// nothing, if `id` is not open or `data` is over the cap; `Some(false)`,
+    /// with an empty answer sent instead, when the reply queue is full.
+    pub fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> Option<bool> {
         self.state.clipboard_reply(id, data)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::events::Event;
+    use scull_grid::{Content, Row};
+
+    use crate::events::{Event, MAX_LINKS};
     use crate::terminal::Terminal;
 
     fn term() -> Terminal {
@@ -332,19 +433,78 @@ mod tests {
         let Event::Clipboard(clip) = term.poll_event().unwrap() else {
             panic!("read");
         };
-        assert!(term.clipboard_reply(clip.id, b"hi"));
+        assert_eq!(term.clipboard_reply(clip.id, b"hi"), Some(true));
+        assert_eq!(term.clipboard_reply(clip.id, b"hi"), None, "answered once");
         assert_eq!(term.take_replies(), b"\x1b]52;p;aGk=\x1b\\");
     }
 
     #[test]
     fn a_link_with_no_slot_leaves_its_text_unlinked() {
-        let mut term = term();
-        for i in 0..crate::events::MAX_LINKS {
-            term.feed(format!("\x1b]8;;u{i}\x1b\\").as_bytes());
+        let cols = 8;
+        let rows = MAX_LINKS / cols;
+        let mut term = Terminal::new(cols as u16, 2, rows).unwrap();
+        // Every id is held by a printed cell, so a sweep frees nothing.
+        for i in 0..MAX_LINKS {
+            term.feed(format!("\x1b]8;;u{i}\x1b\\x").as_bytes());
         }
-        term.feed(b"\x1b]8;;full\x1b\\x\x1b]8;;\x1b\\");
-        let row = term.grid().screen_row(0).unwrap();
+        term.feed(b"\x1b]8;;\x1b\\\r\n");
+        term.feed(b"\x1b]8;;full\x1b\\y\x1b]8;;\x1b\\");
+        let row = term.grid().screen_row(1).unwrap();
         assert_eq!(row.link_at(0), None);
+        assert_eq!(term.link_uri(1), Some("u0"));
+    }
+
+    fn row_text(row: &Row) -> String {
+        row.cells()
+            .filter_map(|cell| match cell.content() {
+                Content::Char(c) => Some(c),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn link_ids_no_row_holds_are_reused_and_live_ones_stay_right() {
+        let mut term = Terminal::new(8, 3, 20).unwrap();
+        // Some links live on the alternate screen and must survive there.
+        term.feed(b"\x1b[?47h\x1b]8;;alt\x1b\\A\x1b]8;;\x1b\\\x1b[?47l");
+        let mut opened = 0;
+        for i in 0..5 * MAX_LINKS {
+            term.feed(format!("\x1b]8;;u{i}\x1b\\{i}\x1b]8;;\x1b\\\r\n").as_bytes());
+            let printed = term.grid().screen_row(1).unwrap();
+            if let Some(id) = printed.link_at(0) {
+                opened += 1;
+                assert_eq!(term.link_uri(id.0), Some(format!("u{i}").as_str()));
+            }
+        }
+        // Each sweep waits an eighth of the table's opens, and the ids
+        // still on screen and in history are never freed.
+        assert!(opened > 4 * MAX_LINKS, "only {opened} linked");
+        let grid = term.grid();
+        for row in (0..grid.history_len() + 3).filter_map(|i| grid.row(i)) {
+            if let Some(id) = row.link_at(0) {
+                let uri = term.link_uri(id.0).unwrap();
+                assert_eq!(uri, format!("u{}", row_text(row)));
+            }
+        }
+        term.feed(b"\x1b[?47h");
+        let id = term.grid().screen_row(0).unwrap().link_at(0).unwrap();
+        assert_eq!(term.link_uri(id.0), Some("alt"));
+    }
+
+    #[test]
+    fn conemu_subcommands_are_not_notifications() {
+        let mut term = term();
+        term.feed(b"\x1b]9;4;1;50\x07\x1b]9;9;/tmp\x07\x1b]9;\x07\x1b]777;precmd\x07");
+        assert_eq!(term.poll_event(), None);
+        term.feed(b"\x1b]9;13 done\x07");
+        assert_eq!(
+            term.poll_event(),
+            Some(Event::Notification {
+                title: String::new(),
+                body: "13 done".into()
+            })
+        );
     }
 
     #[test]
@@ -367,8 +527,10 @@ mod tests {
         let Some(Event::Clipboard(clip)) = term.poll_event() else {
             panic!("read");
         };
-        let data = vec![b'a'; crate::events::MAX_CLIPBOARD];
-        assert!(term.clipboard_reply(clip.id, &data));
+        let mut data = vec![b'a'; crate::events::MAX_CLIPBOARD + 1];
+        assert_eq!(term.clipboard_reply(clip.id, &data), None, "over the cap");
+        data.pop();
+        assert_eq!(term.clipboard_reply(clip.id, &data), Some(true));
         let reply = term.take_replies();
         assert!(reply.starts_with(b"\x1b]52;c;YWFh"));
         assert!(reply.ends_with(b"\x07"));

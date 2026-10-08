@@ -1,6 +1,7 @@
-# Titles, the bell, the directory, shell marks, the clipboard and
-# hyperlinks. Each one is an event; links are also per-row spans.
-# Columns in a link line are 0-based and half-open.
+# Titles, the bell, the directory, shell marks, the clipboard, hyperlinks
+# and notifications. Each one is an event; links are also per-row spans.
+# Columns in a link line are 0-based and half-open. A notification shows
+# as `notify title|body`.
 
 === OSC 0 names the icon and the window
 source: xterm ctlseqs OSC Ps = 0
@@ -91,3 +92,25 @@ links:
 |1 0..2=1|
 screen:
 |あ..|
+
+=== OSC 9 is a notification with no title
+source: iTerm2 Proprietary Escape Codes OSC 9 (Post a Notification)
+input: \e]9;build done\x07
+events:
+|notify |build done|
+
+=== ConEmu's OSC 9 subcommands are not notifications
+source: ConEmu ANSI escape codes OSC 9;4 (progress) and OSC 9;9 (directory)
+input: \e]9;4;1;50\x07\e]9;9;/tmp\x07
+events:
+
+=== OSC 777 notify carries a title and a body
+source: rxvt-unicode notify extension (OSC 777;notify;title;body)
+input: \e]777;notify;make;all; done\e\\
+events:
+|notify make|all; done|
+
+=== Other OSC 777 commands are ignored
+source: rxvt-unicode perl extensions (OSC 777)
+input: \e]777;precmd\x07
+events:

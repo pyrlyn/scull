@@ -107,6 +107,9 @@ impl Host {
                 tt_status::TT_EMPTY => break,
                 tt_status::TT_OK if event.kind == TT_EVENT_BELL => self.bells += 1,
                 tt_status::TT_OK if event.kind == TT_EVENT_CHILD_EXITED => self.exit = Some(event),
+                // ConPTY sets the window title when it starts; a host skips
+                // the kinds it does not use, as the header asks.
+                tt_status::TT_OK => {}
                 other => panic!("poll answered {other:?}, kind {}", event.kind),
             }
         }

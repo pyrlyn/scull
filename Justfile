@@ -16,8 +16,20 @@ ucd:
     mise exec -- cargo run --locked -p scull-ucd-gen
 
 # Fail when the committed tables differ from what the pinned data files produce.
+# Downloads missing files into target/ucd first, so this does not skip the way
+# the in-crate test does when that cache is empty. Kept out of `check`: an
+# offline local gate should not need the Unicode host.
 ucd-check:
     mise exec -- cargo run --locked -p scull-ucd-gen -- --check
+
+# A few seconds on every libFuzzer target. Nightly only (`cargo +nightly`),
+# so the pinned toolchain stays the one `check` uses. Not part of `check`.
+fuzz-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for target in $(cargo +nightly fuzz list); do
+        cargo +nightly fuzz run "$target" -- -max_total_time=5
+    done
 
 # Baseline table for the stub and the reference terminals.
 bench:

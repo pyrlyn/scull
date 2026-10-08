@@ -6,4 +6,3 @@
 - T18. Windows input method and accessibility
 - T20. Configuration, fonts and themes
 - T21. Tabs, splits and windows
-- T25. CI: run the fuzz targets and the UCD stale-table check

@@ -14,7 +14,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T18 | todo | P2 | 5 | 0% | |
 | T20 | in progress | P2 | 3 | 75% | Claude Code / claude-sonnet-5-5 |
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
-| T25 | todo | P2 | 2 | 0% | |
 
 ### T3. Conformance and benchmark harness
 
@@ -86,6 +85,3 @@ Execution plan (split to fit the budget):
 - T21.2 Panes, tabs and windows on macOS: `Sources/ScullKit/PaneHostView.swift` (an `NSView` that lays the tree out with nested `NSSplitView`s and keeps one `TerminalView` per pane, so a split never restarts a shell; a child exit closes its pane, the last pane closes the window) and a `PaneSurface` representable; the app becomes a `WindowGroup` (native window tabs, one pane tree and one set of sessions per window or tab) with File commands New Window, New Tab, Split Right, Split Down, Close Pane and Next or Previous Pane, routed through the responder chain. `TerminalView` gets only a child-exit callback, per-pane focus (first responder, not key window) and the poison notice; its draw path is untouched because T15 replaces it. Verify: `just check`, `just test`, `just c-abi-test`, `just macos`, `just macos-test`; the debug snapshot (`-ScullSplit` with `-ScullHostSnapshot`) shows two panes side by side; a second window and a tab open from the menu.
 - T21.3 Windows tabs, splits and windows (waits for T17, which creates the WinUI app): the same `PaneTree` semantics in C# over `Scull.Core` handles, WinUI `TabView` for tabs and one window per `AppWindow`. One swap chain per window: panes are viewports of that swap chain, not separate swap chains, per AGENTS.md. A poisoned handle poisons one viewport. Verify: the same pane-tree tests in C#, and a poisoned handle leaving sibling panes running.
 
-### T25. CI: run the fuzz targets and the UCD stale-table check
-
-The `fuzz/` workspace is excluded from CI (`Cargo.toml:4`) with a gitignored corpus, and the stale-table check silently skips without the `target/ucd` cache (`tools/scull-ucd-gen/src/main.rs:384-397`) while `just check` — the only CI gate — never runs `ucd-check`; a hand-edited `tables.rs` would go unnoticed. Done means: a CI job warms the cache and runs `ucd-check`, and a short smoke fuzz run executes on every push.

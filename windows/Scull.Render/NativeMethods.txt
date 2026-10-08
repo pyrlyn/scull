@@ -25,3 +25,8 @@ IDWriteFontFace
 IDWriteGlyphRunAnalysis
 IDWriteColorGlyphRunEnumerator
 D3D11_COLOR_WRITE_ENABLE
+IDXGIDevice
+IDXGIAdapter
+IDXGIFactory2
+IDXGISwapChain2
+DXGI_SWAP_CHAIN_DESC1

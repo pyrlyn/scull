@@ -37,6 +37,9 @@ jobs:
       # every runner too; its Direct3D tests draw on WARP on Windows and
       # are skipped on the others.
       - run: just windows-core-test
+      # The WinUI 3 shell builds only on Windows; nothing here runs it.
+      - if: runner.os == 'Windows'
+        run: just windows-app
       # Ubuntu's kernel randomises mmap with more bits than the sanitizer
       # runtimes of the runner's compilers can map around.
       - if: runner.os == 'Linux'

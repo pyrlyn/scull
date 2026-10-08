@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using Scull.Native;
 
@@ -19,27 +21,13 @@ public sealed unsafe class Terminal : IDisposable
 
     /// <summary>A terminal with no child: bytes reach it only through <see cref="Feed"/>.</summary>
     public Terminal(ushort cols, ushort rows, uint scrollback = 10_000)
+        : this(New(cols, rows, scrollback), default)
     {
-        if (!abiChecked)
-        {
-            Abi.EnsureCompatible();
-            abiChecked = true;
-        }
-        var options = new tt_term_options
-        {
-            struct_size = (uint)sizeof(tt_term_options),
-            abi_version = NativeMethods.TT_ABI_VERSION,
-            cols = cols,
-            rows = rows,
-            scrollback = scrollback,
-        };
-        tt_term* rawTerm = null;
-        tt_status status = NativeMethods.tt_term_new(&options, &rawTerm);
-        if (status != tt_status.TT_OK)
-        {
-            throw ScullException.From(status, "tt_term_new");
-        }
-        term = new NativeHandle((nint)rawTerm, &FreeTerm);
+    }
+
+    private Terminal(nint rawTerm, GCHandle userdata)
+    {
+        term = new NativeHandle(rawTerm, &FreeTerm, userdata);
         tt_frame* rawFrame = NativeMethods.tt_frame_new();
         if (rawFrame == null)
         {
@@ -48,6 +36,90 @@ public sealed unsafe class Terminal : IDisposable
         }
         frame = new NativeHandle((nint)rawFrame, &FreeFrame);
     }
+
+    /// <summary>
+    /// A terminal running a child on a new PTY: <see cref="SpawnOptions.Program"/>,
+    /// or the user's shell. <paramref name="wakeup"/> runs on a core thread when
+    /// there is output or an event; it must not block, throw or call this terminal,
+    /// only hand the work to the UI thread, which then polls and updates. It is not
+    /// called again until that happens, and never after <see cref="Dispose"/> has freed the terminal.
+    /// </summary>
+    public static Terminal Spawn(ushort cols, ushort rows, Action wakeup, SpawnOptions? spawn = null)
+    {
+        ArgumentNullException.ThrowIfNull(wakeup);
+        spawn ??= new SpawnOptions();
+        EnsureAbi();
+        // One buffer for every string, so a single pin covers them for the call.
+        string[] strings = [spawn.Program ?? "", spawn.WorkingDirectory ?? "", .. spawn.Arguments, .. spawn.Environment];
+        var ends = new int[strings.Length];
+        var bytes = new byte[strings.Sum(Encoding.UTF8.GetByteCount)];
+        for (int i = 0, at = 0; i < strings.Length; i++)
+        {
+            at += Encoding.UTF8.GetBytes(strings[i], bytes.AsSpan(at));
+            ends[i] = at;
+        }
+        var strs = new tt_str[strings.Length];
+        GCHandle userdata = GCHandle.Alloc(wakeup);
+        tt_term* raw = null;
+        tt_status status;
+        fixed (byte* b = bytes)
+        fixed (tt_str* s = strs)
+        {
+            for (int i = 0, start = 0; i < strings.Length; start = ends[i++])
+            {
+                s[i] = new tt_str { ptr = b + start, len = (nuint)(ends[i] - start) };
+            }
+            tt_term_options options = Options(cols, rows, spawn.Scrollback);
+            (options.program, options.cwd) = (s[0], s[1]);
+            options.args = s + 2;
+            options.args_len = (nuint)spawn.Arguments.Count;
+            options.env = s + 2 + spawn.Arguments.Count;
+            options.env_len = (nuint)spawn.Environment.Count;
+            options.wakeup = &Wake;
+            options.userdata = (void*)GCHandle.ToIntPtr(userdata);
+            status = NativeMethods.tt_term_spawn(&options, &raw);
+        }
+        if (status != tt_status.TT_OK)
+        {
+            userdata.Free();
+            throw ScullException.From(status, "tt_term_spawn");
+        }
+        return new Terminal((nint)raw, userdata);
+    }
+
+    private static nint New(ushort cols, ushort rows, uint scrollback)
+    {
+        EnsureAbi();
+        tt_term_options options = Options(cols, rows, scrollback);
+        tt_term* raw = null;
+        tt_status status = NativeMethods.tt_term_new(&options, &raw);
+        if (status != tt_status.TT_OK)
+        {
+            throw ScullException.From(status, "tt_term_new");
+        }
+        return (nint)raw;
+    }
+
+    private static void EnsureAbi()
+    {
+        if (!abiChecked)
+        {
+            Abi.EnsureCompatible();
+            abiChecked = true;
+        }
+    }
+
+    private static tt_term_options Options(ushort cols, ushort rows, uint scrollback) => new()
+    {
+        struct_size = (uint)sizeof(tt_term_options),
+        abi_version = NativeMethods.TT_ABI_VERSION,
+        cols = cols,
+        rows = rows,
+        scrollback = scrollback,
+    };
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void Wake(void* userdata) => ((Action)GCHandle.FromIntPtr((nint)userdata).Target!)();
 
     /// <summary>
     /// True once a call answered <see cref="Status.Poisoned"/> or <see cref="Status.Panic"/>:
@@ -201,3 +273,21 @@ public enum EventKind : uint
 /// (null when the system did not say) and whether a signal ended the child.
 /// </summary>
 public readonly record struct TerminalEvent(EventKind Kind, uint? ExitCode, bool Signaled);
+
+/// <summary>What <see cref="Terminal.Spawn"/> runs, and where.</summary>
+public sealed record SpawnOptions
+{
+    /// <summary>Searched on <c>PATH</c>; null runs the user's shell, which ignores <see cref="Arguments"/>.</summary>
+    public string? Program { get; init; }
+
+    public IReadOnlyList<string> Arguments { get; init; } = [];
+
+    /// <summary>Null keeps the host's.</summary>
+    public string? WorkingDirectory { get; init; }
+
+    /// <summary><c>NAME=value</c> entries added to the host's environment.</summary>
+    public IReadOnlyList<string> Environment { get; init; } = [];
+
+    /// <summary>History rows to keep; the core clamps it.</summary>
+    public uint Scrollback { get; init; } = 10_000;
+}

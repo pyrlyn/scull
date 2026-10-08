@@ -3,6 +3,7 @@
 - T16. macOS input method and accessibility
 - T17. Windows app and renderer
 - T17.3. WinUI 3 shell
+- T17.3.2. WinUI 3 input mapping
 - T18. Windows input method and accessibility
 - T20. Configuration, fonts and themes
 - T21. Tabs, splits and windows

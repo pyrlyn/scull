@@ -6,7 +6,6 @@
 - T18. Windows input method and accessibility
 - T20. Configuration, fonts and themes
 - T21. Tabs, splits and windows
-- T23. Guard the interner Marks/sweep contract against interleaved interns
 - T24. Reconcile harness eager-wrap with xterm's deferred DECAWM
 - T25. CI: run the fuzz targets and the UCD stale-table check
 - T26. Close grid-layer test gaps

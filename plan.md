@@ -14,7 +14,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T18 | todo | P2 | 5 | 0% | |
 | T20 | in progress | P2 | 3 | 75% | Claude Code / claude-sonnet-5-5 |
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
-| T23 | in progress | P3 | 2 | 0% | Claude Code / claude-opus-5-5 |
 | T24 | todo | P2 | 2 | 0% | |
 | T25 | todo | P2 | 2 | 0% | |
 | T26 | todo | P3 | 2 | 0% | |
@@ -88,15 +87,6 @@ Execution plan (split to fit the budget):
 - T21.1 Pane tree and poison state (macOS, `macos/`): a pure value type `PaneTree` in `Sources/ScullKit/PaneTree.swift` (leaf or split of two subtrees, an axis, a focused pane; split, close, focus next and previous, no UI types). `TerminalSession` records `TT_POISONED` and `TT_PANIC` from any call as `isPoisoned`, and `TerminalView` draws a "this terminal crashed" notice instead of the grid for a poisoned session. The pane tree is the same shape the Windows app will lay out as viewports. Verify: Swift tests for split, close and focus order; a test that a poisoned handle leaves sibling sessions answering `TT_OK`, using a `test-hooks` Cargo feature on `scull-ffi` that exports `tt_term_test_panic` (not in the header, not in the shipped library) and a `just macos-test` that builds the library with it.
 - T21.2 Panes, tabs and windows on macOS: `Sources/ScullKit/PaneHostView.swift` (an `NSView` that lays the tree out with nested `NSSplitView`s and keeps one `TerminalView` per pane, so a split never restarts a shell; a child exit closes its pane, the last pane closes the window) and a `PaneSurface` representable; the app becomes a `WindowGroup` (native window tabs, one pane tree and one set of sessions per window or tab) with File commands New Window, New Tab, Split Right, Split Down, Close Pane and Next or Previous Pane, routed through the responder chain. `TerminalView` gets only a child-exit callback, per-pane focus (first responder, not key window) and the poison notice; its draw path is untouched because T15 replaces it. Verify: `just check`, `just test`, `just c-abi-test`, `just macos`, `just macos-test`; the debug snapshot (`-ScullSplit` with `-ScullHostSnapshot`) shows two panes side by side; a second window and a tab open from the menu.
 - T21.3 Windows tabs, splits and windows (waits for T17, which creates the WinUI app): the same `PaneTree` semantics in C# over `Scull.Core` handles, WinUI `TabView` for tabs and one window per `AppWindow`. One swap chain per window: panes are viewports of that swap chain, not separate swap chains, per AGENTS.md. A poisoned handle poisons one viewport. Verify: the same pane-tree tests in C#, and a poisoned handle leaving sibling panes running.
-
-### T23. Guard the interner Marks/sweep contract against interleaved interns
-
-`crates/scull-grid/src/intern.rs:27-32` silently ignores an out-of-range mark, and `sweep()` at `intern.rs:128-142` frees every unmarked slot — a caller that interns between `marks()` and `sweep()` gets live ids reclaimed (wrong styles/text, not UB). The only current call path (`grid.rs:345-360`) is safe today. Done means: `sweep` skips ids at or beyond the marks' length (or the lengths are asserted), so the hazard cannot resurface.
-
-Execution plan:
-1. Skipping ids past the marks' length is not enough: an intern between `marks()` and `sweep()` may reuse a freed id below that length, which is unmarked too. So `Interner` counts every insert, `marks()` stamps the count into `Marks`, and `sweep` with marks whose stamp no longer matches frees nothing and returns 0. A skipped sweep only delays reclaim.
-2. Tests in `intern.rs`: an intern after `marks()`, both appended and reused from the free list, survives the sweep; marks taken after it sweep as before.
-3. Verify with `just check`.
 
 ### T24. Reconcile harness eager-wrap with xterm's deferred DECAWM
 

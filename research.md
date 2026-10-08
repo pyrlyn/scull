@@ -201,4 +201,5 @@ The creator accepted the recommendations below except 2, where the choice is all
 - kitty's position on sixel: the word does not appear in the repository.
 - How much of esctest and vttest runs headlessly.
 - The six items listed at the end of foot-contour.md, and the "Not verified" sections of warp.md and wezterm-alacritty.md.
-- The C# interop library for the Windows host was compared on paper (§6.1); its per-frame cost on a real renderer is not measured yet (T17.3).
+- The C# interop library for the Windows host was compared on paper (§6.1); its per-frame cost on a real renderer is not measured yet (T17.4).
+- Whether `d3dcompiler_47.dll`, which `windows/Scull.Render` loads for `D3DCompile`, is guaranteed on every Windows 10 and 11 install. The API reference names the DLL (https://learn.microsoft.com/en-us/windows/win32/api/d3dcompiler/nf-d3dcompiler-d3dcompile, updated 2024-02-22) and "Where is the DirectX SDK?" calls the Windows SDK's copy a redistributable, not a system component (https://learn.microsoft.com/en-us/windows/win32/directx-sdk--august-2009-, updated 2025-03-11; both checked 2026-10-08); that a copy sits in System32 is only observed on the CI runner (T17.2).

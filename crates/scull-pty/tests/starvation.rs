@@ -3,6 +3,8 @@
 //! child keeps the reader busy. Separate from `shell.rs` because it is a timing
 //! test with its own load and bounds.
 
+mod common;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -28,6 +30,7 @@ struct Parsing {
     fed: usize,
     since_drain: usize,
     worst_hold: usize,
+    cursor: common::CursorReport,
 }
 
 impl Sink for Parsing {
@@ -37,9 +40,11 @@ impl Sink for Parsing {
         }
         self.fed += bytes.len();
         self.since_drain += bytes.len();
+        self.cursor.feed(bytes);
     }
 
-    fn drain_replies(&mut self, _out: &mut Vec<u8>, _limit: usize) {
+    fn drain_replies(&mut self, out: &mut Vec<u8>, limit: usize) {
+        self.cursor.drain(out, limit);
         // Called once at the end of every hold.
         self.worst_hold = self.worst_hold.max(self.since_drain);
         self.since_drain = 0;

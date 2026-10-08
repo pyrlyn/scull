@@ -49,6 +49,53 @@ public sealed class SpawnTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    public void InputReachesTheChildEncodedForItsModes()
+    {
+        // As spawn.rs: the child turns on bracketed paste, SGR mouse tracking and
+        // focus reports, then compares the raw bytes it reads with Up, "é", a
+        // paste, focus in and a left click at the top left.
+        var options = new SpawnOptions
+        {
+            Program = "/bin/sh",
+            Arguments =
+            [
+                "-c",
+                "stty raw -echo; printf '\\033[?2004h\\033[?1000h\\033[?1006h\\033[?1004hready'; "
+                + "x=$(head -c 30 | od -An -tx1 | tr -d ' \\n'); "
+                + "[ \"$x\" = 1b5b41c3a91b5b3230307e701b5b3230317e1b5b491b5b3c303b313b314d ] && echo pass || echo \"$x\"",
+            ],
+        };
+        using var host = new Host(options);
+        host.WaitFor("the modes", () => host.Terminal.ReadText().Contains("ready", StringComparison.Ordinal));
+
+        Assert.IsTrue(host.Terminal.Key(new KeyInput(KeyCode.Up, KeyAction.Press, KeyModifiers.None)));
+        Assert.IsTrue(host.Terminal.Text("é"));
+        Assert.IsTrue(host.Terminal.Paste("p"));
+        Assert.IsTrue(host.Terminal.Focus(true));
+        Assert.IsTrue(host.Terminal.Mouse(new MouseInput(MouseAction.Press, MouseButton.Left, KeyModifiers.None, 0, 0, 0, 0)));
+
+        host.WaitForExit();
+        Assert.Contains("pass", host.Terminal.ReadText());
+    }
+
+    [TestMethod]
+    public void WithoutAChildInputHasNowhereToGo()
+    {
+        using var terminal = new Terminal(20, 4);
+
+        Assert.IsFalse(terminal.Key(new KeyInput('a', KeyAction.Press, KeyModifiers.None, Text: "a")));
+        Assert.IsFalse(terminal.Text("a"));
+        Assert.IsFalse(terminal.Paste("a"));
+        // Nothing asked for focus or mouse reports, so there is nothing to send.
+        Assert.IsTrue(terminal.Focus(true));
+        Assert.IsFalse(terminal.Mouse(new MouseInput(MouseAction.Press, MouseButton.Left, KeyModifiers.None, 0, 0, 0, 0)));
+        terminal.ScrollDisplay(5);
+        ScullException invalid = Assert.Throws<ScullException>(() => terminal.Key(new KeyInput('\u0001', KeyAction.Press, KeyModifiers.None)));
+        Assert.AreEqual(Status.Invalid, invalid.Status);
+    }
+
+    [TestMethod]
     public void AProgramThatIsNotThereIsAnIoError()
     {
         var options = new SpawnOptions { Program = "scull-no-such-program-" + Guid.NewGuid().ToString("N") };

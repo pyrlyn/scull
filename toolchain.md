@@ -49,3 +49,9 @@
 | serde_json | local | https://github.com/serde-rs/json | Renders and checks the config schema (dev-dependency) |
 | toml_edit | local | https://github.com/toml-rs/toml | Edits a single setting in the config file in place, keeping comments (scull-config) |
 | notify | local | https://github.com/notify-rs/notify | Watches the config directory for live reload (scull-config) |
+
+## NuGet
+
+| Package | Where | Source | Why here |
+| --- | --- | --- | --- |
+| Microsoft.Windows.CsWin32 | local from T17.2 (picked in T17.1, not referenced yet) | https://github.com/microsoft/CsWin32 | Direct3D 11, DXGI, DirectWrite, TSF and UIA from C# as blittable structs (`allowMarshaling: false`); the comparison is in `research.md` §6.1 |

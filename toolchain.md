@@ -7,7 +7,7 @@
 | rustc, cargo, clippy, rustfmt | mise (`mise.toml`, 1.99.0) | Build, lint and format the core | https://github.com/rust-lang/rust |
 | mise | brew, then `mise install` | Pins every tool below for local work and CI | https://github.com/jdx/mise |
 | just | mise | Task runner: `just check` is the merge gate | https://github.com/casey/just |
-| cargo-fuzz | `cargo install cargo-fuzz`, runs on nightly | `cargo +nightly fuzz run parser` | https://github.com/rust-fuzz/cargo-fuzz |
+| cargo-fuzz | `cargo install cargo-fuzz --version 0.13.2 --locked`, runs on nightly | `just fuzz-smoke` (`cargo +nightly fuzz`, a few seconds per target) | https://github.com/rust-fuzz/cargo-fuzz |
 | cc (clang or gcc) | system (Xcode Command Line Tools, distro package) | `just c-abi-test`: the C ABI test under ASan, UBSan and TSan (Unix only) | https://github.com/llvm/llvm-project |
 | Xcode (Swift 6.4, SwiftPM, AppKit/SwiftUI SDK) | Mac App Store or developer.apple.com (27.0) | `just macos`, `just macos-test`: build and test the macOS app in `macos/` (arm64 only) | https://developer.apple.com/xcode/ |
 | codesign | system (Xcode) | `just macos`: ad-hoc signs `target/macos/Scull.app` so it launches locally | https://developer.apple.com/documentation/security/code-signing-services |
@@ -25,7 +25,7 @@
 | --- | --- | --- | --- |
 | thiserror | local | https://github.com/dtolnay/thiserror | Error enum per library crate |
 | cargo_metadata | local | https://github.com/oli-obk/cargo_metadata | Crate-graph test (`crates/scull-ffi/tests/deps.rs`) |
-| libfuzzer-sys | local | https://github.com/rust-fuzz/libfuzzer | libFuzzer targets for the parser and the stub grid (`fuzz/`; nightly, not the CI gate) |
+| libfuzzer-sys | local | https://github.com/rust-fuzz/libfuzzer | libFuzzer targets in `fuzz/`; CI smokes them on nightly, outside `just check` |
 | cargo-nextest | global (mise) | https://github.com/nextest-rs/nextest | Test runner |
 | proptest | local | https://github.com/proptest-rs/proptest | Property tests |
 | anyhow | local | https://github.com/dtolnay/anyhow | Error type of the `scull-ucd-gen` binary |

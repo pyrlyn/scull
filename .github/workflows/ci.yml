@@ -43,3 +43,37 @@ jobs:
       # runner's cc has no sanitizer runtimes.
       - if: runner.os != 'Windows'
         run: just c-abi-test
+
+  # The in-crate stale-table test returns early when target/ucd is empty, and
+  # `just check` never calls this. The generator fills that cache from the
+  # pinned Unicode files, then fails when tables.rs or the grapheme fixture differ.
+  ucd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - run: just ucd-check
+
+  # libFuzzer needs nightly. mise stays on 1.99; nightly is installed beside
+  # it and selected only by `cargo +nightly` inside `just fuzz-smoke`.
+  # Five seconds per target, not a multi-minute campaign.
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - name: nightly toolchain
+        run: rustup toolchain install nightly --profile minimal
+      - name: install cargo-fuzz
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: smoke
+        run: just fuzz-smoke
+      - name: upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

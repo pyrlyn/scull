@@ -10,7 +10,7 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T13 | todo | P1 | 3 | 0% | |
 | T15 | in progress | P1 | 5 | 90% | Claude Code / claude-opus-5-5 |
 | T16 | in progress | P1 | 4 | 85% | Claude Code / claude-opus-5-5 |
-| T17 | in progress | P1 | 5 | 10% | Claude Code / claude-opus-5-5 |
+| T17 | in progress | P1 | 5 | 20% | Claude Code / claude-opus-5-5 |
 | T18 | todo | P2 | 5 | 0% | |
 | T20 | in progress | P2 | 3 | 75% | Claude Code / claude-sonnet-5-5 |
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
@@ -64,6 +64,8 @@ Execution plan (split to fit the budget). C# lives in `windows/`; the core is re
 - T17.1 Interop pick and the managed core: compare Vortice.Windows, TerraFX.Interop.Windows, Microsoft.Windows.CsWin32 and Silk.NET for Direct3D 11, DXGI, DirectWrite, TSF and UIA (maintenance from NuGet and GitHub releases, coverage, per-frame allocations, AOT and trimming, licence), recorded in `research.md` with sources and the pick in `toolchain.md`. `windows/Scull.Core`, a platform-neutral class library over `NativeMethods.g.cs`: `Terminal` (create, feed, resize, events and bell, frame update and view, read text), `SafeHandle` ownership so each handle is freed once, the ABI version checked at start-up, status codes mapped to exceptions, poisoning tracked as `TerminalSession.swift` does. `windows/Scull.Core.Tests` loads the real Rust library and covers each of those. `just windows-core-test`, and a CI job on Windows and macOS. Verify: `just check`, `just windows-core-test`, `dotnet build` with warnings as errors.
 - T17.2 WinUI 3 shell: an unpackaged app with a `SwapChainPanel`, a D3D11 renderer (instanced quads for backgrounds, glyphs, decorations and the cursor, per-row slots driven by the frame's damage) and a DirectWrite glyph atlas with eviction, through the T17.1 interop pick; `tt_term_spawn` with the wakeup posted to the dispatcher queue.
 - T17.3 Input, resize and measurements: keys, text, mouse, wheel, paste and focus mapped to the exports; `resize_begin`/`resize` on a drag; the T3 benchmark input timed through the renderer on Windows, written beside the macOS numbers.
+
+Landed: T17.1. The pick is Microsoft.Windows.CsWin32 with `allowMarshaling: false` (`research.md` §6.1, `toolchain.md`); it is not referenced yet. `windows/Scull.Core` wraps the linked bindings in `Terminal` (SafeHandle ownership that frees once and never during a call, the ABI check before the first handle, status codes as `ScullException`s, poisoning tracked, the frame as zero-copy spans), and `windows/Scull.Core.Tests` runs 16 MSTest tests against the real library with `just windows-core-test`, also a CI step on all three runners. Left for later slices: `tt_term_spawn` with the wakeup (T17.2), the input exports (T17.3), image placements in the view (T17.2) and preedit (T18).
 
 ### T18. Windows input method and accessibility
 

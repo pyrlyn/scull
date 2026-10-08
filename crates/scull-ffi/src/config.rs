@@ -486,7 +486,10 @@ mod tests {
         fs::write(dir.file(), "scrollback = 3\n").unwrap();
         let config = open(dir.file().to_str().unwrap(), None);
         assert_eq!(poll(config).scrollback, 3);
-        fs::write(dir.file(), "scrollback = -3\n").unwrap();
+        // Replaced by rename: a reload between an in-place write's truncate
+        // and its write would read an empty file and drop the 3.
+        fs::write(dir.0.join("draft"), "scrollback = -3\n").unwrap();
+        fs::rename(dir.0.join("draft"), dir.file()).unwrap();
         poll_until(config, "the error", |v| v.error.len > 0);
         let view = poll(config);
         assert_eq!(view.scrollback, 3);

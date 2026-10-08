@@ -32,6 +32,7 @@ mod event;
 mod frame;
 mod guard;
 mod input;
+mod select;
 mod spawn;
 mod term;
 #[cfg(feature = "test-hooks")]
@@ -50,12 +51,13 @@ pub use event::{
 
 pub use frame::{
     TT_ATTR_BLINK, TT_ATTR_BOLD, TT_ATTR_DIM, TT_ATTR_HIDDEN, TT_ATTR_INVERSE, TT_ATTR_ITALIC,
-    TT_ATTR_OVERLINE, TT_ATTR_STRIKE, TT_CELL_CLUSTER, TT_COLOR_DEFAULT, TT_COLOR_INDEXED,
-    TT_COLOR_KIND_MASK, TT_COLOR_RGB, TT_MAX_PREEDIT_BYTES, TT_UNDERLINE_CURLY,
-    TT_UNDERLINE_DASHED, TT_UNDERLINE_DOTTED, TT_UNDERLINE_DOUBLE, TT_UNDERLINE_NONE,
-    TT_UNDERLINE_SINGLE, tt_cell, tt_cursor, tt_frame, tt_frame_free, tt_frame_new,
-    tt_frame_preedit, tt_frame_update, tt_frame_view, tt_image, tt_image_pixels, tt_image_release,
-    tt_image_retain, tt_placement, tt_preedit, tt_row, tt_run, tt_scroll, tt_style,
+    TT_ATTR_OVERLINE, TT_ATTR_STRIKE, TT_CELL_CLUSTER, TT_CELL_CURRENT_MATCH, TT_CELL_MATCH,
+    TT_CELL_SELECTED, TT_COLOR_DEFAULT, TT_COLOR_INDEXED, TT_COLOR_KIND_MASK, TT_COLOR_RGB,
+    TT_MAX_PREEDIT_BYTES, TT_UNDERLINE_CURLY, TT_UNDERLINE_DASHED, TT_UNDERLINE_DOTTED,
+    TT_UNDERLINE_DOUBLE, TT_UNDERLINE_NONE, TT_UNDERLINE_SINGLE, tt_cell, tt_cursor, tt_frame,
+    tt_frame_free, tt_frame_new, tt_frame_preedit, tt_frame_update, tt_frame_view, tt_image,
+    tt_image_pixels, tt_image_release, tt_image_retain, tt_placement, tt_preedit, tt_row, tt_run,
+    tt_scroll, tt_style,
 };
 pub use guard::tt_status;
 pub use input::{
@@ -67,6 +69,12 @@ pub use input::{
     TT_MOUSE_WHEEL_RIGHT, TT_MOUSE_WHEEL_UP, tt_key_event, tt_mouse_event, tt_term_focus,
     tt_term_key, tt_term_mouse, tt_term_paste, tt_term_scroll_display, tt_term_text,
 };
+pub use select::{
+    TT_MAX_SEARCH_MATCHES, TT_MAX_SEARCH_PATTERN, TT_MAX_SELECTION_BYTES, TT_SEARCH_IGNORE_CASE,
+    TT_SELECT_BLOCK, TT_SELECT_CELL, TT_SELECT_LINE, TT_SELECT_WORD, tt_match,
+    tt_term_search_count, tt_term_search_set, tt_term_search_step, tt_term_select_clear,
+    tt_term_select_extend, tt_term_select_start, tt_term_selection_text,
+};
 pub use spawn::{tt_str, tt_term_resize_begin, tt_term_spawn, tt_term_write, tt_wakeup_fn};
 pub use term::{tt_term, tt_term_feed, tt_term_free, tt_term_new, tt_term_options, tt_term_resize};
 pub use text::tt_term_read_text;
@@ -77,11 +85,11 @@ pub const TT_ABI_VERSION_MAJOR: u32 = 0;
 
 /// Additions (new functions, fields appended to a struct) bump the minor.
 /// While the major is 0 every minor may break, so the minor must match too.
-pub const TT_ABI_VERSION_MINOR: u32 = 5;
+pub const TT_ABI_VERSION_MINOR: u32 = 6;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = 0x0000_0005;
+pub const TT_ABI_VERSION: u32 = 0x0000_0006;
 
 const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 
@@ -112,7 +120,7 @@ mod tests {
         assert!(!abi_compatible(TT_ABI_VERSION + 1));
         assert!(
             !abi_compatible(TT_ABI_VERSION - 1),
-            "a host without the config handle"
+            "a host without selection and search"
         );
         assert!(!abi_compatible(1 << MINOR_BITS | TT_ABI_VERSION_MINOR));
         assert!(!abi_compatible(0));

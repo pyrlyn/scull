@@ -30,26 +30,44 @@ pub unsafe extern "C" fn tt_term_read_text(
     len: *mut usize,
 ) -> tt_status {
     let body = |t: &tt_term| {
-        if len.is_null() || (buf.is_null() && cap > 0) {
+        if !buffer_ok(buf, cap, len) {
             return tt_status::TT_INVALID;
         }
         let mut text = String::new();
         let end = row.saturating_add(rows);
         t.core().lock().term.read_text(row..end, &mut text);
-        // SAFETY: non-null and writable by the caller's contract.
-        unsafe { len.write(text.len()) };
-        if text.len() > cap {
-            return tt_status::TT_FULL;
-        }
-        if !text.is_empty() {
-            // SAFETY: `buf` holds `cap` writable bytes, at least the text's
-            // length, and cannot overlap a String the core just built.
-            unsafe { buf.copy_from_nonoverlapping(text.as_ptr(), text.len()) };
-        }
-        tt_status::TT_OK
+        // SAFETY: the caller's contract, checked above.
+        unsafe { copy_out(&text, buf, cap, len) }
     };
     // SAFETY: the caller's contract.
     unsafe { with_term(term, body) }
+}
+
+/// Whether a host's text buffer is usable: `len` set, and `buf` set unless
+/// `cap` is 0 (a call that asks for the length).
+pub(crate) fn buffer_ok(buf: *mut u8, cap: usize, len: *mut usize) -> bool {
+    !len.is_null() && !(buf.is_null() && cap > 0)
+}
+
+/// Writes `text`'s length to `*len` and, when it fits in `cap`, the text
+/// to `buf`; `TT_FULL` with nothing copied when it does not.
+///
+/// # Safety
+///
+/// [`buffer_ok`] holds; `buf` is `NULL` or points to `cap` writable bytes;
+/// `len` is writable.
+pub(crate) unsafe fn copy_out(text: &str, buf: *mut u8, cap: usize, len: *mut usize) -> tt_status {
+    // SAFETY: non-null and writable by the caller's contract.
+    unsafe { len.write(text.len()) };
+    if text.len() > cap {
+        return tt_status::TT_FULL;
+    }
+    if !text.is_empty() {
+        // SAFETY: `buf` holds `cap` writable bytes, at least the text's
+        // length, and cannot overlap a String the core just built.
+        unsafe { buf.copy_from_nonoverlapping(text.as_ptr(), text.len()) };
+    }
+    tt_status::TT_OK
 }
 
 #[cfg(test)]

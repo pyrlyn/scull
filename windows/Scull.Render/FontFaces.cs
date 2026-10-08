@@ -49,9 +49,9 @@ internal sealed unsafe class FontFaces : IDisposable
         factory = f;
         IDWriteFontCollection* fonts;
         factory->GetSystemFontCollection(&fonts, false);
+        var found = new List<nint>(4 + Fallbacks.Length);
         try
         {
-            var found = new List<nint>(4 + Fallbacks.Length);
             foreach ((DWRITE_FONT_WEIGHT weight, DWRITE_FONT_STYLE style) in new[]
             {
                 (DWRITE_FONT_WEIGHT.DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE.DWRITE_FONT_STYLE_NORMAL),
@@ -71,6 +71,16 @@ internal sealed unsafe class FontFaces : IDisposable
                 }
             }
             faces = [.. found];
+        }
+        catch
+        {
+            // A missing family throws out of the constructor, so Dispose never runs.
+            foreach (nint face in found)
+            {
+                ((IDWriteFontFace*)face)->Release();
+            }
+            factory->Release();
+            throw;
         }
         finally
         {

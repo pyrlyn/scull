@@ -182,4 +182,10 @@ public sealed class RendererTests
 
         Assert.AreEqual(0, allocated);
     }
+
+    [TestMethod]
+    public void AMissingFontFamilyIsRefused()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => new FontFaces("No Such Scull Font", 16f));
+    }
 }

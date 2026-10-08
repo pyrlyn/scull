@@ -11,7 +11,7 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T13.4 | in progress | P1 | 3 | 0% | Claude Code / claude-opus-5-5 |
 | T15 | in progress | P1 | 5 | 90% | Claude Code / claude-opus-5-5 |
 | T16 | in progress | P1 | 4 | 85% | Claude Code / claude-opus-5-5 |
-| T17 | in progress | P1 | 5 | 20% | Claude Code / claude-opus-5-5 |
+| T17 | in progress | P1 | 5 | 40% | Claude Code / claude-opus-5-5 |
 | T18 | todo | P2 | 5 | 0% | |
 | T20 | in progress | P2 | 3 | 75% | Claude Code / claude-sonnet-5-5 |
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
@@ -71,6 +71,8 @@ Execution plan (split to fit the budget). C# lives in `windows/`; the core is re
 - T17.5 Renderer completeness: shaping with ligatures and the system fallback, combining marks, box drawing and Powerline sprites, image placements.
 
 Landed: T17.1. The pick is Microsoft.Windows.CsWin32 with `allowMarshaling: false` (`research.md` §6.1, `toolchain.md`); it is not referenced yet. `windows/Scull.Core` wraps the linked bindings in `Terminal` (SafeHandle ownership that frees once and never during a call, the ABI check before the first handle, status codes as `ScullException`s, poisoning tracked, the frame as zero-copy spans), and `windows/Scull.Core.Tests` runs 16 MSTest tests against the real library with `just windows-core-test`, also a CI step on all three runners. Left for later slices: `tt_term_spawn` with the wakeup and the input exports (T17.3), image placements in the view (T17.5) and preedit (T18).
+
+Landed: T17.2. `windows/Scull.Render` draws a `Scull.Core` frame view with Direct3D 11 into any `RenderTarget` (an `OffscreenTarget` for now): DirectWrite grayscale coverage and COLR colour layers in a shelf-packed BGRA atlas (`AtlasPacker`: eviction of the least recently drawn shelf, growth with a generation), instanced quads for backgrounds, glyphs, underline, strike, overline and the cursor in per-row slots that scroll damage remaps (`Renderer.Absorb` after every update, `Renderer.Render` per draw), HLSL compiled at start-up with `D3DCompile`, no allocation on a frame of cached glyphs. `windows/Scull.Render.Tests` has 15 MSTest tests: 7 pure-logic ones (packer, palette) on every runner, 8 that render on WARP and read pixels back on Windows only (skipped elsewhere). Whether `d3dcompiler_47.dll` is guaranteed on every Windows is **unverified** (`research.md` §9); every underline kind is drawn as one straight line until the sprites of T17.5.
 
 ### T18. Windows input method and accessibility
 

@@ -28,6 +28,13 @@ jobs:
       # Includes the drift check of the committed C header and C# bindings
       # (scull-ffi/tests/bindings.rs, `just bindings-check`).
       - run: just check
+      # The .NET SDK pinned in windows/global.json, for the C# core's tests.
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: windows/global.json
+      # The C# core is platform-neutral, so its tests run on every runner
+      # against the library this job just built.
+      - run: just windows-core-test
       # Ubuntu's kernel randomises mmap with more bits than the sanitizer
       # runtimes of the runner's compilers can map around.
       - if: runner.os == 'Linux'

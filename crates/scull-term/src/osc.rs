@@ -1,5 +1,6 @@
-//! OSC that is not an image: titles, directory, shell marks, clipboard and
-//! hyperlinks, from the published specs (xterm ctlseqs, OSC 8, OSC 7, OSC 133).
+//! OSC that is not an image: titles, directory, shell marks, clipboard,
+//! hyperlinks and notifications, from the published specs (xterm ctlseqs,
+//! OSC 8, OSC 7, OSC 133, iTerm2's OSC 9, rxvt-unicode's OSC 777 `notify`).
 //! Nothing here is taken from kitty.
 
 use base64::Engine as _;
@@ -19,6 +20,9 @@ const B64: GeneralPurpose = GeneralPurpose::new(
     &STANDARD,
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
+
+/// ConEmu's OSC 9 subcommands are numbered up to this.
+const CONEMU_LAST: u8 = 12;
 
 /// A read the host has not answered.
 #[derive(Clone, Debug)]
@@ -102,8 +106,15 @@ impl State {
             b"0" | b"1" | b"2" => self.osc_title(code, rest),
             b"7" => self.osc_directory(rest),
             b"8" => self.osc_link(rest),
+            b"9" if !conemu(rest) => self.osc_notify(b"", rest),
             b"52" => self.osc_clipboard(rest, osc.bell_terminated),
             b"133" => self.osc_shell(rest),
+            b"777" => {
+                if let Some((b"notify", args)) = split_semi(rest) {
+                    let (title, body) = split_semi(args).unwrap_or((args, b""));
+                    self.osc_notify(title, body);
+                }
+            }
             _ => {}
         }
     }
@@ -157,6 +168,16 @@ impl State {
         if let Some(id) = self.links.open(&key, &uri) {
             let _ = self.events.push(Event::Link { id: id.0, uri });
         }
+    }
+
+    fn osc_notify(&mut self, title: &[u8], body: &[u8]) {
+        let (Some(title), Some(body)) = (owned_text(title), owned_text(body)) else {
+            return;
+        };
+        if title.is_empty() && body.is_empty() {
+            return;
+        }
+        let _ = self.events.push(Event::Notification { title, body });
     }
 
     fn osc_clipboard(&mut self, rest: &[u8], bell: bool) {
@@ -242,6 +263,18 @@ fn clip_reply(selection: u8, data: &[u8], bell: bool) -> Vec<u8> {
         reply.extend_from_slice(b"\x1b\\");
     }
     reply
+}
+
+/// ConEmu's OSC 9 subcommands (`9;4;state;progress` and the rest) start
+/// with their number. They are not notification text, and this core does
+/// not implement them, so they are dropped rather than shown.
+fn conemu(rest: &[u8]) -> bool {
+    let number = split_semi(rest).map_or(rest, |(first, _)| first);
+    std::str::from_utf8(number)
+        .ok()
+        .filter(|n| n.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|n| n.parse::<u8>().ok())
+        .is_some_and(|n| (1..=CONEMU_LAST).contains(&n))
 }
 
 fn split_semi(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
@@ -372,5 +405,20 @@ mod tests {
         let reply = term.take_replies();
         assert!(reply.starts_with(b"\x1b]52;c;YWFh"));
         assert!(reply.ends_with(b"\x07"));
+    }
+
+    #[test]
+    fn conemu_subcommands_are_not_notifications() {
+        let mut term = term();
+        term.feed(b"\x1b]9;4;1;50\x07\x1b]9;9;/tmp\x07\x1b]9;\x07\x1b]777;precmd\x07");
+        assert_eq!(term.poll_event(), None);
+        term.feed(b"\x1b]9;13 done\x07");
+        assert_eq!(
+            term.poll_event(),
+            Some(Event::Notification {
+                title: String::new(),
+                body: "13 done".into()
+            })
+        );
     }
 }

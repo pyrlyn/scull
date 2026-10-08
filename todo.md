@@ -4,7 +4,6 @@
 - T17. Windows app and renderer
 - T17.3. WinUI 3 shell
 - T17.3.2. WinUI 3 input mapping
-- T17.3.2.1. Core input
 - T17.3.2.2. App input wiring
 - T18. Windows input method and accessibility
 - T20. Configuration, fonts and themes

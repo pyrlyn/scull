@@ -20,6 +20,17 @@ public static class WindowsKeys
     private static readonly KeyModifiers[] SideModifiers =
         [KeyModifiers.Shift, KeyModifiers.Control, KeyModifiers.Alt, KeyModifiers.Super, KeyModifiers.Hyper, KeyModifiers.Meta];
 
+    // CoreVirtualKeyStates bits.
+    private const int Down = 1;
+    private const int Locked = 2;
+
+    private static readonly (int VirtualKey, int Bit, KeyModifiers Modifier)[] HeldKeys =
+    [
+        (0x10, Down, KeyModifiers.Shift), (0x11, Down, KeyModifiers.Control), (0x12, Down, KeyModifiers.Alt),
+        (0x5B, Down, KeyModifiers.Super), (0x5C, Down, KeyModifiers.Super),
+        (0x14, Locked, KeyModifiers.CapsLock), (0x90, Locked, KeyModifiers.NumLock),
+    ];
+
     /// <summary>
     /// The core's key, or null for one it has no name for (an input method's
     /// VK_PROCESSKEY, a key the US layout lacks, such as the ISO key by Left Shift).
@@ -84,6 +95,24 @@ public static class WindowsKeys
         ((uint)'v', KeyModifiers.Control | KeyModifiers.Shift) or (KeyCode.Insert, KeyModifiers.Shift) => true,
         _ => false,
     };
+
+    /// <summary>
+    /// The modifiers held, given each virtual key's <c>CoreVirtualKeyStates</c>
+    /// (1 down, 2 locked) as <c>InputKeyboardSource.GetKeyStateForCurrentThread</c> reports it.
+    /// AltGr shows as Ctrl+Alt here, which <see cref="WindowsKeyPairing"/> relies on.
+    /// </summary>
+    public static KeyModifiers Held(Func<int, int> state)
+    {
+        KeyModifiers held = KeyModifiers.None;
+        foreach ((int virtualKey, int bit, KeyModifiers modifier) in HeldKeys)
+        {
+            if ((state(virtualKey) & bit) != 0)
+            {
+                held |= modifier;
+            }
+        }
+        return held;
+    }
 
     /// <summary>The modifier a modifier key holds, which the core counts as held during its own event.</summary>
     internal static KeyModifiers ModifierOf(uint key)
@@ -230,6 +259,61 @@ public sealed class WheelSteps
         long total = (long)remainder + delta;
         remainder = (int)(total % Notch);
         return (int)(total / Notch);
+    }
+}
+
+/// <summary>
+/// WinUI pointer updates to mouse events. Windows raises <c>PointerPressed</c>
+/// for the first button only and reports the others through <c>PointerMoved</c>,
+/// so every update goes through <see cref="Update"/>, whichever event carried it.
+/// </summary>
+public sealed class WindowsPointer
+{
+    // PointerUpdateKind from LeftButtonPressed (1): a press, then a release, per button.
+    private static readonly MouseButton[] Buttons = [MouseButton.Left, MouseButton.Right, MouseButton.Middle, MouseButton.Back, MouseButton.Forward];
+
+    private (uint Col, uint Row)? last;
+
+    /// <summary>
+    /// The event for <c>PointerUpdateKind</c> <paramref name="updateKind"/> at
+    /// <paramref name="at"/> (from <see cref="PointerCells.At"/>). Any other kind is a
+    /// move: motion dragging the held button (left, middle, right), or null while
+    /// the pointer stays in the cell of the last event, as programs only see cells.
+    /// </summary>
+    public MouseInput? Update(int updateKind, bool left, bool middle, bool right, KeyModifiers modifiers, (uint Col, uint Row, uint XPx, uint YPx) at)
+    {
+        MouseAction action;
+        MouseButton button;
+        if (updateKind is >= 1 and <= 10)
+        {
+            action = (updateKind & 1) == 1 ? MouseAction.Press : MouseAction.Release;
+            button = Buttons[(updateKind - 1) / 2];
+        }
+        else if (last == (at.Col, at.Row))
+        {
+            return null;
+        }
+        else
+        {
+            action = MouseAction.Motion;
+            button = left ? MouseButton.Left : middle ? MouseButton.Middle : right ? MouseButton.Right : MouseButton.None;
+        }
+        last = (at.Col, at.Row);
+        return new MouseInput(action, button, modifiers, at.Col, at.Row, at.XPx, at.YPx);
+    }
+
+    /// <summary>One wheel step in the direction of <paramref name="steps"/> (from <see cref="WheelSteps"/>): a press of a wheel button.</summary>
+    public MouseInput Wheel(int steps, bool horizontal, KeyModifiers modifiers, (uint Col, uint Row, uint XPx, uint YPx) at)
+    {
+        MouseButton button = (steps > 0, horizontal) switch
+        {
+            (true, false) => MouseButton.WheelUp,
+            (false, false) => MouseButton.WheelDown,
+            (true, true) => MouseButton.WheelRight,
+            (false, true) => MouseButton.WheelLeft,
+        };
+        last = (at.Col, at.Row);
+        return new MouseInput(MouseAction.Press, button, modifiers, at.Col, at.Row, at.XPx, at.YPx);
     }
 }
 

@@ -16,6 +16,7 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
 | T24 | todo | P2 | 2 | 0% | |
 | T25 | todo | P2 | 2 | 0% | |
+| T29 | in progress | P0 | 2 | 0% | Claude Code / claude-opus-5-5 |
 
 ### T3. Conformance and benchmark harness
 
@@ -94,3 +95,12 @@ Execution plan (split to fit the budget):
 ### T25. CI: run the fuzz targets and the UCD stale-table check
 
 The `fuzz/` workspace is excluded from CI (`Cargo.toml:4`) with a gitignored corpus, and the stale-table check silently skips without the `target/ucd` cache (`tools/scull-ucd-gen/src/main.rs:384-397`) while `just check` — the only CI gate — never runs `ucd-check`; a hand-edited `tables.rs` would go unnoticed. Done means: a CI job warms the cache and runs `ucd-check`, and a short smoke fuzz run executes on every push.
+
+### T29. Green CI on main
+
+CI on `main` has failed since the T14/T19 merge (PR #2), so every open PR is red too. Windows: `just lint` rejects imports and a helper in `crates/scull-ffi/tests/spawn.rs` that only the Unix tests use. Linux: `just c-abi-test` stops on a TSan data race in `crates/scull-ffi/tests/c/two_threads.c` (`touch_image`), where the host reads image pixels the reader thread wrote. Done when all three CI jobs pass on `main`.
+
+Execution plan:
+1. `spawn.rs`: the Unix-only imports and `zeroed_sized` move under `#[cfg(unix)]`; checked with `cargo clippy --target x86_64-pc-windows-msvc`.
+2. TSan: the race is not real. An `Image` is immutable and built whole before it is published under the core's `parking_lot` mutex, and the Rust library is not instrumented, so TSan cannot see that lock (macOS passes the same test). `crates/scull-ffi/tests/c/tsan.supp` suppresses `touch_image` only, and `just c-abi-test` passes it through `TSAN_OPTIONS`.
+3. Verify with `just check` and `just c-abi-test` locally, then CI on a PR.

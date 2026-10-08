@@ -16,7 +16,6 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T21 | in progress | P2 | 3 | 60% | Claude Code / claude-sonnet-5-5 |
 | T24 | todo | P2 | 2 | 0% | |
 | T25 | todo | P2 | 2 | 0% | |
-| T26 | in progress | P3 | 2 | 0% | Claude Code / claude-opus-5-5 |
 
 ### T3. Conformance and benchmark harness
 
@@ -95,12 +94,3 @@ Execution plan (split to fit the budget):
 ### T25. CI: run the fuzz targets and the UCD stale-table check
 
 The `fuzz/` workspace is excluded from CI (`Cargo.toml:4`) with a gitignored corpus, and the stale-table check silently skips without the `target/ucd` cache (`tools/scull-ucd-gen/src/main.rs:384-397`) while `just check` — the only CI gate — never runs `ucd-check`; a hand-edited `tables.rs` would go unnoticed. Done means: a CI job warms the cache and runs `ucd-check`, and a short smoke fuzz run executes on every push.
-
-### T26. Close grid-layer test gaps
-
-`LEADING_SPACER` (`crates/scull-grid/src/cell.rs:36-38`) has no test for the end-of-row wide-wrap path; `scull-bench` measures a single pass (`src/lib.rs:56-62`) so baseline numbers are noisy. Done means: both covered or averaged.
-
-Execution plan:
-1. The `unicode.txt` fixture checks only the screen text of the wrap case. Unit tests in `crates/scull-term/src/terminal.rs` check the cells: a wide character past the last column leaves an empty `LEADING_SPACER`, marks the row wrapped and lands whole on the next row, `read_text` reads the spacer as a trimmed blank; with autowrap off it overwrites the last two columns instead; from the pending wrap it wraps with no spacer.
-2. `crates/scull-bench`: `time_stub` runs one warm-up and then the median of nine timed feeds; the table text says so and `docs/benchmarks/baseline.md` is regenerated with `just bench`. The reference terminals stay one feed each (T3 owns them).
-3. Verify with `just check`.

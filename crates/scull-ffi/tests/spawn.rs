@@ -14,12 +14,16 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use scull_ffi::{
-    TT_ABI_VERSION, TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, TT_KEY_ESCAPE, TT_KEY_PRESS,
-    TT_MOUSE_LEFT, TT_MOUSE_PRESS, tt_event, tt_frame, tt_frame_free, tt_frame_new,
-    tt_frame_update, tt_frame_view, tt_key_event, tt_mouse_event, tt_status, tt_str, tt_term,
-    tt_term_focus, tt_term_free, tt_term_key, tt_term_mouse, tt_term_new, tt_term_options,
-    tt_term_paste, tt_term_poll_event, tt_term_resize, tt_term_resize_begin, tt_term_spawn,
-    tt_term_text, tt_term_write,
+    TT_ABI_VERSION, TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, tt_event, tt_frame, tt_frame_free,
+    tt_frame_new, tt_frame_update, tt_frame_view, tt_status, tt_str, tt_term, tt_term_free,
+    tt_term_new, tt_term_options, tt_term_poll_event, tt_term_resize, tt_term_resize_begin,
+    tt_term_spawn, tt_term_write,
+};
+// Input events are driven through a POSIX shell only.
+#[cfg(unix)]
+use scull_ffi::{
+    TT_KEY_ESCAPE, TT_KEY_PRESS, TT_MOUSE_LEFT, TT_MOUSE_PRESS, tt_key_event, tt_mouse_event,
+    tt_term_focus, tt_term_key, tt_term_mouse, tt_term_paste, tt_term_text,
 };
 
 /// A child that is slow to start on a loaded machine still finishes well inside this.
@@ -243,6 +247,7 @@ fn input_events_reach_the_child_encoded_for_its_modes() {
 }
 
 /// A zeroed input struct with its `struct_size` set.
+#[cfg(unix)]
 fn zeroed_sized<T>() -> T {
     // SAFETY: the input structs are plain data; all-zero means "not set".
     let mut value: T = unsafe { std::mem::zeroed() };

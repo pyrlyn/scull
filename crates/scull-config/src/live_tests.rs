@@ -35,6 +35,15 @@ fn read(path: &Path) -> String {
     fs::read_to_string(path).unwrap()
 }
 
+/// Replaces the file the way editors save it. An in-place write truncates
+/// first, and a reload that lands in between under load reads an empty,
+/// valid file, which is not what a test of the last good settings is about.
+fn replace(path: &Path, text: &str) {
+    let draft = path.with_extension("draft");
+    fs::write(&draft, text).unwrap();
+    fs::rename(&draft, path).unwrap();
+}
+
 #[test]
 fn a_missing_file_opens_as_the_defaults_and_is_watched() {
     let dir = Scratch::new("live-missing");
@@ -80,7 +89,7 @@ fn a_broken_edit_keeps_the_last_good_settings_and_says_why() {
     fs::write(live.path(), "scrollback = 7\n").unwrap();
     wait_for(&live, "7", |s| s.settings.scrollback == 7);
 
-    fs::write(live.path(), "scrollback = \"many\"\n").unwrap();
+    replace(live.path(), "scrollback = \"many\"\n");
     let snapshot = wait_for(&live, "the error", |s| s.error.is_some());
     assert_eq!(snapshot.settings.scrollback, 7);
     assert!(snapshot.error.is_some_and(|e| e.contains("config.toml")));
@@ -236,4 +245,29 @@ fn dropping_stops_the_watcher_for_good() {
     fs::write(path, "scrollback = 1\n").unwrap();
     std::thread::sleep(Duration::from_millis(400));
     assert_eq!(wakeups.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn a_dropped_event_queue_still_counts_as_a_change() {
+    use notify::Event;
+    use notify::event::{AccessKind, EventKind, Flag};
+    let name = std::ffi::OsStr::new("config.toml");
+    let dir = Path::new("/etc/scull");
+    let file = dir.join("config.toml");
+    let rescan = Event::new(EventKind::Other)
+        .set_flag(Flag::Rescan)
+        .add_path(dir.to_owned());
+    assert!(crate::live::relevant(&Ok(rescan), name));
+    let other = Event::new(EventKind::Any).add_path(dir.join("draft"));
+    assert!(!crate::live::relevant(&Ok(other), name));
+    let read = Event::new(EventKind::Access(AccessKind::Any)).add_path(file.clone());
+    assert!(!crate::live::relevant(&Ok(read), name));
+    assert!(crate::live::relevant(
+        &Ok(Event::new(EventKind::Any).add_path(file)),
+        name
+    ));
+    assert!(crate::live::relevant(
+        &Err(notify::Error::generic("lost")),
+        name
+    ));
 }

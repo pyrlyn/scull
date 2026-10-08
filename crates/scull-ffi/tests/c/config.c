@@ -8,6 +8,10 @@
  * sanitizers by `just c-abi-test`.
  */
 
+/* -std=c11 hides nanosleep and mkdtemp in glibc headers. _POSIX_C_SOURCE
+ * would hide mkdtemp on macOS instead; this one only glibc reads. */
+#define _DEFAULT_SOURCE
+
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>

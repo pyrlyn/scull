@@ -1,5 +1,5 @@
 // Characters drawn from geometry instead of the font: box drawing, block
-// elements and the underline kinds. A font's own box glyphs rarely fill
+// elements, Powerline separators and the underline kinds. A font's own box glyphs rarely fill
 // the cell exactly, so lines break between rows; drawn to the cell's own
 // size they always meet.
 
@@ -29,11 +29,15 @@ public enum Sprites {
     /// Sprite codes past Unicode's last code point, one per `TT_UNDERLINE_*`.
     public static func underline(_ kind: UInt8) -> UInt32 { 0x11_0000 + UInt32(kind) }
 
-    public static func covers(_ scalar: Unicode.Scalar) -> Bool { (0x2500...0x259F).contains(scalar.value) }
+    /// Box drawing and block elements, then the Powerline separators.
+    private static let ranges: [ClosedRange<UInt32>] = [0x2500...0x259F, 0xE0B0...0xE0BF]
+
+    public static func covers(_ scalar: Unicode.Scalar) -> Bool { ranges.contains { $0.contains(scalar.value) } }
 
     /// The sprite for `code`, or nil when it is none.
     public static func bitmap(_ code: UInt32, cell: CellMetrics) -> Bitmap? {
-        guard (0x2500...0x259F).contains(code) || (underline(1)...underline(5)).contains(code) else { return nil }
+        guard ranges.contains(where: { $0.contains(code) }) || (underline(1)...underline(5)).contains(code)
+        else { return nil }
         let (w, h) = (Int(cell.width.rounded(.up)), Int(cell.height.rounded(.up)))
         return Bitmap.draw(width: w, height: h, left: 0, top: Int(cell.baseline), isColor: false) { ctx in
             // Top-down, like the cell rows.
@@ -95,6 +99,7 @@ private struct Painter {
             if mask & 2 != 0 { fill(0.5, 0, 1, 0.5) }
             if mask & 4 != 0 { fill(0, 0.5, 0.5, 1) }
             if mask & 8 != 0 { fill(0.5, 0.5, 1, 1) }
+        case 0xE0B0...0xE0BF: powerline(code)
         default: underline(UInt8(truncatingIfNeeded: code - Sprites.underline(0)))
         }
     }
@@ -176,6 +181,39 @@ private struct Painter {
         if code != 0x2572 { path.addLines(between: [CGPoint(x: w, y: 0), CGPoint(x: 0, y: h)]) }
         if code != 0x2571 { path.addLines(between: [CGPoint(x: 0, y: 0), CGPoint(x: w, y: h)]) }
         stroke(path)
+    }
+
+    /// Powerline separators: even codes are solid, odd ones their outline.
+    /// The solid shapes reach the cell edges, so they meet the background
+    /// of the next segment without a seam.
+    private func powerline(_ code: UInt32) {
+        let solid = code % 2 == 0
+        let path = CGMutablePath()
+        let point = { (x: CGFloat, y: CGFloat) in CGPoint(x: x * w, y: y * h) }
+        switch code {
+        case 0xE0B0, 0xE0B1: path.addLines(between: [point(0, 0), point(1, 0.5), point(0, 1)])
+        case 0xE0B2, 0xE0B3: path.addLines(between: [point(1, 0), point(0, 0.5), point(1, 1)])
+        case 0xE0B4...0xE0B7:
+            // Half an ellipse bulging away from the edge it stands on; the
+            // outline is inset so the whole stroke stays in the cell.
+            let inset = solid ? 0 : t / 2
+            let right = code < 0xE0B6
+            path.addEllipse(in: CGRect(x: right ? -w : inset, y: inset, width: w * 2 - inset, height: h - inset * 2))
+        case 0xE0B8: path.addLines(between: [point(0, 0), point(1, 1), point(0, 1)])
+        case 0xE0BA: path.addLines(between: [point(1, 0), point(1, 1), point(0, 1)])
+        case 0xE0BC: path.addLines(between: [point(0, 0), point(1, 0), point(0, 1)])
+        case 0xE0BE: path.addLines(between: [point(0, 0), point(1, 0), point(1, 1)])
+        // The outlines of the corner triangles are their hypotenuses.
+        case 0xE0B9, 0xE0BF: path.addLines(between: [point(0, 0), point(1, 1)])
+        default: path.addLines(between: [point(1, 0), point(0, 1)])
+        }
+        if solid {
+            path.closeSubpath()
+            ctx.addPath(path)
+            ctx.fillPath()
+        } else {
+            stroke(path)
+        }
     }
 
     private func stroke(_ path: CGPath) {

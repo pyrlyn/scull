@@ -23,7 +23,7 @@ public final class TerminalView: NSView {
     var font: NSFont { fonts.regular }
     var cellWidth: CGFloat { fonts.cellWidth }
     var cellHeight: CGFloat { fonts.cellHeight }
-    private var grid = (cols: UInt16(80), rows: UInt16(24))
+    private(set) var grid = (cols: UInt16(80), rows: UInt16(24))
     private var focused = false
     /// Set by a pane host: the child's exit closes the pane, not the window.
     public var onChildExit: (() -> Void)?
@@ -35,6 +35,11 @@ public final class TerminalView: NSView {
     var textInput = TextInput()
     private var lastMotionCell: (Int, Int)?
     private var scrollRemainder: CGFloat = 0
+    /// The left-button gesture the host owns; nil while the program has it.
+    var selectionDrag: SelectionDrag?
+    var findBar: FindBar?
+    var find = FindState()
+    var findSettle: Timer?
     #if DEBUG
     private var initialInput = UserDefaults.standard.string(forKey: "ScullInitialInput")
     private var probe: LatencyProbe?
@@ -103,7 +108,10 @@ public final class TerminalView: NSView {
             if let path = UserDefaults.standard.string(forKey: "ScullSnapshot") {
                 // A shell with heavy startup needs longer than the default.
                 let delay = max(2, UserDefaults.standard.double(forKey: "ScullSnapshotDelay"))
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.snapshot(to: path) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.markForSnapshot()
+                    self?.snapshot(to: path)
+                }
             }
             if let path = UserDefaults.standard.string(forKey: "ScullLatencyProbe") {
                 probe = LatencyProbe(path: path) { [weak self] in
@@ -125,6 +133,24 @@ public final class TerminalView: NSView {
         else { return }
         try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
             .write(to: URL(fileURLWithPath: path))
+    }
+
+    /// `-ScullFind <pattern>` and `-ScullSelect <row,col,row,col>` put a
+    /// highlighted match and a selection into the snapshot.
+    private func markForSnapshot() {
+        guard let session else { return }
+        if let pattern = UserDefaults.standard.string(forKey: "ScullFind") {
+            showFind(nil)
+            findBar?.pattern = pattern
+            findEdited(pattern)
+            apply(find.settle())
+        }
+        let ends = UserDefaults.standard.string(forKey: "ScullSelect")?.split(separator: ",").compactMap { Int($0) }
+        if let ends, ends.count == 4 {
+            _ = session.select(TT_SELECT_CELL, row: ends[0], col: ends[1])
+            _ = session.extendSelection(row: ends[2], col: ends[3])
+        }
+        session.update()
     }
     #endif
 
@@ -308,6 +334,8 @@ public final class TerminalView: NSView {
         if runBinding(event) { return }
         let flags = event.modifierFlags
         guard !flags.contains(.command) else { return super.keyDown(with: event) }
+        // Typing replaces what was selected, as in a text view.
+        _ = session?.clearSelection()
         var text = ""
         if flags.contains(.control) && !textInput.hasMarkedText {
             // Control's own characters are the core's to produce; the
@@ -371,8 +399,7 @@ public final class TerminalView: NSView {
     private func mouse(_ event: NSEvent, action: Int32, button: Int32) -> Bool {
         guard let session else { return false }
         let p = convert(event.locationInWindow, from: nil)
-        let col = min(max(0, Int(p.x / cellWidth)), Int(grid.cols) - 1)
-        let row = min(max(0, Int(p.y / cellHeight)), Int(grid.rows) - 1)
+        let (row, col) = cell(at: p)
         if action == TT_MOUSE_MOTION {
             guard lastMotionCell.map({ $0 != (col, row) }) ?? true else { return false }
         }
@@ -393,9 +420,29 @@ public final class TerminalView: NSView {
         }
     }
 
-    public override func mouseDown(with e: NSEvent) { mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_LEFT) }
-    public override func mouseUp(with e: NSEvent) { mouse(e, action: TT_MOUSE_RELEASE, button: TT_MOUSE_LEFT) }
-    public override func mouseDragged(with e: NSEvent) { mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_LEFT) }
+    func cell(at point: CGPoint) -> (row: Int, col: Int) {
+        SelectionGesture.cell(at: point, cellWidth: cellWidth, cellHeight: cellHeight,
+                              cols: Int(grid.cols), rows: Int(grid.rows))
+    }
+
+    public override func mouseDown(with e: NSEvent) {
+        // The program sees the press first, as before selection existed.
+        if !SelectionGesture.forcesSelection(e.modifierFlags), mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_LEFT) {
+            selectionDrag = nil
+            return
+        }
+        selectionPress(e)
+    }
+
+    public override func mouseUp(with e: NSEvent) {
+        if selectionDrag != nil { return selectionRelease() }
+        mouse(e, action: TT_MOUSE_RELEASE, button: TT_MOUSE_LEFT)
+    }
+
+    public override func mouseDragged(with e: NSEvent) {
+        if selectionDrag != nil { return selectionDragged(e) }
+        mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_LEFT)
+    }
     public override func mouseMoved(with e: NSEvent) { mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_NONE) }
     public override func rightMouseDown(with e: NSEvent) { mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_RIGHT) }
     public override func rightMouseUp(with e: NSEvent) { mouse(e, action: TT_MOUSE_RELEASE, button: TT_MOUSE_RIGHT) }

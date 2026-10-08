@@ -189,20 +189,71 @@ public final class TerminalSession {
     }
 
     private func readText() -> String? {
+        sizedText { tt_term_read_text(term, 0, UInt16.max, $0, $1, $2) }
+    }
+
+    /// Text from a sized-buffer export: asks for the length, then reads.
+    private func sizedText(_ read: (UnsafeMutablePointer<UInt8>?, Int, UnsafeMutablePointer<Int>) -> tt_status)
+        -> String? {
         var cap = 0
         // The child can print between asking for the length and reading,
         // so a few tries; past them the reader gets nothing this frame.
         for _ in 0..<4 {
             var bytes = [UInt8](repeating: 0, count: cap)
             var len = 0
-            let status = bytes.withUnsafeMutableBufferPointer {
-                tt_term_read_text(term, 0, UInt16.max, $0.baseAddress, cap, &len)
-            }
+            let status = bytes.withUnsafeMutableBufferPointer { read($0.baseAddress, cap, &len) }
             if status == TT_OK { return String(decoding: bytes.prefix(len), as: UTF8.self) }
             guard status == TT_FULL else { return nil }
             cap = len + len / 8
         }
         return nil
+    }
+
+    // Selection and search live in the core, anchored to its history; the
+    // frame marks their cells. Rows and columns are viewport cells.
+
+    public func select(_ kind: Int32, row: Int, col: Int) -> tt_status {
+        track(tt_term_select_start(term, UInt32(kind), UInt16(clamping: row), UInt16(clamping: col)))
+    }
+
+    public func extendSelection(row: Int, col: Int) -> tt_status {
+        track(tt_term_select_extend(term, UInt16(clamping: row), UInt16(clamping: col)))
+    }
+
+    public func clearSelection() -> tt_status { track(tt_term_select_clear(term)) }
+
+    /// The selected text; nil when nothing is selected.
+    public func selectionText() -> String? {
+        sizedText { track(tt_term_selection_text(term, $0, $1, $2)) }
+    }
+
+    /// Output that rewrites the selected rows drops the selection, so the
+    /// core is asked rather than the host remembering.
+    public var hasSelection: Bool {
+        var len = 0
+        return tt_term_selection_text(term, nil, 0, &len) != TT_EMPTY
+    }
+
+    /// Replaces the search; an empty pattern ends it.
+    public func search(_ pattern: String, ignoreCase: Bool) -> tt_status {
+        var pattern = pattern
+        let flags = ignoreCase ? UInt32(TT_SEARCH_IGNORE_CASE) : 0
+        return pattern.withUTF8 { track(tt_term_search_set(term, tt_str(ptr: $0.baseAddress, len: $0.count), flags)) }
+    }
+
+    /// Moves to the next or previous match and scrolls to it; nil when
+    /// there is none.
+    public func searchStep(forward: Bool) -> tt_match? {
+        var found = tt_match()
+        found.struct_size = UInt32(MemoryLayout<tt_match>.size)
+        return track(tt_term_search_step(term, forward ? 1 : 0, &found)) == TT_OK ? found : nil
+    }
+
+    /// Matches in the whole history, up to `TT_MAX_SEARCH_MATCHES`. It
+    /// rescans everything, so it is not for every keystroke.
+    public func searchCount() -> Int {
+        var count = 0
+        return track(tt_term_search_count(term, &count)) == TT_OK ? count : 0
     }
 
     public func cell(row: Int, col: Int) -> tt_cell? {
@@ -262,12 +313,15 @@ public final class TerminalSession {
 
     public func focus(_ focused: Bool) -> tt_status { track(tt_term_focus(term, focused ? 1 : 0)) }
 
-    /// Sends a mouse event; true when the program took it.
+    /// Sends a mouse event; true when the program took it. A program that
+    /// tracks the mouse owns the event even when it could not be written,
+    /// so the host never selects under it.
     public func mouse(_ event: tt_mouse_event) -> Bool {
         var event = event
         event.struct_size = UInt32(MemoryLayout<tt_mouse_event>.size)
         var taken: UInt8 = 0
-        return track(tt_term_mouse(term, &event, &taken)) == TT_OK && taken != 0
+        track(tt_term_mouse(term, &event, &taken))
+        return taken != 0
     }
 
     public func scrollDisplay(_ delta: Int32) -> tt_status { track(tt_term_scroll_display(term, delta)) }

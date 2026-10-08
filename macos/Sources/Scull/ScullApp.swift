@@ -49,6 +49,16 @@ struct PaneCommands: Commands {
             Button("Close Window") { NSApp.keyWindow?.performClose(nil) }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
         }
+        // A terminal edits no text, so the text-editing items give way to
+        // Find, which the focused pane answers.
+        CommandGroup(replacing: .textEditing) {
+            Button("Find…") { send(#selector(TerminalView.showFind)) }
+                .keyboardShortcut("f")
+            Button("Find Next") { send(#selector(TerminalView.findNext)) }
+                .keyboardShortcut("g")
+            Button("Find Previous") { send(#selector(TerminalView.findPrevious)) }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+        }
         CommandMenu("Pane") {
             Button("Split Right") { send(#selector(PaneHostView.splitRight)) }
                 .keyboardShortcut("d")

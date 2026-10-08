@@ -164,6 +164,100 @@ public sealed unsafe class Terminal : IDisposable
         Check(NativeMethods.tt_term_resize((tt_term*)t.Pointer, cols, rows, widthPx, heightPx), "tt_term_resize");
     }
 
+    /// <summary>
+    /// Sends a key, encoded for the program's key modes. False when nothing could
+    /// be sent: there is no child, or it is not reading and its input queue is full.
+    /// </summary>
+    public bool Key(in KeyInput key)
+    {
+        ArgumentNullException.ThrowIfNull(key.Text);
+        byte[] bytes = Encoding.UTF8.GetBytes(key.Text);
+        using var t = new Lease(term);
+        fixed (byte* p = bytes)
+        {
+            var raw = new tt_key_event
+            {
+                struct_size = (uint)sizeof(tt_key_event),
+                key = key.Key,
+                action = (byte)key.Action,
+                mods = (byte)key.Modifiers,
+                consumed_mods = (byte)key.Consumed,
+                text = new tt_str { ptr = p, len = (nuint)bytes.Length },
+            };
+            return Sent(NativeMethods.tt_term_key((tt_term*)t.Pointer, &raw), "tt_term_key");
+        }
+    }
+
+    /// <summary>Sends text committed outside a key event; control characters are dropped. False as for <see cref="Key"/>.</summary>
+    public bool Text(string text) => SendText(text, &NativeMethods.tt_term_text, "tt_term_text");
+
+    /// <summary>
+    /// Sends pasted text, bracketed while the program asks for it. A paste goes whole
+    /// or not at all, so one larger than the child's input queue is false, as for <see cref="Key"/>.
+    /// </summary>
+    public bool Paste(string text) => SendText(text, &NativeMethods.tt_term_paste, "tt_term_paste");
+
+    /// <summary>Tells the program the view gained or lost focus, if it asked to know. False as for <see cref="Key"/>.</summary>
+    public bool Focus(bool focused)
+    {
+        using var t = new Lease(term);
+        return Sent(NativeMethods.tt_term_focus((tt_term*)t.Pointer, focused ? (byte)1 : (byte)0), "tt_term_focus");
+    }
+
+    /// <summary>
+    /// Sends a mouse event if the program takes it. True when it did, even if the
+    /// bytes could not be written, so the host never acts under a program that
+    /// tracks the mouse; false leaves the event to the host (scroll the history).
+    /// </summary>
+    public bool Mouse(in MouseInput mouse)
+    {
+        var raw = new tt_mouse_event
+        {
+            struct_size = (uint)sizeof(tt_mouse_event),
+            action = (byte)mouse.Action,
+            button = (byte)mouse.Button,
+            mods = (byte)mouse.Modifiers,
+            col = mouse.Col,
+            row = mouse.Row,
+            x_px = mouse.XPx,
+            y_px = mouse.YPx,
+        };
+        byte taken = 0;
+        using var t = new Lease(term);
+        Sent(NativeMethods.tt_term_mouse((tt_term*)t.Pointer, &raw, &taken), "tt_term_mouse");
+        return taken != 0;
+    }
+
+    /// <summary>Moves the viewport <paramref name="rows"/> back into history (negative: towards the screen), clamped.</summary>
+    public void ScrollDisplay(int rows)
+    {
+        using var t = new Lease(term);
+        Check(NativeMethods.tt_term_scroll_display((tt_term*)t.Pointer, rows), "tt_term_scroll_display");
+    }
+
+    private bool SendText(string text, delegate*<tt_term*, byte*, nuint, tt_status> send, string call)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        // A lone surrogate becomes U+FFFD here, so the core never sees text that is not UTF-8.
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
+        using var t = new Lease(term);
+        fixed (byte* p = bytes)
+        {
+            return Sent(send((tt_term*)t.Pointer, p, (nuint)bytes.Length), call);
+        }
+    }
+
+    // The child not reading or gone is an everyday answer to input, not an error.
+    private bool Sent(tt_status status, string call)
+    {
+        if (status is tt_status.TT_FULL or tt_status.TT_CLOSED)
+        {
+            return false;
+        }
+        Check(status, call);
+        return true;
+    }
+
     /// <summary>Takes the next event; call it until false after every wakeup.</summary>
     public bool TryPollEvent(out TerminalEvent next)
     {

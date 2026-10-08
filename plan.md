@@ -103,4 +103,5 @@ CI on `main` has failed since the T14/T19 merge (PR #2), so every open PR is red
 Execution plan:
 1. `spawn.rs`: the Unix-only imports and `zeroed_sized` move under `#[cfg(unix)]`; checked with `cargo clippy --target x86_64-pc-windows-msvc`.
 2. TSan: the race is not real. An `Image` is immutable and built whole before it is published under the core's `parking_lot` mutex, and the Rust library is not instrumented, so TSan cannot see that lock (macOS passes the same test). `crates/scull-ffi/tests/c/tsan.supp` suppresses `touch_image` only, and `just c-abi-test` passes it through `TSAN_OPTIONS`.
-3. Verify with `just check` and `just c-abi-test` locally, then CI on a PR.
+3. Found by the first CI run: Linux stops on `config.c`, where `-std=c11` hides `nanosleep` and `mkdtemp` in glibc headers; `_DEFAULT_SOURCE` exposes them (`_POSIX_C_SOURCE` would hide `mkdtemp` on macOS). Windows, compiling at last, hangs in two `scull-pty` tests: ConPTY asks `ESC [ 6 n` at start and holds output until answered, and the test sinks never answered. `tests/common/mod.rs` answers it once for both sinks.
+4. Verify with `just check` and `just c-abi-test` locally, then CI on a PR.

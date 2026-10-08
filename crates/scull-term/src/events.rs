@@ -10,6 +10,12 @@ pub(crate) const MAX_EVENTS: usize = 32;
 pub(crate) const MAX_TEXT: usize = 1024;
 /// Decoded OSC 52 bytes. A larger paste is dropped whole.
 pub(crate) const MAX_CLIPBOARD: usize = 1 << 20;
+/// Reply bytes for an OSC 52 answer: base64 of [`MAX_CLIPBOARD`] plus the
+/// `ESC ] 52 ; c ;` and `ESC \` around it, so a full answer fits.
+pub(crate) const MAX_CLIPBOARD_REPLY: usize = MAX_CLIPBOARD.div_ceil(3) * 4 + 16;
+/// OSC 52 reads the host has not answered. More are refused at once, since
+/// a host that polls but never answers would let them pile up.
+pub(crate) const MAX_PENDING_CLIPS: usize = MAX_EVENTS;
 /// OSC 8 targets. Rows store the id; the URI lives here.
 pub(crate) const MAX_LINKS: usize = 1024;
 /// URI bytes for one link.

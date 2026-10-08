@@ -9,7 +9,8 @@ use scull_grid::LinkId;
 use scull_parser::Osc;
 
 use crate::events::{
-    Clipboard, Event, MAX_CLIPBOARD, MAX_LINK_KEY, MAX_LINKS, MAX_URI, TitleWhich, owned_text,
+    Clipboard, Event, MAX_CLIPBOARD, MAX_LINK_KEY, MAX_LINKS, MAX_PENDING_CLIPS, MAX_URI,
+    TitleWhich, owned_text,
 };
 use crate::state::State;
 
@@ -65,6 +66,9 @@ impl Links {
         {
             return (self.current.replace(id) != Some(id)).then_some(id);
         }
+        // A link with no slot leaves its text unlinked; keeping the open
+        // link would stamp the old URI onto it.
+        self.current = None;
         if self.items.len() >= MAX_LINKS {
             return None;
         }
@@ -160,12 +164,13 @@ impl State {
         let selection = selection_byte(pc);
         if pd == b"?" {
             let id = self.events.next_clip();
-            let queued = self.events.push(Event::Clipboard(Clipboard {
-                id,
-                selection,
-                read: true,
-                data: Vec::new(),
-            }));
+            let queued = self.clips.len() < MAX_PENDING_CLIPS
+                && self.events.push(Event::Clipboard(Clipboard {
+                    id,
+                    selection,
+                    read: true,
+                    data: Vec::new(),
+                }));
             if queued {
                 self.clips.push(Pending {
                     id,
@@ -199,14 +204,13 @@ impl State {
     }
 
     pub(crate) fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> bool {
-        if data.len() > MAX_CLIPBOARD || !self.clips.iter().any(|clip| clip.id == id) {
+        if data.len() > MAX_CLIPBOARD {
             return false;
         }
         let Some(pending) = self.take_clip(id) else {
             return false;
         };
-        self.reply_clip(pending.selection, data, pending.bell);
-        true
+        self.reply_clip(pending.selection, data, pending.bell)
     }
 
     fn take_clip(&mut self, id: u64) -> Option<Pending> {
@@ -214,24 +218,30 @@ impl State {
         Some(self.clips.remove(at))
     }
 
-    fn reply_clip(&mut self, selection: u8, data: &[u8], bell: bool) {
-        let encoded = B64.encode(data);
-        let mut reply = Vec::with_capacity(8 + encoded.len());
-        reply.extend_from_slice(b"\x1b]52;");
-        reply.push(selection);
-        reply.push(b';');
-        reply.extend(encoded.into_bytes());
-        if bell {
-            reply.push(0x07);
-        } else {
-            reply.extend_from_slice(b"\x1b\\");
+    /// False when `data` did not fit and the program got an empty answer
+    /// instead, so it never waits for a reply that will not come.
+    fn reply_clip(&mut self, selection: u8, data: &[u8], bell: bool) -> bool {
+        if !data.is_empty() && self.replies.push_host(&clip_reply(selection, data, bell)) {
+            return true;
         }
-        if data.is_empty() {
-            self.replies.push(&reply);
-        } else {
-            self.replies.push_host(&reply);
-        }
+        self.replies.push(&clip_reply(selection, &[], bell));
+        data.is_empty()
     }
+}
+
+fn clip_reply(selection: u8, data: &[u8], bell: bool) -> Vec<u8> {
+    let encoded = B64.encode(data);
+    let mut reply = Vec::with_capacity(8 + encoded.len());
+    reply.extend_from_slice(b"\x1b]52;");
+    reply.push(selection);
+    reply.push(b';');
+    reply.extend(encoded.into_bytes());
+    if bell {
+        reply.push(0x07);
+    } else {
+        reply.extend_from_slice(b"\x1b\\");
+    }
+    reply
 }
 
 fn split_semi(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
@@ -291,7 +301,8 @@ impl crate::terminal::Terminal {
         self.state.clipboard_deny(id)
     }
 
-    /// Answers an OSC 52 read. False if `id` is not open or `data` is over the cap.
+    /// Answers an OSC 52 read. False if `id` is not open or `data` is over the
+    /// cap; also false, with an empty answer sent, when the reply queue is full.
     pub fn clipboard_reply(&mut self, id: u64, data: &[u8]) -> bool {
         self.state.clipboard_reply(id, data)
     }
@@ -323,5 +334,43 @@ mod tests {
         };
         assert!(term.clipboard_reply(clip.id, b"hi"));
         assert_eq!(term.take_replies(), b"\x1b]52;p;aGk=\x1b\\");
+    }
+
+    #[test]
+    fn a_link_with_no_slot_leaves_its_text_unlinked() {
+        let mut term = term();
+        for i in 0..crate::events::MAX_LINKS {
+            term.feed(format!("\x1b]8;;u{i}\x1b\\").as_bytes());
+        }
+        term.feed(b"\x1b]8;;full\x1b\\x\x1b]8;;\x1b\\");
+        let row = term.grid().screen_row(0).unwrap();
+        assert_eq!(row.link_at(0), None);
+    }
+
+    #[test]
+    fn unanswered_clipboard_reads_are_capped_and_answered_empty() {
+        let mut term = term();
+        for _ in 0..crate::events::MAX_PENDING_CLIPS {
+            term.feed(b"\x1b]52;c;?\x07");
+            while term.poll_event().is_some() {}
+        }
+        assert!(term.take_replies().is_empty());
+        term.feed(b"\x1b]52;c;?\x07");
+        assert_eq!(term.poll_event(), None);
+        assert_eq!(term.take_replies(), b"\x1b]52;c;\x07");
+    }
+
+    #[test]
+    fn a_full_size_clipboard_answer_reaches_the_program() {
+        let mut term = term();
+        term.feed(b"\x1b]52;c;?\x07");
+        let Some(Event::Clipboard(clip)) = term.poll_event() else {
+            panic!("read");
+        };
+        let data = vec![b'a'; crate::events::MAX_CLIPBOARD];
+        assert!(term.clipboard_reply(clip.id, &data));
+        let reply = term.take_replies();
+        assert!(reply.starts_with(b"\x1b]52;c;YWFh"));
+        assert!(reply.ends_with(b"\x07"));
     }
 }

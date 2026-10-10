@@ -60,6 +60,18 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       - run: just ucd-check
 
+  # Fails when workspace-hack drifts from the dependency graph (cargo-hakari
+  # comes from mise.toml). Own job, so the required check names stay as they are.
+  hakari:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - run: cargo hakari generate --diff
+      - run: cargo hakari manage-deps --dry-run
+      - run: cargo hakari verify
+
   # libFuzzer needs nightly. mise stays on 1.99; nightly is installed beside
   # it and selected only by `cargo +nightly` inside `just fuzz-smoke`.
   # Five seconds per target, not a multi-minute campaign.

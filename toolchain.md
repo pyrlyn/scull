@@ -27,6 +27,7 @@
 | thiserror | local | https://github.com/dtolnay/thiserror | Error enum per library crate |
 | cargo_metadata | local | https://github.com/oli-obk/cargo_metadata | Crate-graph test (`crates/scull-ffi/tests/deps.rs`) |
 | libfuzzer-sys | local | https://github.com/rust-fuzz/libfuzzer | libFuzzer targets in `fuzz/`; CI smokes them on nightly, outside `just check` |
+| cargo-hakari | project (mise, `cargo:cargo-hakari`) | https://github.com/guppy-rs/guppy | Keeps the `workspace-hack` crate unified so shared dependencies build once; CI runs `cargo hakari verify` |
 | cargo-nextest | global (mise) | https://github.com/nextest-rs/nextest | Test runner |
 | proptest | local | https://github.com/proptest-rs/proptest | Property tests |
 | anyhow | local | https://github.com/dtolnay/anyhow | Error type of the `scull-ucd-gen` binary |

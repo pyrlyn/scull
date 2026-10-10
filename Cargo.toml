@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "tools/*"]
+members = ["crates/*", "tools/*", "workspace-hack"]
 # cargo-fuzz is its own workspace (nightly). `just check` stays on this
 # workspace; the short fuzz smoke is a separate CI job.
 exclude = ["fuzz"]

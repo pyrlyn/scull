@@ -3,3 +3,4 @@
 rust = { version = "1.99.0", components = "rustfmt,clippy" }
 "cargo:cargo-nextest" = "0.9.146" # `just test`
 just = "1.58.0" # task runner (Justfile)
+"cargo:cargo-hakari" = "0.9.39"

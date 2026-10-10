@@ -34,7 +34,16 @@ jobs:
           read-only: ${{ github.event_name == 'pull_request' }}
       # Includes the drift check of the committed C header and C# bindings
       # (scull-ffi/tests/bindings.rs, `just bindings-check`).
-      - run: just check
+      # `just check` is fmt-check + lint + test; the test part runs from a nextest archive.
+      - run: just fmt-check lint
+      - run: just test-archive
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nextest-archive-${{ matrix.os }}
+          path: nextest-archive.tar.zst
+          if-no-files-found: error
+          retention-days: 7
+      - run: just test-from-archive
       # The .NET SDK pinned in windows/global.json, for the C# core's tests.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:

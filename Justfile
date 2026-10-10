@@ -10,6 +10,13 @@ lint:
 test:
     mise exec -- cargo nextest run --workspace --all-targets --locked --no-tests=pass
 
+# CI flow: build every test binary once into an archive, then run from it.
+test-archive:
+    mise exec -- cargo nextest archive --workspace --all-targets --locked --archive-file nextest-archive.tar.zst
+
+test-from-archive:
+    mise exec -- cargo nextest run --archive-file nextest-archive.tar.zst --workspace-remap . --no-tests=pass
+
 # Regenerate scull-unicode's tables from the pinned Unicode data files,
 # downloading them once into the gitignored target/ucd/ cache.
 ucd:

@@ -1,6 +1,14 @@
 # The one Rust version for local work and CI; bump it here and nowhere else.
 [tools]
+sccache = { version = "0.18.0", os = ["linux", "macos"] } # compiler cache; mise [env] below makes it the rustc wrapper where it is installed
 rust = { version = "1.99.0", components = "rustfmt,clippy" }
 "cargo:cargo-nextest" = "0.9.146" # `just test`
 just = "1.58.0" # task runner (Justfile)
 "cargo:cargo-hakari" = "0.9.39"
+
+[env]
+# sccache as the rustc wrapper only where mise has it installed; empty means no wrapper (CI jobs
+# that install just Rust, Windows, machines without the tool). Not in .cargo/config.toml: there a
+# missing sccache would break every build. The probe variable stops `mise which` from recursing
+# into this same template. CI backend (R2): .github/actions/sccache, where the repo has its own jobs.
+RUSTC_WRAPPER = "{% if os() != 'windows' and get_env(name='MISE_SCCACHE_PROBE', default='') == '' %}{{ exec(command='MISE_SCCACHE_PROBE=1 \"' ~ mise_bin ~ '\" which sccache 2>/dev/null || true') }}{% endif %}"

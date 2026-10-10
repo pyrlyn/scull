@@ -4,6 +4,7 @@
 
 | Program | How to install | Why here | Source |
 | --- | --- | --- | --- |
+| sccache | mise (`sccache`, Linux and macOS; `mise.toml` `[env]` makes it the rustc wrapper where installed) | Compiler cache; CI uses a Cloudflare R2 bucket when the `R2_*` secrets exist | https://github.com/mozilla/sccache |
 | rustc, cargo, clippy, rustfmt | mise (`mise.toml`, 1.99.0) | Build, lint and format the core | https://github.com/rust-lang/rust |
 | mise | brew, then `mise install` | Pins every tool below for local work and CI | https://github.com/jdx/mise |
 | just | mise | Task runner: `just check` is the merge gate | https://github.com/casey/just |

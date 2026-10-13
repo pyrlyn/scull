@@ -59,3 +59,10 @@
 | MSTest | local (`windows/Scull.Core.Tests`, `windows/Scull.Render.Tests`) | https://github.com/microsoft/testfx | Test framework of the C# core; the default of `dotnet new mstest` (the `xunit` template pins the deprecated xunit 2.9.3) |
 | Microsoft.Windows.CsWin32 | local (`windows/Scull.Render`, exactly 0.3.358; build-time source generator, nothing ships) | https://github.com/microsoft/CsWin32 | Direct3D 11, DXGI, DirectWrite, TSF and UIA from C# as blittable structs (`allowMarshaling: false`); only the APIs in `NativeMethods.txt` are generated; the comparison is in `research.md` §6.1 |
 | Microsoft.WindowsAppSDK | local (`windows/Scull.App`, 2.5.1, self-contained: the runtime ships beside the executable) | https://github.com/microsoft/WindowsAppSDK | WinUI 3 for the Windows shell: the window and the `SwapChainPanel` the renderer's swap chain is shown in |
+
+## Linkers
+
+- **Windows (MSVC):** `rust-lld` through `.cargo/config.toml` (`[target.*-pc-windows-msvc] linker`). It ships with rustup, nothing to install.
+- **Linux:** `mold`, pinned in `mise.toml` for Linux only and driven by `clang`. mise `[env]` sets `CARGO_TARGET_{X86_64,AARCH64}_UNKNOWN_LINUX_GNU_RUSTFLAGS` to `-C linker=clang -C link-arg=-fuse-ld=mold` only when mise has mold installed (`mise install`); otherwise the variable is empty and the default linker stays. A Linux machine without mold (or without mise) builds as before; to use mold, run `mise install` and make sure `clang` is on PATH (`apt install clang`). `RUSTFLAGS`, when set, overrides these flags. CI installs mold on Linux runners.
+- **macOS:** Apple's native linker (mold has no macOS support).
+- **Cranelift:** not used. It needs a nightly toolchain and this repository is on stable.

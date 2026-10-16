@@ -31,3 +31,14 @@ Settled by the creator; reasons are in `research.md` §8.
 - **Minimum macOS:** 26. No fallbacks for older systems.
 - **Split panes on Windows:** one swap chain per window; panes are viewports.
 - **Project licence:** `GPL-3.0-or-later`. The creator sells subscription services around the terminal; the client itself stays GPL.
+
+## Commands
+
+jactionlint and hk are pinned in `mise.toml`. `.github/jactionlint.yaml` applies the default profile and the
+baseline `.github/jactionlint-baseline.json`. `hk.pkl` runs jactionlint as a pre-push hook:
+
+```bash
+mise x -- jactionlint                  # lint workflows, composite actions, dependabot.yml
+mise x -- jactionlint --baseline-write # refresh the baseline after fixing findings
+mise x -- hk install --mise            # install the pre-push hook once per clone
+```

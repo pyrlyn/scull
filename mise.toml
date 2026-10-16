@@ -3,3 +3,6 @@
 rust = { version = "1.99.0", components = "rustfmt,clippy" }
 "cargo:cargo-nextest" = "0.9.146" # `just test`
 just = "1.58.0" # task runner (Justfile)
+"github:jdx/jactionlint" = "2.0.2" # ci.yml's jactionlint job, the pre-push hook and local `mise x -- jactionlint`
+hk = "2.5.0" # runs jactionlint as a pre-push hook (hk.pkl); `mise x -- hk install --mise`
+shellcheck = "0.11.0" # used by jactionlint for run: scripts; CI uses the runner image's copy

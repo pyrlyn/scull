@@ -85,6 +85,9 @@ public sealed class ImageLayerTests
     [TestMethod]
     public void AFrameOfImagesSeenBeforeAllocatesNothing()
     {
+        // The key's comparers are made on its first comparison, once per
+        // process; which test runs first differs between hosts.
+        Assert.IsTrue(EqualityComparer<(nint, ulong)>.Default.Equals((1, 0), (1, 0)));
         var cache = new ImageCache<string>(static _ => { });
         cache.Add(1, 0, "a");
         cache.EndFrame();

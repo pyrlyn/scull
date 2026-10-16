@@ -3,6 +3,6 @@
   "allowMarshaling": false,
   "public": false,
   "comInterop": {
-    "preserveSigMethods": ["IDWriteFactory2.TranslateColorGlyphRun"]
+    "preserveSigMethods": ["IDWriteFactory2.TranslateColorGlyphRun", "IDWriteTextAnalyzer.GetGlyphs"]
   }
 }

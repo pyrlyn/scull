@@ -37,7 +37,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly FontFaces fonts;
     private readonly AtlasPacker packer = new();
     private readonly SpriteCanvas sprites = new();
-    private readonly CellClusters clusters = new();
+    private readonly RunShaper shaper;
     private readonly Palette palette;
     private readonly Quad[] cursor = new Quad[CursorQuads];
     private ID3D11VertexShader* vertexShader;
@@ -66,6 +66,7 @@ public sealed unsafe class Renderer : IDisposable
         fonts = new FontFaces(fontFamily, fontSizePixels);
         try
         {
+            shaper = new RunShaper(fonts);
             CreatePipeline();
         }
         catch
@@ -318,9 +319,35 @@ public sealed unsafe class Renderer : IDisposable
         shelves.Clear();
         CellMetrics m = fonts.Metrics;
         ReadOnlySpan<Cell> cells = view.Cells.Slice(row * cols, cols);
+        if (row < view.Lines.Length)
+        {
+            Row line = view.Lines[row];
+            foreach (Run run in line.Runs)
+            {
+                Style style = view.StyleAt(run.Style);
+                StyleAttributes attrs = style.Attributes;
+                if ((attrs & StyleAttributes.Hidden) != 0)
+                {
+                    continue;
+                }
+                uint alpha = (attrs & StyleAttributes.Dim) != 0 ? 128u : 255u;
+                uint color = Rgba(palette.Colors(style).Fg, alpha);
+                int face = ((attrs & StyleAttributes.Bold) != 0 ? 1 : 0) | ((attrs & StyleAttributes.Italic) != 0 ? 2 : 0);
+                foreach (ShapedGlyph g in shaper.Shape(line.TextOf(run), face, run.Width))
+                {
+                    int col = run.Col + g.Column;
+                    if (col >= cols || nf >= capFg)
+                    {
+                        break;
+                    }
+                    // Pinned to its cluster's column, so a fallback's own
+                    // advances never push the rest of the run off the grid.
+                    Glyph(Entry(g.Key), col * m.Width + (int)MathF.Round(g.Dx), color, alpha, (int)MathF.Round(g.Dy));
+                }
+            }
+        }
         int start = 0;
         uint current = palette.Background;
-        bool clustersLoaded = false;
         for (int col = 0; col <= cols; col++)
         {
             Cell cell = col < cols ? cells[col] : default;
@@ -344,33 +371,6 @@ public sealed unsafe class Renderer : IDisposable
             uint alpha = (attrs & StyleAttributes.Dim) != 0 ? 128u : 255u;
             uint color = Rgba(fg, alpha);
             int x = col * m.Width, w = cell.Width * m.Width;
-            bool bold = (attrs & StyleAttributes.Bold) != 0, italic = (attrs & StyleAttributes.Italic) != 0;
-            if (cell.CodePoint > ' ' && nf < capFg)
-            {
-                // A sprite starts on the cell's pixel edge, as backgrounds do;
-                // a cluster's base stays the font's, so its marks match it.
-                bool sprite = !cell.IsCluster && Sprites.Covers(cell.CodePoint);
-                Glyph(Entry(sprite ? Sprites.Key(cell.CodePoint) : fonts.Lookup(cell.CodePoint, bold, italic)), x, color, alpha);
-            }
-            if (cell.IsCluster && row < view.Lines.Length)
-            {
-                if (!clustersLoaded)
-                {
-                    clusters.Load(view.Lines[row], cells);
-                    clustersLoaded = true;
-                }
-                foreach (int mark in clusters.At(col))
-                {
-                    if (!CellClusters.IsMark(mark) || nf >= capFg)
-                    {
-                        continue;
-                    }
-                    GlyphKey key = fonts.Lookup((uint)mark, bold, italic);
-                    // Glyph 0 is the face's missing box, which would hide the base.
-                    AtlasEntry e = key.Glyph == 0 ? default : Entry(key);
-                    Glyph(e, CellClusters.Pen(x, w, e.Left, e.Width), color, alpha);
-                }
-            }
             // One sprite per column, so a curly line keeps one period per cell.
             if (style.Underline != Underline.None && nf < capFg)
             {
@@ -398,7 +398,7 @@ public sealed unsafe class Renderer : IDisposable
             Context->UpdateSubresource((ID3D11Resource*)instances, 0, &box, q, 0, 0);
         }
 
-        void Glyph(AtlasEntry e, int pen, uint color, uint alpha)
+        void Glyph(AtlasEntry e, int pen, uint color, uint alpha, int rise = 0)
         {
             if (e.IsEmpty || nf >= capFg)
             {
@@ -406,7 +406,7 @@ public sealed unsafe class Renderer : IDisposable
             }
             quads[fgBase + nf++] = new Quad
             {
-                X = pen + e.Left, Y = m.Baseline - e.Top, W = e.Width, H = e.Height, U = e.X, V = e.Y,
+                X = pen + e.Left, Y = m.Baseline - rise - e.Top, W = e.Width, H = e.Height, U = e.X, V = e.Y,
                 Color = e.IsColor ? Rgba(0xFFFFFF, alpha) : color, Kind = e.IsColor ? ColorGlyph : Coverage,
             };
             shelves.Add(e.Shelf);
@@ -565,6 +565,7 @@ public sealed unsafe class Renderer : IDisposable
         Com.Release(ref layout);
         Com.Release(ref pixelShader);
         Com.Release(ref vertexShader);
+        shaper?.Dispose();
         fonts.Dispose();
     }
 }

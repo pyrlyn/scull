@@ -37,10 +37,8 @@ public sealed unsafe class Renderer : IDisposable
     private const int CursorQuads = 24;
 
     private readonly RenderDevice device;
-    private FontFaces fonts;
-    private AtlasPacker packer = new();
-    private readonly SpriteCanvas sprites = new();
-    private RunShaper shaper;
+    private readonly GlyphAtlases atlases;
+    private GlyphAtlas glyphs;
     private readonly ImageLayer images;
     private Palette palette;
     private readonly Quad[] cursor = new Quad[CursorQuads];
@@ -55,26 +53,31 @@ public sealed unsafe class Renderer : IDisposable
     private ID3D11SamplerState* sampler;
     private int picturesCapacity;
     private ID3D11Buffer* instances;
-    private ID3D11Texture2D* atlas;
-    private ID3D11ShaderResourceView* atlasView;
-    private int atlasSize;
     private int cols, rows, capBg, capFg, stride;
     private Quad[] quads = [];
     private int[] bgCount = [], fgCount = [], slotOfRow = [], sources = [], before = [], next = [], free = [], build = [];
     private bool[] taken = [];
     private HashSet<ushort>[] shelvesOf = [];
-    private ulong frame;
+    private int builtGeneration;
     private bool needsRebuild = true;
     private int areaWidth, areaHeight;
 
+    /// <summary>A renderer with an atlas of its own.</summary>
     public Renderer(RenderDevice device, string fontFamily, float fontSizePixels, Palette? palette = null)
+        : this(device, new GlyphAtlases(device), fontFamily, fontSizePixels, palette)
     {
-        this.device = device;
+    }
+
+    /// <summary>A renderer that shares the atlas of <paramref name="atlases"/> for this font with every other renderer drawing it.</summary>
+    public Renderer(RenderDevice device, GlyphAtlases atlases, string fontFamily, float fontSizePixels, Palette? palette = null)
+    {
+        ArgumentNullException.ThrowIfNull(atlases);
+        (this.device, this.atlases) = (device, atlases);
         this.palette = palette ?? new Palette();
-        fonts = new FontFaces(fontFamily, fontSizePixels);
+        glyphs = atlases.Get(fontFamily, fontSizePixels);
+        glyphs.Acquire(this);
         try
         {
-            shaper = new RunShaper(fonts);
             images = new ImageLayer(device);
             CreatePipeline();
         }
@@ -85,7 +88,13 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    public CellMetrics Metrics => fonts.Metrics;
+    public CellMetrics Metrics => glyphs.Fonts.Metrics;
+
+    /// <summary>The atlas this renderer draws glyphs from.</summary>
+    public GlyphAtlas Atlas => glyphs;
+
+    /// <summary>The atlas shelves each row slot draws from, which its atlas keeps through evictions.</summary>
+    internal HashSet<ushort>[] Shelves => shelvesOf;
 
     /// <summary>The colours rows are drawn in; a new palette rebuilds every row.</summary>
     public Palette Palette
@@ -99,27 +108,22 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Draws with another font from the next frame: new faces, shaped runs and
-    /// atlas, the pipeline kept. A missing family throws
+    /// Draws with another font from the next frame: the atlas for it, shared
+    /// as the first one was, the pipeline kept. A missing family throws
     /// <see cref="ArgumentException"/> and leaves the current font in place.
     /// The cell size may change, so the caller sends the terminal its new grid.
     /// </summary>
     public void SetFont(string fontFamily, float fontSizePixels)
     {
-        var next = new FontFaces(fontFamily, fontSizePixels);
-        shaper.Dispose();
-        fonts.Dispose();
-        fonts = next;
-        shaper = new RunShaper(fonts);
-        // Glyphs and sprites were drawn at the old size; rows name the old shelves.
-        packer = new AtlasPacker();
+        GlyphAtlas next = atlases.Get(fontFamily, fontSizePixels);
+        next.Acquire(this);
+        glyphs.Release(this);
+        glyphs = next;
+        // Rows name the old atlas's shelves.
         foreach (HashSet<ushort> shelves in shelvesOf)
         {
             shelves.Clear();
         }
-        Com.Release(ref atlasView);
-        Com.Release(ref atlas);
-        atlasSize = 0;
         needsRebuild = true;
     }
 
@@ -127,9 +131,9 @@ public sealed unsafe class Renderer : IDisposable
     public bool Focused { get; set; } = true;
 
     /// <summary>Distinct glyphs in the atlas, blanks included.</summary>
-    public int AtlasEntries => packer.Count;
+    public int AtlasEntries => glyphs.Count;
 
-    public int AtlasGeneration => packer.Generation;
+    public int AtlasGeneration => glyphs.Generation;
 
     /// <summary>Image textures held, for tests of their release.</summary>
     internal int ImageTextures => images.Textures;
@@ -277,7 +281,8 @@ public sealed unsafe class Renderer : IDisposable
         {
             return;
         }
-        frame++;
+        // Another user of the atlas grew it since this renderer's rows were built.
+        needsRebuild |= builtGeneration != glyphs.Generation;
         int dirty = needsRebuild ? rows : Remap();
         if (needsRebuild)
         {
@@ -287,29 +292,24 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
         needsRebuild = false;
-        // Shelves that reused rows draw from must survive this frame's evictions.
-        foreach (HashSet<ushort> shelves in shelvesOf)
-        {
-            foreach (ushort shelf in shelves)
-            {
-                packer.Touch(shelf, frame);
-            }
-        }
-        int generation = packer.Generation;
+        // Shelves that reused rows draw from, this renderer's or a neighbour's, must survive this frame's evictions.
+        glyphs.BeginFrame();
+        int generation = glyphs.Generation;
         for (int i = 0; i < dirty; i++)
         {
             Build(build[i], view);
         }
         // A grown atlas dropped every entry, so rows built before the growth
         // point at texels that are gone.
-        for (int attempt = 0; attempt < 4 && packer.Generation != generation; attempt++)
+        for (int attempt = 0; attempt < 4 && glyphs.Generation != generation; attempt++)
         {
-            generation = packer.Generation;
+            generation = glyphs.Generation;
             for (int row = 0; row < rows; row++)
             {
                 Build(row, view);
             }
         }
+        builtGeneration = generation;
         for (int row = 0; row < rows; row++)
         {
             sources[row] = row;
@@ -383,7 +383,7 @@ public sealed unsafe class Renderer : IDisposable
         int bgBase = slot * stride, fgBase = bgBase + capBg, nb = 0, nf = 0;
         HashSet<ushort> shelves = shelvesOf[slot];
         shelves.Clear();
-        CellMetrics m = fonts.Metrics;
+        CellMetrics m = Metrics;
         ReadOnlySpan<Cell> cells = view.Cells.Slice(row * cols, cols);
         if (row < view.Lines.Length)
         {
@@ -399,7 +399,7 @@ public sealed unsafe class Renderer : IDisposable
                 uint alpha = (attrs & StyleAttributes.Dim) != 0 ? 128u : 255u;
                 uint color = Rgba(palette.Colors(style).Fg, alpha);
                 int face = ((attrs & StyleAttributes.Bold) != 0 ? 1 : 0) | ((attrs & StyleAttributes.Italic) != 0 ? 2 : 0);
-                foreach (ShapedGlyph g in shaper.Shape(line.TextOf(run), face, run.Width))
+                foreach (ShapedGlyph g in glyphs.Shaper.Shape(line.TextOf(run), face, run.Width))
                 {
                     int col = run.Col + g.Column;
                     if (col >= cols || nf >= capFg)
@@ -482,41 +482,7 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    private AtlasEntry Entry(GlyphKey key)
-    {
-        if (packer.TryGet(key, frame, out AtlasEntry entry))
-        {
-            return entry;
-        }
-        bool drawn = key.Face == Sprites.Face ? sprites.Draw(key, fonts.Metrics, out GlyphBitmap bitmap) : fonts.Rasterize(key, out bitmap);
-        if (!drawn)
-        {
-            return packer.AddEmpty(key);
-        }
-        // Not remembered when it fits nowhere: a later eviction may make room.
-        if (packer.Place(key, bitmap.Width, bitmap.Height, (short)bitmap.Left, (short)bitmap.Top, bitmap.IsColor, frame) is not AtlasEntry placed)
-        {
-            return default;
-        }
-        if (atlasSize != packer.Size)
-        {
-            // Growth dropped every entry, so the old texels are not needed.
-            Com.Release(ref atlasView);
-            Com.Release(ref atlas);
-            atlasSize = packer.Size;
-            atlas = device.CreateTexture(atlasSize, atlasSize, D3D11_BIND_FLAG.D3D11_BIND_SHADER_RESOURCE);
-            fixed (ID3D11ShaderResourceView** v = &atlasView)
-            {
-                device.Device->CreateShaderResourceView((ID3D11Resource*)atlas, null, v);
-            }
-        }
-        var box = new D3D11_BOX { left = placed.X, top = placed.Y, right = (uint)(placed.X + placed.Width), bottom = (uint)(placed.Y + placed.Height), back = 1 };
-        fixed (byte* pixels = bitmap.Pixels)
-        {
-            Context->UpdateSubresource((ID3D11Resource*)atlas, 0, &box, pixels, (uint)(bitmap.Width * 4), 0);
-        }
-        return placed;
-    }
+    private AtlasEntry Entry(GlyphKey key) => glyphs.Entry(key);
 
     private void Draw(FrameView view, RenderTarget target, Region? region)
     {
@@ -543,11 +509,11 @@ public sealed unsafe class Renderer : IDisposable
         c->PSSetShader(pixelShader, null, 0);
         ID3D11Buffer* u = uniforms;
         c->VSSetConstantBuffers(0, 1, &u);
-        ID3D11ShaderResourceView* a = atlasView;
+        ID3D11ShaderResourceView* a = glyphs.View;
         c->PSSetShaderResources(0, 1, &a);
         ID3D11SamplerState* s = sampler;
         c->PSSetSamplers(0, 1, &s);
-        images.Place(view, fonts.Metrics);
+        images.Place(view, Metrics);
         UploadPictures();
         if (region is not null)
         {
@@ -571,7 +537,7 @@ public sealed unsafe class Renderer : IDisposable
                 c->UpdateSubresource((ID3D11Resource*)overlay, 0, &box, q, 0, 0);
             }
         }
-        int height = fonts.Metrics.Height;
+        int height = Metrics.Height;
         for (int layer = 0; layer < 2; layer++)
         {
             Bind(instances);
@@ -650,7 +616,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             return (0, 0);
         }
-        CellMetrics m = fonts.Metrics;
+        CellMetrics m = Metrics;
         int left = at.Col * m.Width, top = at.Row * m.Height;
         int width = Math.Max(1, (int)view.Cells[at.Row * cols + at.Col].Width) * m.Width;
         uint color = Rgba(palette.Cursor);
@@ -680,8 +646,6 @@ public sealed unsafe class Renderer : IDisposable
 
     public void Dispose()
     {
-        Com.Release(ref atlasView);
-        Com.Release(ref atlas);
         Com.Release(ref instances);
         images?.Dispose();
         Com.Release(ref pictures);
@@ -693,7 +657,6 @@ public sealed unsafe class Renderer : IDisposable
         Com.Release(ref layout);
         Com.Release(ref pixelShader);
         Com.Release(ref vertexShader);
-        shaper?.Dispose();
-        fonts.Dispose();
+        glyphs.Release(this);
     }
 }

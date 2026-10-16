@@ -15,6 +15,7 @@ namespace Scull.App;
 internal sealed class TerminalPane : IDisposable
 {
     private readonly RenderDevice device;
+    private readonly GlyphAtlases atlases;
     private readonly Terminal terminal;
     private readonly WindowsPointer pointer = new();
     private readonly WheelSteps wheel = new();
@@ -25,9 +26,10 @@ internal sealed class TerminalPane : IDisposable
     private bool focused;
 
     /// <param name="settings">The config's settings, null for the defaults.</param>
-    public TerminalPane(RenderDevice device, Terminal terminal, float scale, (ushort Cols, ushort Rows) cells, ConfigSettings? settings)
+    /// <param name="atlases">The window's atlases, shared with its other panes whose font matches.</param>
+    public TerminalPane(RenderDevice device, GlyphAtlases atlases, Terminal terminal, float scale, (ushort Cols, ushort Rows) cells, ConfigSettings? settings)
     {
-        (this.device, this.terminal, this.scale, Cells) = (device, terminal, scale, cells);
+        (this.device, this.atlases, this.terminal, this.scale, Cells) = (device, atlases, terminal, scale, cells);
         if (settings is not null)
         {
             font.Apply(settings);
@@ -72,7 +74,7 @@ internal sealed class TerminalPane : IDisposable
     private Renderer CreateRenderer(Palette palette)
     {
         Renderer? made = null;
-        WithFamily(family => made = new Renderer(device, family, Pixels, palette));
+        WithFamily(family => made = new Renderer(device, atlases, family, Pixels, palette));
         return made!;
     }
 

@@ -62,15 +62,15 @@ internal sealed partial class TerminalTextRange(TextSnapshot snapshot, TextRange
         return moved;
     }
 
-    // The terminal keeps no selection and scrolls by wheel, not by a client's request.
-    public void Select()
-    {
-    }
+    // An empty range clears the selection: the terminal's caret is its cursor, which a client cannot move.
+    public void Select() => owner.Select(snapshot.CellsOf(range));
 
-    public void AddToSelection() => throw new NotSupportedException("the terminal has no selection");
+    // The core has one selection, so there is nothing to add to or remove from.
+    public void AddToSelection() => throw new NotSupportedException("the terminal has one selection");
 
-    public void RemoveFromSelection() => throw new NotSupportedException("the terminal has no selection");
+    public void RemoveFromSelection() => throw new NotSupportedException("the terminal has one selection");
 
+    // The terminal scrolls by wheel, not by a client's request.
     public void ScrollIntoView(bool alignToTop)
     {
     }

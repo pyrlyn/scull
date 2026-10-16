@@ -9,15 +9,15 @@ namespace Scull.App;
 /// automation tree. The panes are regions of one swap chain, not elements of their own, so
 /// this one exposes the text of the focused pane of the selected tab: where the typing goes.
 /// </summary>
-internal sealed partial class TerminalHost(Func<TextSnapshot?> snapshot) : UserControl
+internal sealed partial class TerminalHost(Func<TextSnapshot?> snapshot, Action<CellSpan?> select) : UserControl
 {
     private TerminalAutomationPeer? peer;
 
-    protected override AutomationPeer OnCreateAutomationPeer() => peer ??= new TerminalAutomationPeer(this, snapshot);
+    protected override AutomationPeer OnCreateAutomationPeer() => peer ??= new TerminalAutomationPeer(this, snapshot, select);
 
     /// <summary>
-    /// The text may have changed. Does nothing until a client has asked for the peer, and the
-    /// peer reads the text only while a client listens for text changes.
+    /// The text or the selection may have changed. Does nothing until a client has asked for the peer,
+    /// and the peer reads the pane only while a client listens for either.
     /// </summary>
     public void TextChanged() => peer?.RaiseTextChanged();
 }

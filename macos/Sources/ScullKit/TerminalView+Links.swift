@@ -74,16 +74,32 @@ enum LinkTarget: Equatable {
 extension TerminalView {
     /// Underlines the link at `point` while `flags` hold Cmd, else none.
     func hoverLink(at point: CGPoint?, flags: NSEvent.ModifierFlags) {
-        guard let session else { return }
+        if followLink(at: point, flags: flags), session?.update() == true { needsDisplay = true }
+    }
+
+    /// Points the core's hover at the link under `point` while `flags` hold
+    /// Cmd; true when the core was told, and the frame needs an update.
+    @discardableResult
+    func followLink(at point: CGPoint?, flags: NSEvent.ModifierFlags) -> Bool {
+        guard let session else { return false }
         var id: UInt32?
         if flags.contains(.command), let point, bounds.contains(point) {
             let cell = cell(at: point)
             id = session.linkAt(row: cell.row, col: cell.col)
         }
-        guard id != hoveredLink else { return }
+        // The core may have dropped the cached id and handed it to another
+        // link, so only "none, and still none" skips telling it.
+        if id == nil && hoveredLink == nil { return false }
         hoveredLink = id
         session.hoverLink(id)
-        if session.update() { needsDisplay = true }
+        return true
+    }
+
+    /// Re-hovers where the pointer is now, after output or a scroll moved
+    /// the text under it; the caller updates the frame.
+    func followLinkUnderPointer() {
+        let point = window.map { convert($0.mouseLocationOutsideOfEventStream, from: nil) }
+        followLink(at: point, flags: NSEvent.modifierFlags)
     }
 
     /// Opens the link under a Cmd+click; true when the click was on a link.

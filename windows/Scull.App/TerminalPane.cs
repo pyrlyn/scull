@@ -25,7 +25,7 @@ internal sealed class TerminalPane : IDisposable
     private readonly WheelSteps wheelAcross = new();
     private readonly ClickCounter clicks = new();
     private SelectionDrag? drag;
-    private uint? hoveredLink;
+    private readonly LinkHover linkHover = new();
     // A Ctrl+click on a link is the host's from press to release.
     private bool linkClick;
     private readonly FontZoom font = new();
@@ -428,19 +428,15 @@ internal sealed class TerminalPane : IDisposable
     /// </summary>
     public bool HoverLink(double x, double y, KeyModifiers held)
     {
-        uint? id = null;
-        if ((held & KeyModifiers.Control) != 0 && x >= Area.X && y >= Area.Y && x < Area.X + Area.Width && y < Area.Y + Area.Height)
+        (ushort, ushort)? cell = null;
+        if (x >= Area.X && y >= Area.Y && x < Area.X + Area.Width && y < Area.Y + Area.Height)
         {
             var at = CellAt(x, y);
-            Send(t => id = t.LinkAt((ushort)at.Row, (ushort)at.Col));
+            cell = ((ushort)at.Row, (ushort)at.Col);
         }
-        if (id == hoveredLink)
-        {
-            return false;
-        }
-        hoveredLink = id;
-        Send(t => t.HoverLink(id));
-        return true;
+        bool changed = false;
+        Send(t => changed = linkHover.Follow(t, cell, held));
+        return changed;
     }
 
     /// <summary>Opens the link at <paramref name="at"/> if the core admits it; true when a link is there at all.</summary>

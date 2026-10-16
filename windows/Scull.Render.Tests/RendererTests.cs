@@ -153,6 +153,22 @@ public sealed class RendererTests
     }
 
     [TestMethod]
+    public void AWideLinkedCellIsUnderlinedAcrossBothColumns()
+    {
+        using var scene = new Scene();
+        // An ideographic space: two columns and no ink of its own.
+        scene.Draw("\e[?25l\e]8;;https://example.com\e\\\u3000\e]8;;\e\\  "u8);
+        CellMetrics m = scene.Metrics;
+        scene.Terminal.HoverLink(scene.Terminal.LinkAt(0, 1));
+        byte[] pixels = scene.Draw(default);
+        for (int x = 0; x < 2 * m.Width; x++)
+        {
+            Assert.AreEqual(Foreground, scene.Pixel(pixels, x, m.Underline), $"underline at x {x}");
+        }
+        Assert.AreEqual(Background, scene.Pixel(pixels, 2 * m.Width + 1, m.Underline), "past the link");
+    }
+
+    [TestMethod]
     public void BoxDrawingJoinsAcrossCellsAndRows()
     {
         using var scene = new Scene();

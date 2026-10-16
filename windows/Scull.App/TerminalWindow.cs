@@ -173,6 +173,11 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         host.PointerCaptureLost += (_, _) => LosePointer();
         host.PointerCanceled += (_, _) => LosePointer();
         host.PointerWheelChanged += OnWheel;
+        host.PointerExited += (_, _) =>
+        {
+            pointerPane = null;
+            FollowLink();
+        };
         host.GotFocus += (_, _) =>
         {
             keyboard = true;
@@ -182,11 +187,16 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         {
             keyboard = false;
             UpdateFocus();
+            DropLink();
         };
         Activated += (_, e) =>
         {
             active = e.WindowActivationState != WindowActivationState.Deactivated;
             UpdateFocus();
+            if (!active)
+            {
+                DropLink();
+            }
         };
     }
 
@@ -418,6 +428,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         {
             // History scrolling sends no wakeup, so the view refreshes here.
             pane.Send(t => t.ScrollDisplay(rows));
+            HoverLink();
             Redraw(force: false);
         }
         else if (pane.Zoom(action))
@@ -447,6 +458,8 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         }
         else if (tab == current)
         {
+            // Output can move a link under a still pointer.
+            HoverLink();
             Redraw(force: false);
         }
         else
@@ -715,17 +728,35 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     // Ctrl, either side, underlines the link under the pointer while it is held.
     private void FollowCtrl(int key)
     {
-        if (key is 17 or 162 or 163 && HoverLink())
+        if (key is 17 or 162 or 163)
+        {
+            FollowLink();
+        }
+    }
+
+    private void FollowLink()
+    {
+        if (HoverLink())
         {
             Redraw(force: false);
         }
     }
 
+    // With the keyboard gone the Ctrl release may never arrive, so the underline goes now.
+    private void DropLink()
+    {
+        if (linkPane is { } pane && Alive(pane) && pane.HoverLink(0, 0, KeyModifiers.None))
+        {
+            Redraw(force: false);
+        }
+    }
+
+    // A closed pane's terminal is gone, and so is its underline.
+    private bool Alive(TerminalPane pane) => tabs.Any(t => t.Views.ContainsValue(pane));
+
     /// <summary>Moves the link underline to the pane under the pointer; true when a pane wants drawing.</summary>
     private bool HoverLink()
     {
-        // A closed pane's terminal is gone, and so is its underline.
-        bool Alive(TerminalPane pane) => tabs.Any(t => t.Views.ContainsValue(pane));
         TerminalPane? under = pointerPane is { } p && Alive(p) ? p : null;
         bool changed = false;
         if (linkPane is { } old && old != under && Alive(old))
@@ -749,6 +780,8 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         if (PaneUnder(point, out _) is { } pane
             && pane.Wheel(point, Held(), point.Position.X * panel.CompositionScaleX, point.Position.Y * panel.CompositionScaleY))
         {
+            // A scroll moves the text under the pointer.
+            HoverLink();
             Redraw(force: false);
         }
     }

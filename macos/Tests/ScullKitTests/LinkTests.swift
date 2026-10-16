@@ -112,3 +112,56 @@ private func link(_ uri: String, _ text: String) -> String { "\u{1b}]8;;\(uri)\u
     screen.click(col: 5, .command)
     #expect(screen.opened.count == 1, "no link there")
 }
+
+@MainActor
+@Test func cmdClickOnALinkSendsTheProgramNoReleaseOrMotion() throws {
+    // Mode 1003: the program reports every press, release and motion.
+    let screen = try LinkScreen("\u{1b}[?1003h" + link("https://example.com", "abc") + " d")
+    screen.view.mouseDown(with: screen.event(.leftMouseDown, col: 1, .command))
+    screen.view.mouseDragged(with: screen.event(.leftMouseDragged, col: 2, .command))
+    screen.view.mouseUp(with: screen.event(.leftMouseUp, col: 2, .command))
+    #expect(screen.opened.count == 1)
+    #expect(screen.view.lastMotionCell == nil, "nothing of the click reached the program")
+    screen.click(col: 4)
+    #expect(screen.view.lastMotionCell! == (4, 0), "the next plain click does")
+}
+
+@MainActor
+@Test func theUnderlineClearsWhenCmdOrThePointerLeaves() throws {
+    let screen = try LinkScreen("a" + link("https://example.com", "bc"))
+    screen.view.mouseMoved(with: screen.event(.mouseMoved, col: 1, .command))
+    #expect(screen.linked(col: 1))
+    screen.view.flagsChanged(with: NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: screen.window.windowNumber, context: nil, characters: "",
+                                                    charactersIgnoringModifiers: "", isARepeat: false, keyCode: 55)!)
+    #expect(!screen.linked(col: 1), "Cmd let go")
+    screen.view.mouseMoved(with: screen.event(.mouseMoved, col: 1, .command))
+    screen.view.mouseExited(with: screen.event(.mouseMoved, col: 1, .command))
+    #expect(!screen.linked(col: 1), "the pointer left")
+}
+
+@MainActor
+@Test func aStaleHoverIdIsToldToTheCoreAgain() throws {
+    let screen = try LinkScreen("a" + link("https://example.com", "bc"))
+    screen.view.mouseMoved(with: screen.event(.mouseMoved, col: 1, .command))
+    // As after a sweep freed the id and a new link took it: the view still
+    // caches it, the core hovers nothing.
+    screen.view.session!.hoverLink(nil)
+    screen.view.session!.update()
+    #expect(!screen.linked(col: 1))
+    screen.view.mouseMoved(with: screen.event(.mouseMoved, col: 2, .command))
+    #expect(screen.linked(col: 1))
+}
+
+@MainActor
+@Test func outputUnderAStillPointerMovesTheUnderline() throws {
+    let screen = try LinkScreen("a" + link("https://example.com", "bc"))
+    let point = NSPoint(x: 1.5 * screen.view.cellWidth, y: 0.5 * screen.view.cellHeight)
+    screen.view.followLink(at: point, flags: .command)
+    screen.view.session!.update()
+    #expect(screen.linked(col: 1))
+    _ = screen.view.session!.feed(Array("\r\u{1b}[Kplain".utf8))
+    screen.view.followLink(at: point, flags: .command)
+    screen.view.session!.update()
+    #expect(screen.view.hoveredLink == nil && !screen.linked(col: 1))
+}

@@ -136,6 +136,21 @@ mod tests {
     }
 
     #[test]
+    fn a_wide_character_is_linked_on_both_its_columns() {
+        let mut t = Terminal::new(8, 2, 0).unwrap();
+        t.feed(b"a");
+        t.feed(&link("https://example.com", "\u{3042}"));
+        t.feed(b"b");
+        let id = t.link_at(0, 1).unwrap();
+        assert_eq!(t.link_at(0, 2), Some(id), "the column behind it");
+        assert_eq!(t.link_at(0, 3), None);
+        t.hover_link(Some(id));
+        let mut f = Frame::new();
+        update(&mut t, &mut f);
+        assert_eq!(flags(&f, 0), [0, L, L, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
     fn an_unknown_id_hovers_nothing() {
         let mut t = Terminal::new(8, 2, 0).unwrap();
         t.feed(&link("https://example.com", "a"));

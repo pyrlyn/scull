@@ -63,4 +63,54 @@ public sealed class LinkTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    private static string Linked(Terminal terminal)
+    {
+        terminal.Update();
+        return string.Concat(terminal.View.Cells[..4].ToArray().Select(c => c.IsLink ? 'L' : '-'));
+    }
+
+    [TestMethod]
+    public void CtrlUnderlinesTheLinkUnderThePointerUntilCtrlOrThePointerGoes()
+    {
+        using var terminal = new Terminal(8, 1);
+        terminal.Feed("a\e]8;;https://example.com\e\\bc\e]8;;\e\\"u8);
+        var hover = new LinkHover();
+        Assert.IsFalse(hover.Follow(terminal, (0, 1), KeyModifiers.None), "no Ctrl, nothing to tell");
+        Assert.IsTrue(hover.Follow(terminal, (0, 2), KeyModifiers.Control));
+        Assert.AreEqual("-LL-", Linked(terminal));
+        Assert.IsTrue(hover.Follow(terminal, (0, 2), KeyModifiers.None));
+        Assert.AreEqual("----", Linked(terminal), "Ctrl let go");
+        hover.Follow(terminal, (0, 1), KeyModifiers.Control);
+        Assert.IsTrue(hover.Follow(terminal, null, KeyModifiers.Control));
+        Assert.AreEqual("----", Linked(terminal), "the pointer left");
+        Assert.IsNull(hover.Hovered);
+    }
+
+    [TestMethod]
+    public void AStaleHoverIdIsToldToTheCoreAgain()
+    {
+        using var terminal = new Terminal(8, 1);
+        terminal.Feed("a\e]8;;https://example.com\e\\bc\e]8;;\e\\"u8);
+        var hover = new LinkHover();
+        hover.Follow(terminal, (0, 1), KeyModifiers.Control);
+        // As after a sweep freed the id and a new link took it: the cache keeps it, the core hovers nothing.
+        terminal.HoverLink(null);
+        Assert.AreEqual("----", Linked(terminal));
+        Assert.IsTrue(hover.Follow(terminal, (0, 2), KeyModifiers.Control));
+        Assert.AreEqual("-LL-", Linked(terminal));
+    }
+
+    [TestMethod]
+    public void OutputUnderAStillPointerMovesTheUnderline()
+    {
+        using var terminal = new Terminal(8, 1);
+        terminal.Feed("a\e]8;;https://example.com\e\\bc\e]8;;\e\\"u8);
+        var hover = new LinkHover();
+        hover.Follow(terminal, (0, 1), KeyModifiers.Control);
+        terminal.Feed("\r\e[Kplain"u8);
+        Assert.IsTrue(hover.Follow(terminal, (0, 1), KeyModifiers.Control));
+        Assert.IsNull(hover.Hovered);
+        Assert.AreEqual("----", Linked(terminal));
+    }
 }

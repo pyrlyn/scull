@@ -13,7 +13,7 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T18 | in progress | P2 | 5 | 95% | Claude Code / claude-sonnet-5-5 |
 | T20 | in progress | P2 | 3 | 95% | Claude Code / claude-sonnet-5-5 |
 | T21 | in progress | P2 | 3 | 95% | Claude Code / claude-sonnet-5-5 |
-| T31 | in progress | P2 | 4 | 85% | Claude / opus-5.5 |
+| T31 | in progress | P2 | 4 | 95% | Claude / opus-5.5 |
 | T32 | todo | P3 | 3 | 0% | |
 | T33 | todo | P2 | 4 | 0% | |
 
@@ -193,6 +193,8 @@ Landed: T31.2 on `claude/t31-hyperlinks`: `TerminalView+Links.swift` with `LinkP
 Landed: T31.3 on `claude/t31-hyperlinks`: `EventPolicy.OpenableLink` (the same rules; the file case shares `PathOfUrl`'s hand-read authority and also accepts `Environment.MachineName`), `LinkLauncher` opens through `Launcher.LaunchUriAsync`, `LaunchFolderPathAsync` or `LaunchFileAsync` (which refuses executables), Ctrl+click in `TerminalPane` takes the press to its release away from the program, Ctrl held hovers on pointer moves and Ctrl key presses and releases (`TerminalWindow.FollowCtrl`), and the D3D renderer underlines `Cell.IsLink` cells.
 
 Landed: T31.4 on `claude/t31-hyperlinks`: `tt_link_target` and `TT_LINK_*` in `crates/scull-ffi/src/link_target.rs` (a pure `classify` plus a `fs::metadata` check; `percent-encoding` decodes the path; bidi controls refused with the other control characters; the cap is `scull_term::MAX_URI`), header and C# bindings regenerated (ABI stays 0.8: new exports only), Swift `LinkTarget.of` and `launch()` (`selectFile(nil, inFileViewerRootedAtPath:)` for a directory, so an .app bundle is shown and not run), C# `LinkTarget.Of` with `LinkLauncher` selecting files through `FolderLauncherOptions.ItemsToSelect`, and `EventPolicy.LocalPath` refusing UNC results for OSC 7 too.
+
+Landed: T31.5 on `claude/t31-hyperlinks`: macOS `linkClick` keeps a Cmd+click's drag and release from the program; `followLink` tells the core whenever either the new or the cached id is set, so a reused id is never trusted; the underline clears on Cmd release, `mouseExited` (tracking area with `.mouseEnteredAndExited`) and focus loss, and follows the pointer after output and a history scroll. Windows `Scull.Core.LinkHover` holds the same rule; `TerminalWindow` clears on `PointerExited`, keyboard loss and deactivation and re-hovers after output and scrolls. Tests on both platforms for the clears, the stale id and output under a still pointer, the macOS click, and a wide linked cell (Rust lookup and mark, Metal and WARP underline width).
 
 ### T32. Desktop notifications from OSC 9 and OSC 777
 

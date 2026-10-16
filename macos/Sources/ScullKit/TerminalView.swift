@@ -30,6 +30,8 @@ public final class TerminalView: NSView {
     /// Runs when this view becomes the first responder, so a host can track
     /// which pane has the keyboard.
     public var onFocus: (() -> Void)?
+    /// Where programs' notifications go; a test passes its own.
+    var notificationPoster: any NotificationPoster = UserNotificationPoster.shared
     /// A host with several panes picks the focused one itself.
     public var takesFocusOnAttach = true
     var textInput = TextInput()
@@ -88,7 +90,11 @@ public final class TerminalView: NSView {
     private func wake() {
         guard let session else { return }
         let title = session.title
-        if session.drainEvents(bell: { NSSound.beep() }) {
+        let exited = session.drainEvents(bell: { NSSound.beep() })
+        // Before the exit below: a program's last word can be a notification.
+        NotificationPolicy.post(session.takeNotices(), windowIsKey: window?.isKeyWindow ?? false,
+                                fallbackTitle: session.title, to: notificationPoster)
+        if exited {
             if let onChildExit { onChildExit() } else { window?.close() }
             return
         }

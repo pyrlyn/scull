@@ -46,6 +46,12 @@ public final class TerminalSession {
     public private(set) var workingDirectory: String?
     /// Where OSC 52 writes go; a test passes a private one.
     var pasteboard = NSPasteboard.general
+    /// Notifications the program asked for since the view last took them: cleaned,
+    /// and within this terminal's rate limit.
+    private var notices: [Notice] = []
+    private var limiter = NotificationLimiter()
+    /// Seconds on a monotonic clock; a test replaces it.
+    var clock: () -> Double = { ProcessInfo.processInfo.systemUptime }
 
     /// Runs the user's shell. `onWake` runs on the main actor whenever
     /// there is output or an event to look at.
@@ -114,8 +120,8 @@ public final class TerminalSession {
     }
 
     /// Takes every pending event; true once the child has exited. Rings the
-    /// bell through `bell`, keeps the title and directory, and writes OSC 52
-    /// clipboard writes to `pasteboard`.
+    /// bell through `bell`, keeps the title and directory, writes OSC 52
+    /// clipboard writes to `pasteboard` and collects notifications for `takeNotices`.
     public func drainEvents(bell: () -> Void) -> Bool {
         var event = tt_event()
         event.struct_size = UInt32(MemoryLayout<tt_event>.size)
@@ -136,6 +142,12 @@ public final class TerminalSession {
                     pasteboard.clearContents()
                     pasteboard.setString(text, forType: .string)
                 }
+            case TT_EVENT_NOTIFICATION:
+                let body = eventText(event).map { String(decoding: $0, as: UTF8.self) } ?? ""
+                let heading = eventText(event, part: Int32(TT_EVENT_TEXT_TITLE)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+                if let notice = NotificationPolicy.make(title: heading, body: body), limiter.allow(at: clock()) {
+                    notices.append(notice)
+                }
             case TT_EVENT_CLIPBOARD_READ:
                 // A read hands the user's clipboard to whatever the shell
                 // runs, a remote host included; refused until a setting
@@ -147,13 +159,20 @@ public final class TerminalSession {
         return exited
     }
 
-    /// The text of `event`, the one polled last, sized from the event.
-    private func eventText(_ event: tt_event) -> [UInt8]? {
-        let count = Int(event.text_len)
+    /// The notifications `drainEvents` found, once.
+    public func takeNotices() -> [Notice] {
+        defer { notices = [] }
+        return notices
+    }
+
+    /// The text of `event` (its body, or a notification's title), the one polled last, sized from the event.
+    private func eventText(_ event: tt_event, part: Int32 = TT_EVENT_TEXT_BODY) -> [UInt8]? {
+        let count = Int(part == TT_EVENT_TEXT_TITLE ? event.title_len : event.text_len)
+        if count == 0 { return [] }
         var bytes = [UInt8](repeating: 0, count: count)
         var len = 0
         let status = bytes.withUnsafeMutableBufferPointer {
-            track(tt_term_event_text(term, event.serial, UInt32(TT_EVENT_TEXT_BODY), $0.baseAddress, count, &len))
+            track(tt_term_event_text(term, event.serial, UInt32(part), $0.baseAddress, count, &len))
         }
         return status == TT_OK ? Array(bytes.prefix(len)) : nil
     }

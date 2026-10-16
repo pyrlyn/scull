@@ -72,26 +72,33 @@ internal sealed partial class App : Application
         }
     }
 
-    // T20.7.3 HOOK: T20.7.2 assigns the App's opened Config here, and calls
-    // Settings?.Refresh(settings) after each poll. Until then Ctrl+, does nothing.
-    public Config? Config { get; set; }
-
     /// <summary>The open settings window, if any.</summary>
-    public SettingsWindow? Settings { get; private set; }
+    public SettingsWindow? SettingsDialog { get; private set; }
 
-    /// <summary>Opens the settings window over <see cref="Config"/>, or brings the open one forward.</summary>
+    /// <summary>
+    /// Opens the settings window over <see cref="Config"/>, or brings the open one forward.
+    /// Without a config there is nothing to edit; the terminal windows already show why.
+    /// </summary>
     public void OpenSettings()
     {
         if (Config is not { } config)
         {
             return;
         }
-        if (Settings is null)
+        if (SettingsDialog is null)
         {
-            Settings = new SettingsWindow(config);
-            Settings.Closed += (_, _) => Settings = null;
+            var dialog = new SettingsWindow(config);
+            // The window does not poll the config; the app's poll keeps it current, edits made in the file included.
+            Action<ConfigSettings> refresh = dialog.Refresh;
+            ConfigChanged += refresh;
+            dialog.Closed += (_, _) =>
+            {
+                ConfigChanged -= refresh;
+                SettingsDialog = null;
+            };
+            SettingsDialog = dialog;
         }
-        Settings.Activate();
+        SettingsDialog.Activate();
     }
 
     /// <summary>A window of its own: its own swap chain and tabs.</summary>

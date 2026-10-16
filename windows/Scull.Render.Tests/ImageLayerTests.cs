@@ -83,6 +83,22 @@ public sealed class ImageLayerTests
     }
 
     [TestMethod]
+    public void AFrameOfImagesSeenBeforeAllocatesNothing()
+    {
+        var cache = new ImageCache<string>(static _ => { });
+        cache.Add(1, 0, "a");
+        cache.EndFrame();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int frame = 0; frame < 3; frame++)
+        {
+            cache.TryGet(1, 0, out _);
+            cache.EndFrame();
+        }
+        Assert.AreEqual(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [TestMethod]
     public void ClearingReleasesEverything()
     {
         var released = new List<string>();

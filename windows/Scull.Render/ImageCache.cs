@@ -8,7 +8,8 @@ namespace Scull.Render;
 /// </summary>
 internal sealed class ImageCache<T>(Action<T> release)
 {
-    private Dictionary<(nint Image, ulong Generation), T> live = [], kept = [];
+    // Sized up front, so neither table allocates when it first takes an image.
+    private Dictionary<(nint Image, ulong Generation), T> live = new(8), kept = new(8);
 
     public int Count => live.Count + kept.Count;
 
@@ -33,9 +34,11 @@ internal sealed class ImageCache<T>(Action<T> release)
     /// <summary>Releases every texture this frame did not place.</summary>
     public void EndFrame()
     {
-        foreach (T value in live.Values)
+        // The table itself, not its Values: each table makes its value
+        // collection on first use, and they swap every frame.
+        foreach (KeyValuePair<(nint, ulong), T> entry in live)
         {
-            release(value);
+            release(entry.Value);
         }
         live.Clear();
         (live, kept) = (kept, live);

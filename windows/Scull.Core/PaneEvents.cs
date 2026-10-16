@@ -30,8 +30,12 @@ public sealed class PaneEvents
     /// <summary>The local directory the program last reported with OSC 7; null until it does.</summary>
     public string? WorkingDirectory { get; private set; }
 
-    /// <summary>Takes every event the terminal has waiting; call it after each wakeup.</summary>
-    public DrainedEvents Drain(Terminal terminal)
+    /// <summary>
+    /// Takes every event the terminal has waiting; call it after each wakeup. With <paramref name="notify"/>
+    /// false (the user is looking at this pane) notifications are dropped before the rate limit sees them,
+    /// so they spend none of it.
+    /// </summary>
+    public DrainedEvents Drain(Terminal terminal, bool notify = true)
     {
         bool exited = false;
         bool changed = false;
@@ -57,7 +61,7 @@ public sealed class PaneEvents
                     clipboard = EventPolicy.ClipboardText(next) ?? clipboard;
                     break;
                 case EventKind.Notification:
-                    if (NotificationPolicy.Make(next.HeadingText, next.Text) is { } notice && limiter.Allow())
+                    if (notify && NotificationPolicy.Make(next.HeadingText, next.Text) is { } notice && limiter.Allow())
                     {
                         (notices ??= []).Add(notice);
                     }

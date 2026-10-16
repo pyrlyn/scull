@@ -21,6 +21,32 @@ public sealed class NotificationTests
     }
 
     [TestMethod]
+    public void TagCharactersOutsideTheFirstPlaneAreDropped()
+    {
+        // U+E0041 is a tag "A": invisible, and a way to carry text no reader sees.
+        Assert.AreEqual("ab", NotificationPolicy.Clean("a\U000E0041b", 50));
+        Assert.AreEqual("ab", NotificationPolicy.Clean("a\U000E007Fb", 50));
+        Assert.AreEqual("😀", NotificationPolicy.Clean("😀", 50), "an ordinary supplementary character stays");
+    }
+
+    [TestMethod]
+    public void MarkupIsKeptAsTextAndTheCodePointsXmlForbidsAreDropped()
+    {
+        // The builder escapes XML (AppNotificationBuilder.AddText); the policy must not mangle or double it.
+        Assert.AreEqual("</text><b>&amp;\"'", NotificationPolicy.Clean("</text><b>&amp;\"'", 50));
+        // U+FFFE and U+FFFF cannot be in a toast's XML at all.
+        Assert.AreEqual("ab", NotificationPolicy.Clean("a\uFFFEb\uFFFF", 50));
+    }
+
+    [TestMethod]
+    public void OnlyTheSpaceThePolicyAddsIsTrimmed()
+    {
+        // The macOS side trims only U+0020; a no-break space is text.
+        Assert.AreEqual("a\u00A0", NotificationPolicy.Clean("a\u00A0", 50));
+        Assert.AreEqual("a\u00A0b", NotificationPolicy.Clean(" a\u00A0b \n", 50));
+    }
+
+    [TestMethod]
     public void LongTextIsCutToWholeCharactersWithAnEllipsis()
     {
         Assert.AreEqual("abcd…", NotificationPolicy.Clean("abcdefgh", 5));
@@ -116,6 +142,16 @@ public sealed class NotificationTests
         Assert.AreEqual(1, Drain(events, "\e]9;later\a", terminal).Notices.Count);
 
         Assert.AreEqual(3, Drain(new PaneEvents(() => now), burst).Notices.Count, "another pane has its own bucket");
+    }
+
+    [TestMethod]
+    public void NotificationsNobodyWillSeeSpendNoToken()
+    {
+        var events = new PaneEvents(() => 0);
+        using var terminal = new Terminal(20, 4);
+        terminal.Feed(Encoding.UTF8.GetBytes(string.Concat(Enumerable.Range(0, 10).Select(i => $"\e]9;hidden{i}\a"))));
+        Assert.AreEqual(0, events.Drain(terminal, notify: false).Notices.Count, "the user is looking at this pane");
+        Assert.AreEqual(3, Drain(events, "\e]9;a\a\e]9;b\a\e]9;c\a\e]9;d\a", terminal).Notices.Count, "the whole burst is still there");
     }
 
     [TestMethod]

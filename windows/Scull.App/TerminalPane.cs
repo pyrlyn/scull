@@ -203,11 +203,11 @@ internal sealed class TerminalPane : IDisposable
     /// <summary>The directory the program last reported; kept only, as the macOS shell does.</summary>
     public string? WorkingDirectory => events.WorkingDirectory;
 
-    /// <summary>Takes the terminal's waiting events: the child's exit, a new title, text for the clipboard.</summary>
-    public DrainedEvents Drain()
+    /// <summary>Takes the terminal's waiting events: the child's exit, a new title, text for the clipboard, notifications (unless <paramref name="notify"/> is false).</summary>
+    public DrainedEvents Drain(bool notify = true)
     {
         DrainedEvents drained = default;
-        Send(t => drained = events.Drain(t));
+        Send(t => drained = events.Drain(t, notify));
         return drained;
     }
 

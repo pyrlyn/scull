@@ -21,7 +21,7 @@ public readonly record struct Notice(string Title, string Body)
 /// <summary>
 /// What a host does with OSC 9 and OSC 777 requests. The text comes from whatever runs in the
 /// terminal, so it is cut down to something a notification can safely carry. The macOS shell
-/// applies the same numbers (<c>NotificationPolicy.swift</c>).
+/// applies the same numbers (<c>Notifications.swift</c>).
 /// </summary>
 public static class NotificationPolicy
 {
@@ -44,28 +44,37 @@ public static class NotificationPolicy
     {
         ArgumentNullException.ThrowIfNull(text);
         var kept = new StringBuilder(text.Length);
-        foreach (char c in text)
+        // By code point, not UTF-16 unit: the tag characters that hide text in a notification are
+        // outside the first plane.
+        foreach (Rune rune in text.EnumerateRunes())
         {
-            if (c is '\t' or '\n' or '\r' or ' ')
+            if (rune.Value is '\t' or '\n' or '\r' or ' ')
             {
                 if (kept.Length > 0 && kept[^1] != ' ')
                 {
                     kept.Append(' ');
                 }
             }
-            else if (!char.IsControl(c) && !IsInvisible(c))
+            else if (!IsDropped(rune))
             {
-                kept.Append(c);
+                kept.Append(rune.ToString());
             }
         }
-        string clean = kept.ToString().TrimEnd();
+        // Only the space this method adds; other trailing whitespace is text, as on macOS.
+        if (kept.Length > 0 && kept[^1] == ' ')
+        {
+            kept.Length--;
+        }
+        string clean = kept.ToString();
         var elements = StringInfo.ParseCombiningCharacters(clean);
         return elements.Length <= max ? clean : clean[..elements[max - 1]] + "…";
     }
 
-    // Formatting characters, except the joiners emoji and some scripts need.
-    private static bool IsInvisible(char c) =>
-        c is not ('‌' or '‍') && CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.Format;
+    // Controls, formatting characters except the joiners emoji and some scripts need, and the two
+    // code points XML 1.0 forbids (U+FFFE, U+FFFF): a toast is built from XML, so one would lose it.
+    private static bool IsDropped(Rune rune) =>
+        Rune.IsControl(rune) || rune.Value is 0xFFFE or 0xFFFF
+        || (rune.Value is not (0x200C or 0x200D) && Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format);
 }
 
 /// <summary>

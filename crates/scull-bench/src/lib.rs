@@ -207,6 +207,17 @@ fn civil_from_days(days: u64) -> (i64, u32, u32) {
 mod tests {
     use super::{INPUT_BYTES, Row, fixed_input, render, time_stub};
 
+    /// FNV-1a over the payload; `windows/Scull.Bench` pins the same constant for its C# copy.
+    #[test]
+    fn fixed_input_matches_the_windows_bench_copy() {
+        let hash = fixed_input()
+            .iter()
+            .fold(0xcbf2_9ce4_8422_2325_u64, |hash, &byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+            });
+        assert_eq!(hash, 0xb9ff_d623_f56f_0e6d);
+    }
+
     #[test]
     fn table_emits_a_missing_terminal_and_a_timed_stub() {
         let input = fixed_input();

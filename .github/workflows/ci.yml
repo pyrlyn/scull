@@ -48,6 +48,12 @@ jobs:
       # The WinUI 3 shell builds only on Windows; nothing here runs it.
       - if: runner.os == 'Windows'
         run: just windows-app
+      # Numbers from a shared CI VM: the table says so, and they show up in the run's summary.
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          just windows-bench
+          cat target/windows-renderer-bench.md >> "$GITHUB_STEP_SUMMARY"
       # Ubuntu's kernel randomises mmap with more bits than the sanitizer
       # runtimes of the runner's compilers can map around.
       - if: runner.os == 'Linux'

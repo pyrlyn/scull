@@ -51,7 +51,15 @@ unsafe impl Send for Wake {}
 unsafe impl Sync for Wake {}
 
 impl Wake {
-    fn fire(&self) {
+    pub(crate) fn new(func: unsafe extern "C" fn(*mut c_void), userdata: *mut c_void) -> Self {
+        Self {
+            func,
+            userdata,
+            pending: AtomicBool::new(false),
+        }
+    }
+
+    pub(crate) fn fire(&self) {
         if self.pending.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -214,13 +222,9 @@ pub unsafe extern "C" fn tt_term_spawn(
         let Some(spawn) = (unsafe { spawn_options(&options) }) else {
             return tt_status::TT_INVALID;
         };
-        let wake = options.wakeup.map(|func| {
-            Arc::new(Wake {
-                func,
-                userdata: options.userdata,
-                pending: AtomicBool::new(false),
-            })
-        });
+        let wake = options
+            .wakeup
+            .map(|func| Arc::new(Wake::new(func, options.userdata)));
         let fire = wake.clone();
         let core = Arc::new(Mutex::new(core));
         let wakeup = move || {

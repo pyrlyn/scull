@@ -188,8 +188,9 @@ impl State {
         }
     }
 
-    /// OSC: iTerm2's `1337;File=` inline image; other OSCs are not handled.
-    pub(crate) fn osc(&mut self, data: &[u8]) {
+    /// iTerm2's `1337;File=` inline image. Other OSCs are dispatched in
+    /// `osc.rs`; this only recognizes the image command.
+    pub(crate) fn osc_image(&mut self, data: &[u8]) {
         let Some(payload) = data.strip_prefix(ITERM_OSC) else {
             return;
         };

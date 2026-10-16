@@ -7,8 +7,10 @@ use scull_image::{BYTES_PER_PIXEL, SixelDecoder};
 use scull_unicode::{ClusterPolicy, GraphemeState, WidthOptions};
 
 use crate::charset::Charsets;
+use crate::events::Queue;
 use crate::images::{DEFAULT_BACKGROUND, DEFAULT_CELL_PX, ScreenImages};
 use crate::modes::Modes;
+use crate::osc::{Links, Pending};
 use crate::pen::Pen;
 use crate::reply::Replies;
 use crate::screen::SavedCursor;
@@ -76,8 +78,11 @@ pub(crate) struct State {
     pub(crate) grapheme: GraphemeState,
     /// The last character printed, for REP.
     pub(crate) last_char: Option<char>,
-    /// BEL arrived since the host last asked.
-    pub(crate) bell: bool,
+    /// Bell, clipboard and links. Titles and the directory are events only.
+    pub(crate) events: Queue,
+    pub(crate) links: Links,
+    /// OSC 52 reads the host has not answered.
+    pub(crate) clips: Vec<Pending>,
     /// Images of the screen shown, and of the other one; they switch with
     /// the grids.
     pub(crate) images: ScreenImages,
@@ -110,7 +115,9 @@ impl State {
             width,
             grapheme: GraphemeState::new(width.version),
             last_char: None,
-            bell: false,
+            events: Queue::default(),
+            links: Links::default(),
+            clips: Vec::new(),
             images: ScreenImages::default(),
             alt_images: ScreenImages::default(),
             sixel: None,

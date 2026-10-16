@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The WinUI 3 shell: unpackaged, with the Windows App SDK runtime carried
+       beside the executable, so it runs from its build folder with nothing
+       installed. Windows only: the Windows App SDK's build tools run only
+       there, so it is not in Scull.slnx; `just windows-app` builds it. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Scull.App</RootNamespace>
+    <AssemblyName>Scull</AssemblyName>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- A self-contained Windows App SDK needs an architecture; default to the machine's. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Scull.Render/Scull.Render.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The core cargo built last (`just windows-app` builds it first),
+         beside the executable where the runtime's own search finds it. -->
+    <None Include="../../target/debug/scull_ffi.dll" Link="scull_ffi.dll" CopyToOutputDirectory="PreserveNewest" Condition="Exists('../../target/debug/scull_ffi.dll')" />
+  </ItemGroup>
+
+</Project>

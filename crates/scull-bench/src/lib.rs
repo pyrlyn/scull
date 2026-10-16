@@ -19,6 +19,8 @@ const INPUT_BYTES: usize = 1_000_000;
 const ALPHABET: usize = 26;
 const SECONDS_PER_DAY: u64 = 86_400;
 const BYTES_PER_MIB: f64 = 1024.0 * 1024.0;
+/// Timed feeds of the stub; an odd count gives the median a middle run.
+const STUB_RUNS: usize = 9;
 
 /// The fixed payload: `INPUT_BYTES` of a repeating `A`..`Z` pattern, with a
 /// newline every [`COLUMNS`] bytes. Built here so the repo does not store it.
@@ -50,15 +52,24 @@ pub fn feed_stub(input: &[u8]) -> usize {
         .fold(0usize, |n, ch| n + usize::from(*ch != ' '))
 }
 
-/// Wall-clock duration of one [`feed_stub`] call, for the baseline table.
-/// Divan times the same function without this clock.
+/// Median wall-clock duration of [`STUB_RUNS`] [`feed_stub`] calls after one
+/// untimed warm-up, for the baseline table. One feed takes about a
+/// millisecond, so a single pass mostly measured the scheduler and a cold
+/// cache. Divan times the same function without this clock.
 #[must_use]
 pub fn time_stub(input: &[u8]) -> Duration {
-    let started = Instant::now();
-    let inked = feed_stub(input);
-    let elapsed = started.elapsed();
-    std::hint::black_box(inked);
-    elapsed
+    std::hint::black_box(feed_stub(input));
+    let mut runs: Vec<Duration> = (0..STUB_RUNS)
+        .map(|_| {
+            let started = Instant::now();
+            let inked = feed_stub(input);
+            let elapsed = started.elapsed();
+            std::hint::black_box(inked);
+            elapsed
+        })
+        .collect();
+    runs.sort_unstable();
+    runs.get(STUB_RUNS / 2).copied().unwrap_or_default()
 }
 
 /// Markdown table for `docs/benchmarks/baseline.md`.
@@ -127,7 +138,8 @@ fn render(rows: &[Row], date: &str, machine: &str) -> String {
     out.push_str("# Baseline\n\n");
     out.push_str(&format!(
         "One wall-clock feed of the same {INPUT_BYTES} bytes on {date}, {machine}. \
-         The Scull row is `Stub::new(80, 24).feed` from `scull-harness`. \
+         The Scull row is `Stub::new(80, 24).feed` from `scull-harness`, the median \
+         of {STUB_RUNS} feeds after a warm-up. \
          A missing binary is `not installed`. A terminal with no headless stdin \
          feed is `unavailable` and is not compared. Numbers are this run only.\n\n"
     ));

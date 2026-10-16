@@ -16,6 +16,8 @@ scull-grid = { workspace = true }
 scull-image = { workspace = true }
 scull-input = { workspace = true }
 scull-unicode = { workspace = true }
+# OSC 52 clipboard payloads; the same crate scull-image uses for images.
+base64 = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

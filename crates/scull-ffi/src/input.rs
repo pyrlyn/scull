@@ -311,6 +311,21 @@ fn key_of(code: u32) -> Option<Key> {
         .map(Key::Char)
 }
 
+/// The `tt_key_event.key` code of `key`: the inverse of [`key_of`], for
+/// handing a host the keys of its configured shortcuts.
+pub(crate) fn code_of(key: Key) -> Option<u32> {
+    match key {
+        Key::Char(c) => Some(u32::from(c)),
+        Key::F(n) if (1..=LAST_F_KEY).contains(&u32::from(n)) => Some(TT_KEY_F1 + u32::from(n) - 1),
+        _ => NAMED
+            .iter()
+            .position(|&k| k == key)
+            .and_then(|i| u32::try_from(i).ok())
+            .map(|i| TT_KEY_ESCAPE + i)
+            .or_else(|| kitty_code(key)),
+    }
+}
+
 /// The discriminant of the keys in [`CODED`].
 fn kitty_code(key: Key) -> Option<u32> {
     match key {
@@ -592,6 +607,17 @@ mod tests {
             row: 2,
             ..zeroed()
         }
+    }
+
+    #[test]
+    fn code_of_inverts_key_of() {
+        let named = NAMED.iter().copied();
+        let functions = (1..=35).map(Key::F);
+        for key in named.chain(functions).chain(CODED).chain([Key::Char('=')]) {
+            assert_eq!(code_of(key).and_then(key_of), Some(key), "{key:?}");
+        }
+        assert_eq!(code_of(Key::F(0)), None);
+        assert_eq!(code_of(Key::F(36)), None);
     }
 
     #[test]

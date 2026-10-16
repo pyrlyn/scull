@@ -27,6 +27,7 @@ use scull_grid::{Cell, CellFlags, Content, Grid, Style, StyleId};
 use scull_image::{Crop, Image};
 
 use crate::damage::{Damage, RowStamp};
+use crate::preedit::{FramePreedit, Preedit, PreeditLayout};
 use crate::terminal::Terminal;
 
 /// Drawn for a cluster id the table no longer has. Rows keep their
@@ -47,7 +48,7 @@ pub struct FrameCell {
     /// Columns the character covers: 1, 2 for a wide head, 0 for the
     /// spacer behind it.
     pub width: u8,
-    /// [`FrameCell::CLUSTER`] or nothing.
+    /// [`FrameCell::CLUSTER`] and the highlight bits, or nothing.
     pub flags: u8,
 }
 
@@ -55,6 +56,21 @@ impl FrameCell {
     /// The text has more code points than `codepoint`; the full cluster is
     /// in the row's text runs.
     pub const CLUSTER: u8 = 1;
+    /// The cell is selected.
+    pub const SELECTED: u8 = 2;
+    /// The cell is part of a search match.
+    pub const MATCH: u8 = 4;
+    /// The cell is part of the current search match (also [`Self::MATCH`]).
+    pub const CURRENT_MATCH: u8 = 8;
+}
+
+/// Highlight bits laid over columns `start..end` of viewport row `row`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Mark {
+    pub(crate) row: u16,
+    pub(crate) start: u16,
+    pub(crate) end: u16,
+    pub(crate) flags: u8,
 }
 
 /// Neighbouring cells of one style and one width, with their text, for the
@@ -153,6 +169,18 @@ impl FrameRow {
         }
     }
 
+    /// Appends the preedit's clusters at its columns, in the default style.
+    fn push_preedit(&mut self, p: &PreeditLayout, text: &str) {
+        let mut col = p.col;
+        for (range, width) in &p.clusters {
+            let start = self.text.len();
+            self.text
+                .push_str(text.get(range.clone()).unwrap_or_default());
+            self.extend_run(col, StyleId::DEFAULT.0, *width, start);
+            col = col.saturating_add(u16::from(*width));
+        }
+    }
+
     /// Adds the text from byte `start` to the last run, or opens a run.
     fn extend_run(&mut self, col: u16, style: u16, width: u8, start: usize) {
         let len = u32::try_from(self.text.len() - start).unwrap_or(u32::MAX);
@@ -238,6 +266,13 @@ pub struct Frame {
     /// Keyed per frame, so a program cannot aim for a collision that would
     /// leave a stale image slice on screen.
     hasher: RandomState,
+    preedit: Preedit,
+    /// Where the last update laid the preedit; it rides in the same row
+    /// hash as the images, so damage repaints its row and never scrolls it.
+    shown_preedit: Option<PreeditLayout>,
+    /// Selection and search highlights by row; they ride in the row hash
+    /// too, so a row repaints when its highlights change.
+    marks: Vec<Mark>,
 }
 
 impl Frame {
@@ -299,6 +334,23 @@ impl Frame {
         &self.damage
     }
 
+    /// Sets the input method's composing text and its caret (a byte offset
+    /// into `text`); empty text clears it. The next update lays it over
+    /// the cursor row as text of the default style and moves the cursor to
+    /// the caret. Cut at [`crate::MAX_PREEDIT_BYTES`].
+    pub fn set_preedit(&mut self, text: &str, caret: usize) {
+        self.preedit.set(text, caret);
+    }
+
+    /// Where the last update showed the preedit, `None` when it did not.
+    pub fn preedit(&self) -> Option<FramePreedit> {
+        self.shown_preedit.as_ref().map(|p| FramePreedit {
+            row: p.row,
+            col: p.col,
+            cols: p.cols,
+        })
+    }
+
     /// Copies what changed in `term`'s viewport since the last update.
     fn copy_from(&mut self, term: &Terminal) {
         let grid = term.grid();
@@ -324,6 +376,8 @@ impl Frame {
         }));
         std::mem::swap(&mut self.old_slices, &mut self.slices);
         self.collect_placements(term);
+        self.lay_out_preedit(term);
+        self.collect_marks(term);
         let (now, before) = (&self.slices, &self.old_slices);
         let same = |r: u16, from: u16| now.get(usize::from(r)) == before.get(usize::from(from));
         self.damage
@@ -334,7 +388,40 @@ impl Frame {
             self.paint(grid, r);
         }
         std::mem::swap(&mut self.damage, &mut dirty);
-        self.cursor = cursor_in_viewport(term);
+        self.cursor = match &self.shown_preedit {
+            Some(p) => Some(FrameCursor {
+                row: p.row,
+                col: p.caret,
+            }),
+            None => cursor_in_viewport(term).filter(|_| term.modes().cursor_visible),
+        };
+    }
+
+    /// Lays the preedit out at the cursor, even a hidden one: composing
+    /// needs a caret. Off the viewport it is not shown.
+    fn lay_out_preedit(&mut self, term: &Terminal) {
+        let (width, policy) = (term.state.width, term.state.policy());
+        self.shown_preedit = cursor_in_viewport(term).and_then(|c| {
+            self.preedit
+                .layout((c.row, c.col), self.cols, width, policy)
+        });
+        if let Some(p) = &self.shown_preedit
+            && let Some(slot) = self.slices.get_mut(usize::from(p.row))
+        {
+            *slot = self.hasher.hash_one((*slot, self.preedit.text(), p));
+        }
+    }
+
+    fn collect_marks(&mut self, term: &Terminal) {
+        self.marks.clear();
+        term.selection_marks(&mut self.marks);
+        term.search_marks(&mut self.marks);
+        self.marks.sort_by_key(|m| m.row);
+        for m in &self.marks {
+            if let Some(slot) = self.slices.get_mut(usize::from(m.row)) {
+                *slot = self.hasher.hash_one((*slot, m.start, m.end, m.flags));
+            }
+        }
     }
 
     /// Collects the placements in the viewport and hashes the slice of
@@ -435,6 +522,9 @@ impl Frame {
             cells,
             lines,
             styles,
+            preedit,
+            shown_preedit,
+            marks,
             ..
         } = self;
         let (Some(cells), Some(line)) =
@@ -447,14 +537,68 @@ impl Frame {
             cells.fill(FrameCell::default());
             return;
         };
+        let over = shown_preedit.as_ref().filter(|p| p.row == r);
         let mut seen = None;
         for ((col, slot), cell) in (0..=u16::MAX).zip(cells.iter_mut()).zip(row.cells()) {
             if seen != Some(cell.style()) {
                 seen = Some(cell.style());
                 refresh_style(styles, grid, cell.style());
             }
+            if let Some(p) = over {
+                if p.covers(col) {
+                    if col == p.col {
+                        line.push_preedit(p, preedit.text());
+                    }
+                    continue;
+                }
+                if col.saturating_add(1) == p.col && cell.flags().contains(CellFlags::WIDE) {
+                    // Its right half is under the preedit: show neither.
+                    *slot = FrameCell {
+                        style: cell.style().0,
+                        width: 1,
+                        ..FrameCell::default()
+                    };
+                    continue;
+                }
+            }
             *slot = line.push(col, cell, grid);
         }
+        if let Some(p) = over {
+            fill_preedit(p, preedit.text(), cells);
+        }
+        let first = marks.partition_point(|m| m.row < r);
+        for m in marks.iter().skip(first).take_while(|m| m.row == r) {
+            let end = usize::from(m.end).min(cells.len());
+            for cell in cells.get_mut(usize::from(m.start)..end).unwrap_or_default() {
+                cell.flags |= m.flags;
+            }
+        }
+    }
+}
+
+/// Writes the preedit's cells over a row's `cells`.
+fn fill_preedit(p: &PreeditLayout, text: &str, cells: &mut [FrameCell]) {
+    let mut col = usize::from(p.col);
+    for (range, width) in &p.clusters {
+        let mut chars = text.get(range.clone()).unwrap_or_default().chars();
+        let head = FrameCell {
+            codepoint: chars.next().map_or(0, u32::from),
+            style: StyleId::DEFAULT.0,
+            width: *width,
+            flags: if chars.next().is_some() {
+                FrameCell::CLUSTER
+            } else {
+                0
+            },
+        };
+        let tail = usize::from(*width == WIDE_COLS);
+        if let Some(slots) = cells.get_mut(col..=col + tail) {
+            slots.fill(FrameCell::default());
+            if let Some(first) = slots.first_mut() {
+                *first = head;
+            }
+        }
+        col += usize::from(*width);
     }
 }
 
@@ -471,12 +615,9 @@ fn refresh_style(styles: &mut Vec<Style>, grid: &Grid, id: StyleId) {
     }
 }
 
-/// The cursor in viewport rows, when it is shown and the viewport is not
+/// The cursor in viewport rows, shown or not, when the viewport is not
 /// scrolled back past it.
 fn cursor_in_viewport(term: &Terminal) -> Option<FrameCursor> {
-    if !term.modes().cursor_visible {
-        return None;
-    }
     let grid = term.grid();
     let cursor = term.cursor();
     let row = usize::from(cursor.row).checked_add(grid.display_offset())?;
@@ -668,6 +809,92 @@ mod tests {
         assert_eq!(fresh(&mut t).cursor(), None);
     }
 
+    fn text_of(frame: &Frame) -> Vec<&str> {
+        (0..ROWS).map(|r| frame.row(r).unwrap().text()).collect()
+    }
+
+    #[test]
+    fn the_preedit_is_row_text_at_the_cursor_with_the_cursor_at_its_caret() {
+        let mut t = term();
+        t.feed(b"ab");
+        let mut f = fresh(&mut t);
+        f.set_preedit("日本", "日本".len());
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().dirty(), [0]);
+        assert_eq!(runs(&f, 0), [run(0, 2, 1, "ab"), run(2, 4, 2, "日本")]);
+        let cells = f.row_cells(0);
+        assert_eq!(
+            (cells[2].codepoint, cells[2].width, cells[2].style),
+            (0x65e5, 2, 0)
+        );
+        assert_eq!((cells[3].codepoint, cells[3].width), (0, 0));
+        assert_eq!(f.cursor(), Some(FrameCursor { row: 0, col: 6 }));
+        let shown = FramePreedit {
+            row: 0,
+            col: 2,
+            cols: 4,
+        };
+        assert_eq!(f.preedit(), Some(shown));
+        updated(&mut t, &mut f);
+        assert!(f.damage().is_empty(), "an unchanged preedit is not damage");
+        f.set_preedit("", 0);
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().dirty(), [0]);
+        assert_eq!(runs(&f, 0), [run(0, 2, 1, "ab")]);
+        assert_eq!(
+            (f.preedit(), f.cursor()),
+            (None, Some(FrameCursor { row: 0, col: 2 }))
+        );
+    }
+
+    #[test]
+    fn the_preedit_hides_the_cells_under_it_and_a_wide_neighbour() {
+        let mut t = term();
+        t.feed("a\u{4e2d}bcd\x1b[1;3H".as_bytes());
+        let mut f = fresh(&mut t);
+        f.set_preedit("xy", 1);
+        updated(&mut t, &mut f);
+        assert_eq!(f.row(0).unwrap().text(), "axycd");
+        assert_eq!(
+            f.row_cells(0)[1].codepoint,
+            0,
+            "half a wide character is hidden"
+        );
+        assert_eq!(f.cursor(), Some(FrameCursor { row: 0, col: 3 }));
+    }
+
+    #[test]
+    fn a_scroll_leaves_the_preedit_on_the_cursor_row() {
+        let mut t = term();
+        t.feed(b"a\r\nb\r\nc\r\nd");
+        let mut f = fresh(&mut t);
+        f.set_preedit("P", 1);
+        updated(&mut t, &mut f);
+        assert_eq!(text_of(&f), ["a", "b", "c", "dP"]);
+        t.feed(b"\r\ne");
+        updated(&mut t, &mut f);
+        assert_eq!(text_of(&f), ["b", "c", "d", "eP"]);
+        assert_eq!(
+            f.damage().dirty(),
+            [2, 3],
+            "the row that had it is repainted"
+        );
+    }
+
+    #[test]
+    fn a_hidden_cursor_still_gets_a_caret_and_history_hides_the_preedit() {
+        let mut t = term();
+        t.feed(b"\x1b[?25l");
+        let mut f = fresh(&mut t);
+        f.set_preedit("x", 0);
+        updated(&mut t, &mut f);
+        assert_eq!(f.cursor(), Some(FrameCursor { row: 0, col: 0 }));
+        t.feed(b"\x1b[?25h\x1b[4H\r\n\r\n");
+        t.scroll_display(1);
+        updated(&mut t, &mut f);
+        assert_eq!((f.preedit(), f.cursor()), (None, None));
+    }
+
     /// A kitty image of 2 x 2 pixels, shown `C=1` at the cursor in 2 x 1
     /// cells.
     const KITTY_STILL: &[u8] = b"\x1b_Gi=1,f=24,s=2,v=2,a=T,C=1,c=2,r=1,q=2;AAAAAAAAAAAAAAAA\x1b\\";
@@ -734,6 +961,75 @@ mod tests {
         (u32, u32, u32, u32),
         i32,
     );
+
+    fn flags(f: &Frame, r: u16) -> Vec<u8> {
+        f.row_cells(r).iter().map(|c| c.flags).collect()
+    }
+
+    #[test]
+    fn selected_cells_are_flagged_and_only_their_row_repaints() {
+        let mut t = term();
+        t.feed(b"abc\r\ndef");
+        let mut f = fresh(&mut t);
+        let at = t.viewport_point(1, 1);
+        t.select_start(crate::SelectionKind::Cell, at);
+        t.select_extend(t.viewport_point(1, 2));
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().dirty(), [1]);
+        const S: u8 = FrameCell::SELECTED;
+        assert_eq!(flags(&f, 1), [0, S, S, 0, 0, 0, 0, 0]);
+        t.select_clear();
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().dirty(), [1]);
+        assert_eq!(flags(&f, 1), [0; 8]);
+    }
+
+    #[test]
+    fn a_selection_scrolled_with_its_text_keeps_its_flags() {
+        let mut t = term();
+        t.feed(b"a\r\nb\r\nc\r\nd");
+        let at = t.viewport_point(1, 0);
+        t.select_start(crate::SelectionKind::Line, at);
+        let mut f = fresh(&mut t);
+        t.feed(b"\r\n");
+        updated(&mut t, &mut f);
+        assert_eq!(f.damage().scrolls().len(), 1, "moved, not repainted");
+        assert!(flags(&f, 0).iter().all(|&b| b == FrameCell::SELECTED));
+        assert!(flags(&f, 1).iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn matches_are_flagged_and_the_current_one_stands_out() {
+        let mut t = term();
+        t.feed("ab \u{4e2d} ab\r\nab".as_bytes());
+        assert!(t.search_set("AB", false));
+        let mut f = fresh(&mut t);
+        const M: u8 = FrameCell::MATCH;
+        assert_eq!(flags(&f, 0), [M, M, 0, 0, 0, 0, M, M]);
+        assert_eq!(t.search_next(None).map(|m| m.start.col), Some(0));
+        updated(&mut t, &mut f);
+        const C: u8 = M | FrameCell::CURRENT_MATCH;
+        assert_eq!(flags(&f, 0), [C, C, 0, 0, 0, 0, M, M]);
+        assert!(t.search_set("\u{4e2d}", true));
+        updated(&mut t, &mut f);
+        assert_eq!(
+            flags(&f, 0),
+            [0, 0, 0, M, M, 0, 0, 0],
+            "a wide match covers its spacer"
+        );
+        assert_eq!(f.damage().dirty(), [0, 1]);
+    }
+
+    #[test]
+    fn a_match_from_above_the_viewport_is_flagged_where_it_shows() {
+        let mut t = term();
+        t.feed(b"......abcd\r\n1\r\n2\r\n3");
+        assert_eq!(t.grid().history_len(), 1, "the \"ab\" half is in history");
+        assert!(t.search_set("abcd", true));
+        let f = fresh(&mut t);
+        const M: u8 = FrameCell::MATCH;
+        assert_eq!(flags(&f, 0), [M, M, 0, 0, 0, 0, 0, 0]);
+    }
 
     /// A row as a UI would put it on screen: every cell with its style
     /// resolved, every run with its text, and the image slices over it.
@@ -841,6 +1137,10 @@ mod tests {
     enum Step {
         Feed(Vec<u8>),
         View(i8),
+        Select(u8, u16, u16),
+        Extend(u16, u16),
+        Search(&'static str),
+        Next(bool),
     }
 
     fn step() -> impl Strategy<Value = Step> {
@@ -849,6 +1149,10 @@ mod tests {
             4 => proptest::collection::vec(proptest::sample::select(SEQUENCES), 1..6)
                 .prop_map(|s| Step::Feed(s.concat())),
             1 => any::<i8>().prop_map(Step::View),
+            1 => (0..4u8, 0..8u16, 0..18u16).prop_map(|(k, r, c)| Step::Select(k, r, c)),
+            1 => (0..8u16, 0..18u16).prop_map(|(r, c)| Step::Extend(r, c)),
+            1 => proptest::sample::select(&["1", "ab", "\u{4e2d}", "x y", ""][..]).prop_map(Step::Search),
+            1 => any::<bool>().prop_map(Step::Next),
         ]
     }
 
@@ -871,6 +1175,26 @@ mod tests {
                 match step {
                     Step::Feed(bytes) => t.feed(&bytes),
                     Step::View(delta) => t.scroll_display(isize::from(delta)),
+                    Step::Select(kind, r, c) => {
+                        let kinds = [
+                            crate::SelectionKind::Cell,
+                            crate::SelectionKind::Word,
+                            crate::SelectionKind::Line,
+                            crate::SelectionKind::Block,
+                        ];
+                        let at = t.viewport_point(r, c);
+                        t.select_start(kinds[usize::from(kind)], at);
+                    }
+                    Step::Extend(r, c) => t.select_extend(t.viewport_point(r, c)),
+                    Step::Search(pattern) => {
+                        t.search_set(pattern, false);
+                    }
+                    Step::Next(true) => {
+                        t.search_next(None);
+                    }
+                    Step::Next(false) => {
+                        t.search_prev(None);
+                    }
                 }
                 now += Duration::from_millis(pause);
                 let shown = paint_all(&frame);

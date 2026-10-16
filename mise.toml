@@ -1,5 +1,7 @@
 # The one Rust version for local work and CI; bump it here and nowhere else.
 [tools]
+mold = { version = "2.42.1", os = ["linux"] } # linker, Linux only; opt in with `cargo --config .cargo/mold.toml`
 rust = { version = "1.99.0", components = "rustfmt,clippy" }
 "cargo:cargo-nextest" = "0.9.146" # `just test`
 just = "1.58.0" # task runner (Justfile)
+

@@ -5,3 +5,5 @@
 .DS_Store
 /.claude/worktrees
 /macos/.build
+/windows/*/bin
+/windows/*/obj

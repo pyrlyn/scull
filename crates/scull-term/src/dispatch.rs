@@ -69,7 +69,7 @@ impl Handler for State {
     fn execute(&mut self, byte: u8) {
         self.end_cluster();
         match byte {
-            BEL => self.bell = true,
+            BEL => self.events.ring(),
             BS => self.back(1),
             HT => self.tab(1),
             LF | VT | FF => self.linefeed(),
@@ -128,7 +128,7 @@ impl Handler for State {
     }
 
     fn osc_dispatch(&mut self, osc: &Osc<'_>) {
-        self.osc(osc.data);
+        self.osc(osc);
     }
 
     fn dcs_hook(&mut self, header: &Csi<'_>) {

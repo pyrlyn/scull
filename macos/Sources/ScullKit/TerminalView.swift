@@ -1,68 +1,124 @@
-// The terminal surface: owns a TerminalSession, draws its frame with
-// CoreText and turns AppKit events into the core's input events. A plain
-// CoreText pass is the first light; the Metal renderer with a glyph
-// atlas replaces `draw` later. Image placements are not drawn yet.
+// The terminal surface: owns a TerminalSession, draws its frame through
+// the Metal renderer on a CAMetalLayer and turns AppKit events into the
+// core's input events.
 
 import AppKit
 import CoreText
 import CScull
 
 public final class TerminalView: NSView {
-    private var session: TerminalSession?
+    var session: TerminalSession?
     private var failure: String?
-    private let palette = Palette()
-    private let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-    private lazy var bold = NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: .bold)
-    private lazy var italic = NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(.italic),
-                                     size: font.pointSize) ?? font
-    private lazy var boldItalic = NSFont(descriptor: bold.fontDescriptor.withSymbolicTraits(.italic),
-                                         size: font.pointSize) ?? bold
-    private let cellWidth: CGFloat
-    private let cellHeight: CGFloat
-    private var grid = (cols: UInt16(80), rows: UInt16(24))
+    private let config = ScullConfig.shared
+    private(set) var palette: Palette { didSet { renderer?.palette = palette } }
+    private var fonts: FontSet {
+        didSet { renderer?.setFont(fonts.regular, cellWidth: fonts.cellWidth, cellHeight: fonts.cellHeight) }
+    }
+    private var renderer: MetalRenderer?
+    /// Points the font-larger and font-smaller actions added; a changed
+    /// font in the file starts from its own size again.
+    private var zoom = 0.0
+    private var appliedFont: (family: String, size: Double)
+    private var configObserver: (any NSObjectProtocol)?
+    var font: NSFont { fonts.regular }
+    var cellWidth: CGFloat { fonts.cellWidth }
+    var cellHeight: CGFloat { fonts.cellHeight }
+    private(set) var grid = (cols: UInt16(80), rows: UInt16(24))
     private var focused = false
-    private var keyText: String?
+    /// Set by a pane host: the child's exit closes the pane, not the window.
+    public var onChildExit: (() -> Void)?
+    /// Runs when this view becomes the first responder, so a host can track
+    /// which pane has the keyboard.
+    public var onFocus: (() -> Void)?
+    /// A host with several panes picks the focused one itself.
+    public var takesFocusOnAttach = true
+    var textInput = TextInput()
     private var lastMotionCell: (Int, Int)?
     private var scrollRemainder: CGFloat = 0
+    /// The left-button gesture the host owns; nil while the program has it.
+    var selectionDrag: SelectionDrag?
+    var findBar: FindBar?
+    var find = FindState()
+    var findSettle: Timer?
     #if DEBUG
     private var initialInput = UserDefaults.standard.string(forKey: "ScullInitialInput")
+    private var probe: LatencyProbe?
     #endif
 
     public override init(frame: NSRect) {
-        // Advances, not rounded cells, so CoreText's glyphs land on the grid.
-        cellWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
-        cellHeight = ceil(font.ascender - font.descender + font.leading)
+        let settings = config.settings
+        palette = Palette(settings)
+        fonts = FontSet(family: settings.fontFamily, size: settings.fontSize)
+        appliedFont = (settings.fontFamily, settings.fontSize)
         super.init(frame: frame)
+        configObserver = NotificationCenter.default.addObserver(
+            forName: ScullConfig.didChange, object: config, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.applyConfig() } }
         let env = ["TERM=xterm-256color", "COLORTERM=truecolor"]
         do {
             session = try TerminalSession(cols: grid.cols, rows: grid.rows, env: env,
-                                          cwd: NSHomeDirectory()) { [weak self] in self?.wake() }
+                                          cwd: NSHomeDirectory(), scrollback: settings.scrollback) { [weak self] in self?.wake() }
         } catch {
             failure = "Could not start the shell: \(error)"
         }
+        guard session != nil else { return }
+        renderer = MetalRenderer(font: font, cellWidth: cellWidth, cellHeight: cellHeight, palette: palette)
+        if renderer == nil { failure = "Metal is not available" }
+        wantsLayer = true
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    isolated deinit {
+        configObserver.map(NotificationCenter.default.removeObserver)
+    }
 
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
     private func wake() {
         guard let session else { return }
+        let title = session.title
         if session.drainEvents(bell: { NSSound.beep() }) {
-            window?.close()
+            if let onChildExit { onChildExit() } else { window?.close() }
             return
         }
-        if session.update() { needsDisplay = true }
+        if session.title != title { showTitle(window?.firstResponder === self) }
+        if session.update() {
+            needsDisplay = true
+            screenChanged()
+            #if DEBUG
+            if let renderer, let probe {
+                probe.frameUpdated(renderer)
+                // AppKit skips drawing a covered window; the probe still
+                // wants the render time.
+                if window?.occlusionState.contains(.visible) == false { updateLayer() }
+            }
+            #endif
+        }
         #if DEBUG
         // Lets a scripted launch type a command once the shell is there.
         if let input = initialInput {
             initialInput = nil
             _ = session.text(input)
+            composeDebugPreedit()
             send(key: UInt32(TT_KEY_ESCAPE) + 1, action: UInt8(TT_KEY_PRESS), mods: 0, text: "")
             if let path = UserDefaults.standard.string(forKey: "ScullSnapshot") {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.snapshot(to: path) }
+                // A shell with heavy startup needs longer than the default.
+                let delay = max(2, UserDefaults.standard.double(forKey: "ScullSnapshotDelay"))
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.markForSnapshot()
+                    self?.snapshot(to: path)
+                }
+            }
+            if let path = UserDefaults.standard.string(forKey: "ScullLatencyProbe") {
+                probe = LatencyProbe(path: path) { [weak self] in
+                    self?.send(key: 0x78, action: UInt8(TT_KEY_PRESS), mods: 0, text: "x")
+                }
+                let delay = max(2, UserDefaults.standard.double(forKey: "ScullSnapshotDelay"))
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.probe?.next() }
             }
         }
         #endif
@@ -72,11 +128,84 @@ public final class TerminalView: NSView {
     // The view draws itself into a PNG, so a scripted check needs no
     // screen-recording permission.
     private func snapshot(to path: String) {
-        guard let rep = bitmapImageRepForCachingDisplay(in: bounds) else { return }
-        cacheDisplay(in: bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        guard let session, let image = renderer?.snapshot(session, size: bounds.size,
+                                                           scale: window?.backingScaleFactor ?? 1, focused: focused)
+        else { return }
+        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
+            .write(to: URL(fileURLWithPath: path))
+    }
+
+    /// `-ScullFind <pattern>` and `-ScullSelect <row,col,row,col>` put a
+    /// highlighted match and a selection into the snapshot.
+    private func markForSnapshot() {
+        guard let session else { return }
+        if let pattern = UserDefaults.standard.string(forKey: "ScullFind") {
+            showFind(nil)
+            findBar?.pattern = pattern
+            findEdited(pattern)
+            apply(find.settle())
+        }
+        let ends = UserDefaults.standard.string(forKey: "ScullSelect")?.split(separator: ",").compactMap { Int($0) }
+        if let ends, ends.count == 4 {
+            _ = session.select(TT_SELECT_CELL, row: ends[0], col: ends[1])
+            _ = session.extendSelection(row: ends[2], col: ends[3])
+        }
+        session.update()
     }
     #endif
+
+    // MARK: Configuration
+
+    private func applyConfig() {
+        let settings = config.settings
+        palette = Palette(settings)
+        if (settings.fontFamily, settings.fontSize) != appliedFont {
+            appliedFont = (settings.fontFamily, settings.fontSize)
+            zoom = 0
+        }
+        applyFont()
+        #if DEBUG
+        // Shows a scripted check that an edit of the file reached the view.
+        if initialInput == nil, let path = UserDefaults.standard.string(forKey: "ScullSnapshotOnConfig") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.snapshot(to: path) }
+        }
+        #endif
+    }
+
+    private func applyFont() {
+        let size = min(max(appliedFont.size + zoom, 4), 200)
+        fonts = FontSet(family: appliedFont.family, size: size)
+        resizeGrid(force: true)
+        needsDisplay = true
+    }
+
+    /// Runs the action bound to the key and modifiers of `event`, if any.
+    private func runBinding(_ event: NSEvent) -> Bool {
+        let shortcutMods = UInt8(TT_MOD_SHIFT | TT_MOD_ALT | TT_MOD_CTRL | TT_MOD_SUPER)
+        let unshifted = event.characters(byApplyingModifiers: [])?.unicodeScalars.first?.value
+        guard let key = KeyMap.key(forKeyCode: event.keyCode) ?? unshifted else { return false }
+        let mods = KeyMap.mods(event.modifierFlags) & shortcutMods
+        guard let bind = config.settings.keybinds.first(where: { $0.key == key && $0.mods == mods }) else {
+            return false
+        }
+        switch bind.action {
+        case .paste: paste(nil)
+        case .fontLarger: zoom += 1; applyFont()
+        case .fontSmaller: zoom -= 1; applyFont()
+        case .fontReset: zoom = 0; applyFont()
+        case .scrollPageUp: scroll(Int32(grid.rows))
+        case .scrollPageDown: scroll(-Int32(grid.rows))
+        case .scrollToTop: scroll(Int32.max)
+        case .scrollToBottom: scroll(-Int32.max)
+        }
+        return true
+    }
+
+    private func scroll(_ rows: Int32) {
+        guard let session else { return }
+        _ = session.scrollDisplay(rows)
+        if session.update() { needsDisplay = true }
+    }
 
     // MARK: Size
 
@@ -84,8 +213,8 @@ public final class TerminalView: NSView {
         super.viewDidMoveToWindow()
         NotificationCenter.default.removeObserver(self)
         guard let window else { return }
-        window.makeFirstResponder(self)
-        focused = window.isKeyWindow
+        if takesFocusOnAttach { window.makeFirstResponder(self) }
+        focused = window.isKeyWindow && window.firstResponder === self
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(keyChanged),
                                                    name: name, object: window)
@@ -129,122 +258,93 @@ public final class TerminalView: NSView {
 
     // MARK: Drawing
 
+    public override func makeBackingLayer() -> CALayer { renderer?.layer ?? super.makeBackingLayer() }
+
+    public override var wantsUpdateLayer: Bool { renderer != nil }
+
+    public override func updateLayer() {
+        guard let session else { return }
+        guard !session.isPoisoned else { return showCrashNotice() }
+        renderer?.draw(session, size: bounds.size, scale: window?.backingScaleFactor ?? 1, focused: focused)
+    }
+
+    // A crashed core terminal shows the notice in place of its stale grid.
+    // The Metal layer has no text of its own, so the notice is a label on
+    // top.
+    private func showCrashNotice() {
+        guard !subviews.contains(where: { $0.identifier == Self.crashNotice }) else { return }
+        let label = NSTextField(labelWithString: "This terminal crashed. Close the pane to dismiss it.")
+        (label.identifier, label.font, label.textColor) = (Self.crashNotice, font, .white)
+        (label.drawsBackground, label.backgroundColor) = (true, NSColor(cgColor: Palette.cgColor(palette.background)))
+        label.frame = bounds
+        label.autoresizingMask = [.width, .height]
+        addSubview(label)
+    }
+
+    private static let crashNotice = NSUserInterfaceItemIdentifier("crashNotice")
+
+    // Only a terminal that failed to start draws here.
     public override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         ctx.setFillColor(Palette.cgColor(palette.background))
         ctx.fill(bounds)
-        if let failure {
-            NSAttributedString(string: failure, attributes: [.font: font, .foregroundColor: NSColor.white])
-                .draw(at: NSPoint(x: cellWidth, y: cellHeight))
-            return
-        }
-        guard let session else { return }
-        let view = session.view
-        ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        for row in 0..<Int(view.rows) {
-            drawBackgrounds(session, row: row, in: ctx)
-            for (run, text) in session.runs(row: row) {
-                drawRun(text, style: session.style(run.style), col: Int(run.col), cols: Int(run.cols),
-                        width: Int(run.width), row: row, in: ctx)
-            }
-        }
-        drawCursor(session, in: ctx)
-    }
-
-    private func cellRect(row: Int, col: Int, cols: Int = 1) -> CGRect {
-        CGRect(x: CGFloat(col) * cellWidth, y: CGFloat(row) * cellHeight,
-               width: CGFloat(cols) * cellWidth, height: cellHeight)
-    }
-
-    private func drawBackgrounds(_ session: TerminalSession, row: Int, in ctx: CGContext) {
-        for col in 0..<Int(session.view.cols) {
-            guard let cell = session.cell(row: row, col: col) else { return }
-            let bg = palette.colors(of: session.style(cell.style)).bg
-            guard bg != palette.background else { continue }
-            ctx.setFillColor(Palette.cgColor(bg))
-            ctx.fill(cellRect(row: row, col: col).integral)
-        }
-    }
-
-    private func drawRun(_ text: String, style: tt_style, col: Int, cols: Int, width: Int,
-                         row: Int, in ctx: CGContext, color: UInt32? = nil) {
-        let attrs = style.attrs
-        guard attrs & UInt16(TT_ATTR_HIDDEN) == 0 else { return }
-        let fg = color ?? palette.colors(of: style).fg
-        let dim = attrs & UInt16(TT_ATTR_DIM) != 0
-        let cg = Palette.cgColor(fg, alpha: dim ? 0.5 : 1)
-        let isBold = attrs & UInt16(TT_ATTR_BOLD) != 0
-        let isItalic = attrs & UInt16(TT_ATTR_ITALIC) != 0
-        let face = isBold ? (isItalic ? boldItalic : bold) : (isItalic ? italic : font)
-        let baseline = CGFloat(row) * cellHeight + font.ascender
-        // A wide character's fallback glyph rarely advances exactly two
-        // cells, so each one is placed on its own cell instead.
-        let pieces = width == 2 ? text.map { String($0) } : [text]
-        for (i, piece) in pieces.enumerated() {
-            let string = NSAttributedString(string: piece, attributes: [
-                NSAttributedString.Key(kCTFontAttributeName as String): face,
-                NSAttributedString.Key(kCTForegroundColorAttributeName as String): cg,
-            ])
-            ctx.textPosition = CGPoint(x: CGFloat(col + i * width) * cellWidth, y: baseline)
-            CTLineDraw(CTLineCreateWithAttributedString(string), ctx)
-        }
-        // Lines are drawn by hand: CTLineDraw ignores strikethrough, and all
-        // underline kinds share one line until the renderer draws them.
-        let span = cellRect(row: row, col: col, cols: cols)
-        var lines: [(y: CGFloat, color: CGColor)] = []
-        if style.underline != UInt8(TT_UNDERLINE_NONE) {
-            let color = style.underline_color == UInt32(TT_COLOR_DEFAULT) ? cg
-                : Palette.cgColor(palette.rgb(style.underline_color, fallback: fg))
-            lines.append((baseline - font.underlinePosition, color))
-        }
-        if attrs & UInt16(TT_ATTR_STRIKE) != 0 { lines.append((baseline - font.xHeight / 2, cg)) }
-        if attrs & UInt16(TT_ATTR_OVERLINE) != 0 { lines.append((span.minY, cg)) }
-        for (y, color) in lines {
-            ctx.setFillColor(color)
-            ctx.fill(CGRect(x: span.minX, y: y, width: span.width, height: max(1, font.underlineThickness)))
-        }
-    }
-
-    private func drawCursor(_ session: TerminalSession, in ctx: CGContext) {
-        let cursor = session.view.cursor
-        let (row, col) = (Int(cursor.row), Int(cursor.col))
-        guard cursor.visible != 0, let cell = session.cell(row: row, col: col) else { return }
-        let rect = cellRect(row: row, col: col, cols: max(1, Int(cell.width)))
-        let color = Palette.cgColor(palette.cursor)
-        guard focused else {
-            ctx.setStrokeColor(color)
-            ctx.stroke(rect.insetBy(dx: 0.5, dy: 0.5), width: 1)
-            return
-        }
-        ctx.setFillColor(color)
-        ctx.fill(rect)
-        guard cell.codepoint != 0, let scalar = Unicode.Scalar(cell.codepoint) else { return }
-        drawRun(String(scalar), style: session.style(cell.style), col: col, cols: Int(cell.width),
-                width: Int(cell.width), row: row, in: ctx, color: palette.background)
+        NSAttributedString(string: failure ?? "", attributes: [.font: font, .foregroundColor: NSColor.white])
+            .draw(at: NSPoint(x: cellWidth, y: cellHeight))
     }
 
     // MARK: Keyboard
 
     @objc private func keyChanged(_ note: Notification) {
-        focused = note.name == NSWindow.didBecomeKeyNotification
-        _ = session?.focus(focused)
+        setFocused(note.name == NSWindow.didBecomeKeyNotification && window?.firstResponder === self)
+    }
+
+    // Focus is per pane: the key window alone does not say which of its
+    // panes has the keyboard.
+    public override func becomeFirstResponder() -> Bool {
+        setFocused(window?.isKeyWindow ?? false)
+        onFocus?()
+        // The window is not told its new first responder until this returns.
+        showTitle(true)
+        return true
+    }
+
+    /// The program's title names the window while this pane has the keyboard.
+    private func showTitle(_ hasKeyboard: Bool) {
+        guard hasKeyboard, let title = session?.title else { return }
+        window?.title = title
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        setFocused(false)
+        return true
+    }
+
+    private func setFocused(_ value: Bool) {
+        guard value != focused else { return }
+        focused = value
+        _ = session?.focus(value)
         needsDisplay = true
     }
 
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        runBinding(event) || super.performKeyEquivalent(with: event)
+    }
+
     public override func keyDown(with event: NSEvent) {
+        if runBinding(event) { return }
         let flags = event.modifierFlags
         guard !flags.contains(.command) else { return super.keyDown(with: event) }
+        // Typing replaces what was selected, as in a text view.
+        _ = session?.clearSelection()
         var text = ""
-        if flags.contains(.control) {
+        if flags.contains(.control) && !textInput.hasMarkedText {
             // Control's own characters are the core's to produce; the
             // event's text is what the key types without it.
             text = event.charactersIgnoringModifiers ?? ""
         } else {
-            // Collects what the input system types, dead keys included.
-            keyText = ""
-            interpretKeyEvents([event])
-            text = keyText ?? ""
-            keyText = nil
+            // An input method may take the key or compose text from it.
+            guard let typed = interpret(event) else { return }
+            text = typed
         }
         text = String(text.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7F && !(0xF700...0xF8FF).contains($0.value) })
         sendKey(event, action: event.isARepeat ? TT_KEY_REPEAT : TT_KEY_PRESS, text: text)
@@ -276,15 +376,6 @@ public final class TerminalView: NSView {
         if session.update() { needsDisplay = true }
     }
 
-    public override func insertText(_ insertString: Any) {
-        let string = (insertString as? NSAttributedString)?.string ?? (insertString as? String) ?? ""
-        if keyText != nil {
-            keyText? += string
-        } else if session?.text(string) == TT_FULL {
-            NSSound.beep()
-        }
-    }
-
     // Keys like Return and the arrows reach the core as keys, not as the
     // editing commands AppKit maps them to.
     public override func doCommand(by selector: Selector) {}
@@ -308,8 +399,7 @@ public final class TerminalView: NSView {
     private func mouse(_ event: NSEvent, action: Int32, button: Int32) -> Bool {
         guard let session else { return false }
         let p = convert(event.locationInWindow, from: nil)
-        let col = min(max(0, Int(p.x / cellWidth)), Int(grid.cols) - 1)
-        let row = min(max(0, Int(p.y / cellHeight)), Int(grid.rows) - 1)
+        let (row, col) = cell(at: p)
         if action == TT_MOUSE_MOTION {
             guard lastMotionCell.map({ $0 != (col, row) }) ?? true else { return false }
         }
@@ -330,9 +420,29 @@ public final class TerminalView: NSView {
         }
     }
 
-    public override func mouseDown(with e: NSEvent) { mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_LEFT) }
-    public override func mouseUp(with e: NSEvent) { mouse(e, action: TT_MOUSE_RELEASE, button: TT_MOUSE_LEFT) }
-    public override func mouseDragged(with e: NSEvent) { mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_LEFT) }
+    func cell(at point: CGPoint) -> (row: Int, col: Int) {
+        SelectionGesture.cell(at: point, cellWidth: cellWidth, cellHeight: cellHeight,
+                              cols: Int(grid.cols), rows: Int(grid.rows))
+    }
+
+    public override func mouseDown(with e: NSEvent) {
+        // The program sees the press first, as before selection existed.
+        if !SelectionGesture.forcesSelection(e.modifierFlags), mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_LEFT) {
+            selectionDrag = nil
+            return
+        }
+        selectionPress(e)
+    }
+
+    public override func mouseUp(with e: NSEvent) {
+        if selectionDrag != nil { return selectionRelease() }
+        mouse(e, action: TT_MOUSE_RELEASE, button: TT_MOUSE_LEFT)
+    }
+
+    public override func mouseDragged(with e: NSEvent) {
+        if selectionDrag != nil { return selectionDragged(e) }
+        mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_LEFT)
+    }
     public override func mouseMoved(with e: NSEvent) { mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_NONE) }
     public override func rightMouseDown(with e: NSEvent) { mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_RIGHT) }
     public override func rightMouseUp(with e: NSEvent) { mouse(e, action: TT_MOUSE_RELEASE, button: TT_MOUSE_RIGHT) }

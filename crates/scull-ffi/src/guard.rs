@@ -25,7 +25,8 @@ pub enum tt_status {
     TT_POISONED = 3,
     /// This call panicked inside the core; the terminal is now poisoned.
     TT_PANIC = 4,
-    /// Nothing to report: the event queue is empty.
+    /// Nothing to report: the event queue is empty, or the event text or
+    /// link asked for is no longer held.
     TT_EMPTY = 5,
     /// The terminal has no child to talk to: it was made by
     /// `tt_term_new`, or its child has gone.

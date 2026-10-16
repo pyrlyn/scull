@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Builds and runs on every host: the packer's tests run everywhere, the
+       Direct3D ones only on Windows ([OSCondition]) and show as skipped elsewhere. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MSTest" Version="4.5.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Scull.Render/Scull.Render.csproj" />
+    <!-- The same resolver that points scull_ffi at cargo's target/debug. -->
+    <Compile Include="../Scull.Core.Tests/NativeLibrarySetup.cs" Link="NativeLibrarySetup.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+  </ItemGroup>
+
+</Project>

@@ -12,6 +12,7 @@ use scull_pty::{ExitStatus, Mutex, Pty, PtySize};
 use scull_term::Terminal;
 
 use crate::abi_compatible;
+use crate::event::Polled;
 use crate::guard::{SizedStruct, guard, read_sized, tt_status, with_term};
 use crate::spawn::{Wake, tt_str, tt_wakeup_fn};
 
@@ -65,6 +66,8 @@ pub(crate) struct Core {
     pub(crate) exit: Option<ExitStatus>,
     /// Replies taken from the terminal and not yet handed to the PTY.
     pub(crate) replies: Vec<u8>,
+    /// The text of the event the host polled last.
+    pub(crate) polled: Polled,
     /// The handle's poison flag: the PTY thread sets it too.
     pub(crate) poisoned: Arc<AtomicBool>,
 }
@@ -144,6 +147,7 @@ pub(crate) unsafe fn create(
         term,
         exit: None,
         replies: Vec::new(),
+        polled: Polled::default(),
         poisoned: Arc::new(AtomicBool::new(false)),
     };
     Ok((options, core))

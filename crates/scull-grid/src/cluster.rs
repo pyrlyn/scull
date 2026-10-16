@@ -88,7 +88,8 @@ impl ClusterTable {
     }
 
     /// Reclaims every id `live` does not mark; returns how many. Ids held
-    /// outside the marked rows are invalid afterwards.
+    /// outside the marked rows are invalid afterwards. Marks made before
+    /// the latest intern reclaim nothing.
     pub fn sweep(&mut self, live: &Marks) -> usize {
         self.0.sweep(live)
     }

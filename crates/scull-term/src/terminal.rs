@@ -11,6 +11,8 @@ use scull_unicode::WidthOptions;
 
 use crate::error::TermError;
 use crate::modes::Modes;
+use crate::search::Search;
+use crate::selection::Selection;
 use crate::state::{Cursor, Margins, State};
 use crate::sync::SyncGate;
 
@@ -24,6 +26,8 @@ pub struct Terminal {
     parser: Parser,
     pub(crate) state: State,
     sync: SyncGate,
+    pub(crate) selection: Option<Selection>,
+    pub(crate) search: Option<Search>,
 }
 
 impl Terminal {
@@ -48,6 +52,8 @@ impl Terminal {
             parser: Parser::new(),
             state: State::new(grid, alt, width),
             sync: SyncGate::default(),
+            selection: None,
+            search: None,
         })
     }
 
@@ -58,6 +64,9 @@ impl Terminal {
         // Once per feed rather than per scrolled line: placements are
         // anchored to absolute lines, so stale ones only cost memory.
         self.state.images.prune();
+        if self.selection.is_some() {
+            self.check_selection();
+        }
         if self
             .sync
             .fed(self.state.modes.synchronized_output, bytes.len())
@@ -103,9 +112,18 @@ impl Terminal {
     ///
     /// During an interactive resize call this once with the final size,
     /// with PTY output paused meanwhile (the contract on
-    /// `scull_grid::Grid::resize`).
+    /// `scull_grid::Grid::resize`). A change of size drops the selection
+    /// and forgets the current search match: rewrapping moves their cells.
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<(), TermError> {
-        self.state.resize(cols, rows)
+        let before = (self.state.cols(), self.state.rows());
+        self.state.resize(cols, rows)?;
+        if before != (cols, rows) {
+            self.selection = None;
+            if let Some(s) = &mut self.search {
+                s.forget_current();
+            }
+        }
+        Ok(())
     }
 
     /// Sets the size of a cell in pixels, which turns image sizes into
@@ -176,7 +194,7 @@ impl Terminal {
     /// Whether BEL arrived since the last call. Bells in between are one
     /// bell: a host rings once per look, however fast a program beeps.
     pub fn take_bell(&mut self) -> bool {
-        std::mem::take(&mut self.state.bell)
+        self.state.events.take_bell()
     }
 
     /// Takes the replies queued for the program (device attributes, status
@@ -274,6 +292,53 @@ pub(crate) mod tests {
             proptest::sample::select(FRAGMENTS).prop_map(<[u8]>::to_vec),
         ];
         proptest::collection::vec(piece, 0..400).prop_map(|p| p.concat())
+    }
+
+    fn flags(term: &Terminal, row: u16, col: u16) -> CellFlags {
+        term.grid()
+            .screen_row(row)
+            .and_then(|r| r.cell(col))
+            .map(Cell::flags)
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn a_wide_character_past_the_last_column_leaves_a_leading_spacer() {
+        let mut term = Terminal::new(5, 2, 0).unwrap();
+        term.feed("abcd中".as_bytes());
+        let spacer = term.grid().screen_row(0).and_then(|r| r.cell(4)).unwrap();
+        assert!(spacer.flags().contains(CellFlags::LEADING_SPACER));
+        assert_eq!(spacer.content(), Content::Empty);
+        assert!(term.grid().screen_row(0).unwrap().wrapped());
+        let head = term.grid().screen_row(1).and_then(|r| r.cell(0)).unwrap();
+        assert_eq!(head.content(), Content::Char('中'));
+        assert!(head.flags().contains(CellFlags::WIDE));
+        assert!(flags(&term, 1, 1).contains(CellFlags::SPACER));
+        assert_eq!((term.cursor().row, term.cursor().col), (1, 2));
+        let mut text = String::new();
+        term.read_text(0..2, &mut text);
+        assert_eq!(text, "abcd\n中");
+    }
+
+    #[test]
+    fn without_autowrap_a_wide_character_overwrites_the_last_two_columns() {
+        let mut term = Terminal::new(5, 2, 0).unwrap();
+        term.feed("\x1b[?7labcd中".as_bytes());
+        assert!((0..5).all(|c| !flags(&term, 0, c).contains(CellFlags::LEADING_SPACER)));
+        assert!(flags(&term, 0, 3).contains(CellFlags::WIDE));
+        assert!(!term.grid().screen_row(0).unwrap().wrapped());
+        let mut text = String::new();
+        term.read_text(0..2, &mut text);
+        assert_eq!(text, "abc中\n");
+    }
+
+    #[test]
+    fn a_wide_character_from_the_pending_wrap_leaves_no_spacer() {
+        let mut term = Terminal::new(5, 2, 0).unwrap();
+        term.feed("abcde中".as_bytes());
+        assert!((0..5).all(|c| !flags(&term, 0, c).contains(CellFlags::LEADING_SPACER)));
+        assert!(term.grid().screen_row(0).unwrap().wrapped());
+        assert!(flags(&term, 1, 0).contains(CellFlags::WIDE));
     }
 
     #[test]

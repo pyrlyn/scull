@@ -67,6 +67,8 @@ impl State {
         std::mem::swap(&mut self.images, &mut self.alt_images);
         self.alt_active = !self.alt_active;
         self.pen.forget();
+        // The open link is pen state, which `forget` already dropped.
+        self.links.close();
     }
 
     /// Enters the alternate screen; `clear` blanks it first (`?1049`).
@@ -108,6 +110,7 @@ impl State {
         self.charsets = Charsets::default();
         self.saved = [None, None];
         self.last_char = None;
+        self.links.close();
     }
 
     /// DECSTR: the soft reset of DEC STD 070 as xterm applies it. Modes it
@@ -127,5 +130,7 @@ impl State {
         self.pen.set(Style::default());
         self.charsets = Charsets::default();
         *self.saved_slot() = None;
+        // An open hyperlink is part of the pen DECSTR restores.
+        self.links.close();
     }
 }

@@ -46,6 +46,18 @@ impl Replies {
         }
     }
 
+    /// An OSC 52 answer from the host. It may be larger than a device
+    /// report; it is still one whole reply, and the clipboard cap is the
+    /// bound because the bytes are the host's, not a loop the PTY can grow.
+    /// False when it does not fit, so the caller can still answer.
+    pub(crate) fn push_host(&mut self, reply: &[u8]) -> bool {
+        let fits = self.bytes.len() + reply.len() <= crate::events::MAX_CLIPBOARD_REPLY;
+        if fits {
+            self.bytes.extend_from_slice(reply);
+        }
+        fits
+    }
+
     pub(crate) fn take(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.bytes)
     }

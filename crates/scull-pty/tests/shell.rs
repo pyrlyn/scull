@@ -2,6 +2,8 @@
 //! input, resize, replies and shutdown. Process-spawning tests live here, apart
 //! from the unit tests, because they need the operating system's shell.
 
+mod common;
+
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
@@ -23,6 +25,7 @@ struct Recorder {
     /// Sent once, as soon as `trigger` appears in the output.
     reply: Vec<u8>,
     trigger: &'static str,
+    cursor: common::CursorReport,
 }
 
 impl Recorder {
@@ -35,9 +38,11 @@ impl Sink for Recorder {
     fn feed(&mut self, bytes: &[u8]) {
         self.fed_after_exit |= self.exit.is_some();
         self.output.extend_from_slice(bytes);
+        self.cursor.feed(bytes);
     }
 
     fn drain_replies(&mut self, out: &mut Vec<u8>, limit: usize) {
+        let limit = limit - self.cursor.drain(out, limit);
         if !self.trigger.is_empty() && self.text().contains(self.trigger) {
             let take = self.reply.len().min(limit);
             out.extend(self.reply.drain(..take));

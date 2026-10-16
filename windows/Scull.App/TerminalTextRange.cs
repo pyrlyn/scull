@@ -34,10 +34,10 @@ internal sealed partial class TerminalTextRange(TextSnapshot snapshot, TextRange
     public object GetAttributeValue(int attributeId) => DependencyProperty.UnsetValue;
 
     /// <summary>Left, top, width and height of each row's rectangle in turn, in screen pixels.</summary>
-    public double[] GetBoundingRectangles()
+    public void GetBoundingRectangles(out double[] returnValue)
     {
         Windows.Foundation.Point origin = owner.ScreenOrigin;
-        return
+        returnValue =
         [
             .. snapshot.Rectangles(range).SelectMany(r => new[] { origin.X + r.X, origin.Y + r.Y, r.Width, r.Height }),
         ];

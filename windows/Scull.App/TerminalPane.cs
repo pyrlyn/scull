@@ -12,21 +12,25 @@ namespace Scull.App;
 /// </summary>
 internal sealed class TerminalPane : IDisposable
 {
-    private const float FontSize = 14;
-    private static readonly string[] FontFamilies = ["Cascadia Mono", "Consolas"];
-
     private readonly RenderDevice device;
     private readonly Terminal terminal;
     private readonly WindowsPointer pointer = new();
     private readonly WheelSteps wheel = new();
     private readonly WheelSteps wheelAcross = new();
+    private readonly FontZoom font = new();
     private Renderer renderer;
+    private float scale;
     private bool focused;
 
-    public TerminalPane(RenderDevice device, Terminal terminal, float scale, (ushort Cols, ushort Rows) cells)
+    /// <param name="settings">The config's settings, null for the defaults.</param>
+    public TerminalPane(RenderDevice device, Terminal terminal, float scale, (ushort Cols, ushort Rows) cells, ConfigSettings? settings)
     {
-        (this.device, this.terminal, Cells) = (device, terminal, cells);
-        renderer = CreateRenderer(device, scale);
+        (this.device, this.terminal, this.scale, Cells) = (device, terminal, scale, cells);
+        if (settings is not null)
+        {
+            font.Apply(settings);
+        }
+        renderer = CreateRenderer(settings is null ? new Palette() : new Palette(settings));
         Pairing = new WindowsKeyPairing(key => Send(t => t.Key(key)), text => Send(t => t.Text(text)));
     }
 
@@ -43,29 +47,62 @@ internal sealed class TerminalPane : IDisposable
 
     public CellMetrics Metrics => renderer.Metrics;
 
-    private static Renderer CreateRenderer(RenderDevice device, float scale)
+    private float Pixels => font.Size * Math.Max(scale, 0.5f);
+
+    private Renderer CreateRenderer(Palette palette)
     {
-        float pixels = FontSize * Math.Max(scale, 0.5f);
-        foreach (string family in FontFamilies)
+        Renderer? made = null;
+        WithFamily(family => made = new Renderer(device, family, Pixels, palette));
+        return made!;
+    }
+
+    // The configured family, then the system's monospace fonts; the last one's error stands.
+    private void WithFamily(Action<string> use)
+    {
+        IReadOnlyList<string> families = font.Families;
+        foreach (string family in families)
         {
             try
             {
-                return new Renderer(device, family, pixels);
+                use(family);
+                return;
             }
-            catch (ArgumentException) when (family != FontFamilies[^1])
+            catch (ArgumentException) when (family != families[^1])
             {
                 // Not installed (Cascadia ships with Windows 11 and Terminal); try the next.
             }
         }
-        throw new InvalidOperationException("unreachable: the last family rethrows");
     }
 
     /// <summary>A new scale changes the cell size, so the renderer is made again.</summary>
     public void Rebuild(float scale)
     {
+        this.scale = scale;
+        Palette palette = renderer.Palette;
         renderer.Dispose();
-        renderer = CreateRenderer(device, scale);
+        renderer = CreateRenderer(palette);
         renderer.Focused = focused;
+    }
+
+    /// <summary>Takes new settings: colours at once, a new font only when the file changed it. The window refits the grid after.</summary>
+    public void Configure(ConfigSettings settings)
+    {
+        renderer.Palette = new Palette(settings);
+        if (font.Apply(settings))
+        {
+            WithFamily(family => renderer.SetFont(family, Pixels));
+        }
+    }
+
+    /// <summary>A font size action; true when the cells changed size and the grid needs refitting.</summary>
+    public bool Zoom(ConfigAction action)
+    {
+        if (!font.Run(action))
+        {
+            return false;
+        }
+        WithFamily(family => renderer.SetFont(family, Pixels));
+        return true;
     }
 
     /// <summary>Takes the core's changes into the renderer; true when the picture changed.</summary>

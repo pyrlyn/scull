@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Scull.Core;
 
 namespace Scull.App;
 
@@ -24,8 +26,51 @@ internal sealed partial class App : Application
     // Held so a window outlives OnLaunched; it disposes itself when closed. The
     // process ends with the last window.
     private readonly List<Window> windows = [];
+    private string openError = "";
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args) => OpenWindow();
+    /// <summary>The user's config file, shared by every window; null when it could not be opened, and the defaults stay.</summary>
+    public Config? Config { get; private set; }
+
+    /// <summary>The settings in force: the last good values, with any error in the file beside them. Null without a config.</summary>
+    public ConfigSettings? Settings => Config?.Settings;
+
+    /// <summary>What is wrong with the config, empty when nothing is.</summary>
+    public string ConfigError => Settings?.Error is { Length: > 0 } error ? error : openError;
+
+    /// <summary>Raised on the UI thread when a poll found the settings changed.</summary>
+    public event Action<ConfigSettings>? ConfigChanged;
+
+    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    {
+        OpenConfig();
+        OpenWindow();
+    }
+
+    private void OpenConfig()
+    {
+        DispatcherQueue queue = DispatcherQueue.GetForCurrentThread();
+        try
+        {
+            // The wakeup runs on a core thread: post and return, the poll happens on this one.
+            Config = Config.Open(null, () => queue.TryEnqueue(PollConfig));
+        }
+        catch (ScullException e)
+        {
+            // A terminal without settings still works; the windows show why.
+            openError = $"The config could not be opened: {e.Message}";
+            Debug.WriteLine(openError);
+            return;
+        }
+        PollConfig();
+    }
+
+    private void PollConfig()
+    {
+        if (Config?.TryPoll(out ConfigSettings settings) == true)
+        {
+            ConfigChanged?.Invoke(settings);
+        }
+    }
 
     /// <summary>A window of its own: its own swap chain and tabs.</summary>
     public void OpenWindow()

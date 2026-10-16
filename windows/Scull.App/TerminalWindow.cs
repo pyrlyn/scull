@@ -45,6 +45,8 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         public TerminalPane Focused => Views[Panes.Tree.Focused];
     }
 
+    private readonly App app = (App)Application.Current;
+    private readonly InfoBar configError = new() { Severity = InfoBarSeverity.Error, Title = "Config" };
     private readonly TabView tabView;
     private readonly SwapChainPanel panel = new();
     private readonly Canvas notices = new() { IsHitTestVisible = false };
@@ -83,12 +85,15 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             // A swap chain is nothing XAML can hit-test; a transparent background is.
             Content = new Grid { Background = new SolidColorBrush(Colors.Transparent), Children = { panel, notices } },
         };
-        Grid.SetRow(host, 1);
+        Grid.SetRow(configError, 1);
+        Grid.SetRow(host, 2);
         Content = new Grid
         {
-            RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition() },
-            Children = { tabView, host },
+            RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition() },
+            Children = { tabView, configError, host },
         };
+        ShowConfigError();
+        app.ConfigChanged += OnConfig;
         WireInput();
         ime = new TerminalInputMethod(WinRT.Interop.WindowNative.GetWindowHandle(this), host, FocusedPane, Input);
         device = CreateDevice();
@@ -214,10 +219,12 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         DispatcherQueue queue = DispatcherQueue;
         DispatcherQueueHandler wake = () => Wake(tab, id);
         // Runs on a core thread: post and return, the work happens in Wake.
-        Terminal terminal = Terminal.Spawn(cols, rows, () => queue.TryEnqueue(wake), Spawn);
+        // Scrollback is fixed at spawn, so a change reaches terminals opened after it.
+        SpawnOptions spawn = app.Settings is { } settings ? Spawn with { Scrollback = settings.Scrollback } : Spawn;
+        Terminal terminal = Terminal.Spawn(cols, rows, () => queue.TryEnqueue(wake), spawn);
         try
         {
-            tab.Views[id] = new TerminalPane(device, terminal, scale, (cols, rows));
+            tab.Views[id] = new TerminalPane(device, terminal, scale, (cols, rows), app.Settings);
         }
         catch
         {
@@ -326,6 +333,51 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         {
             // A shell that would not start; the tab strip has no room for a message.
             Title = $"Scull: {e.Message}";
+        }
+    }
+
+    private void OnConfig(ConfigSettings settings)
+    {
+        foreach (TerminalPane pane in tabs.SelectMany(t => t.Views.Values))
+        {
+            pane.Configure(settings);
+        }
+        ShowConfigError();
+        // The other tabs refit when selected.
+        if (current is { } tab)
+        {
+            Relayout(tab, force: true);
+        }
+    }
+
+    // The core keeps the last good values when the file breaks, so only the message changes.
+    private void ShowConfigError()
+    {
+        configError.Message = app.ConfigError;
+        configError.IsOpen = configError.Message.Length > 0;
+    }
+
+    /// <summary>Runs a configured key binding on the focused pane, as TerminalView.swift's <c>runBinding</c> does.</summary>
+    private void RunBinding(ConfigAction action)
+    {
+        if (current is not { } tab)
+        {
+            return;
+        }
+        TerminalPane pane = tab.Focused;
+        if (action == ConfigAction.Paste)
+        {
+            PasteClipboard();
+        }
+        else if (ConfigBindings.ScrollRows(action, pane.Cells.Rows) is int rows)
+        {
+            // History scrolling sends no wakeup, so the view refreshes here.
+            pane.Send(t => t.ScrollDisplay(rows));
+            Redraw(force: false);
+        }
+        else if (pane.Zoom(action))
+        {
+            Relayout(tab, force: true);
         }
     }
 
@@ -505,7 +557,14 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             Run(command);
             return;
         }
-        if (WindowsKeys.IsPaste(WindowsKeys.Map(key, scanCode, extended), held))
+        uint? mapped = WindowsKeys.Map(key, scanCode, extended);
+        if (app.Settings is { } settings && ConfigBindings.Match(settings.Keybinds, mapped, held) is { } action)
+        {
+            e.Handled = true;
+            RunBinding(action);
+            return;
+        }
+        if (WindowsKeys.IsPaste(mapped, held))
         {
             e.Handled = true;
             PasteClipboard();
@@ -583,6 +642,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
 
     public void Dispose()
     {
+        app.ConfigChanged -= OnConfig;
         resizeTimer.Stop();
         ime.Dispose();
         foreach (Tab tab in tabs)

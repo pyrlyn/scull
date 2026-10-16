@@ -30,3 +30,8 @@ IDXGIAdapter
 IDXGIFactory2
 IDXGISwapChain2
 DXGI_SWAP_CHAIN_DESC1
+IDWriteTextAnalyzer
+IDWriteTextAnalysisSource
+IDWriteTextAnalysisSink
+IDWriteFontFallback
+IDWriteFontFile

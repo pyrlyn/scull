@@ -369,8 +369,46 @@ public sealed unsafe class Terminal : IDisposable
         }
         Check(status, "tt_term_poll_event");
         uint? exitCode = raw.exit_code == NativeMethods.TT_EXIT_CODE_UNKNOWN ? null : raw.exit_code;
-        next = new TerminalEvent((EventKind)raw.kind, exitCode, raw.signaled != 0);
+        // Only the event polled last has its text, so it is read before anything else polls.
+        byte[] body = raw.text_len == 0 ? [] : ReadEventText(raw.serial);
+        next = new TerminalEvent((EventKind)raw.kind, exitCode, raw.signaled != 0, raw.id, raw.detail, body);
         return true;
+    }
+
+    private byte[] ReadEventText(ulong serial)
+    {
+        byte[] buffer = [];
+        // The text is fixed once polled, so one retry with the length it reported is enough.
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            nuint length = 0;
+            tt_status status;
+            using (var t = new Lease(term))
+            fixed (byte* p = buffer)
+            {
+                status = NativeMethods.tt_term_event_text((tt_term*)t.Pointer, serial, NativeMethods.TT_EVENT_TEXT_BODY, p, (nuint)buffer.Length, &length);
+            }
+            if (status == tt_status.TT_OK)
+            {
+                return buffer[..checked((int)length)];
+            }
+            if (status != tt_status.TT_FULL)
+            {
+                Check(status, "tt_term_event_text");
+            }
+            buffer = new byte[checked((int)length)];
+        }
+        throw new ScullException(Status.Full, "tt_term_event_text: the text outgrew its reported length");
+    }
+
+    /// <summary>
+    /// Refuses the clipboard read <paramref name="id"/> (<see cref="TerminalEvent.Id"/>), so the program
+    /// is not left waiting. False when the child is gone.
+    /// </summary>
+    public bool ClipboardDeny(ulong id)
+    {
+        using var t = new Lease(term);
+        return Sent(NativeMethods.tt_term_clipboard_deny((tt_term*)t.Pointer, id), "tt_term_clipboard_deny");
     }
 
     /// <summary>
@@ -455,13 +493,28 @@ public enum EventKind : uint
 {
     Bell = NativeMethods.TT_EVENT_BELL,
     ChildExited = NativeMethods.TT_EVENT_CHILD_EXITED,
+    Title = NativeMethods.TT_EVENT_TITLE,
+    WorkingDirectory = NativeMethods.TT_EVENT_WORKING_DIRECTORY,
+    ShellMark = NativeMethods.TT_EVENT_SHELL_MARK,
+    ClipboardRead = NativeMethods.TT_EVENT_CLIPBOARD_READ,
+    ClipboardWrite = NativeMethods.TT_EVENT_CLIPBOARD_WRITE,
+    Link = NativeMethods.TT_EVENT_LINK,
+    Notification = NativeMethods.TT_EVENT_NOTIFICATION,
 }
 
 /// <summary>
 /// One polled event. For <see cref="EventKind.ChildExited"/>, the exit code
 /// (null when the system did not say) and whether a signal ended the child.
+/// <paramref name="Id"/> is the clipboard request or the link, <paramref name="Detail"/> the title
+/// kind, shell marker or clipboard selection, and <paramref name="Body"/> the event's raw bytes
+/// (empty when it has none): not necessarily UTF-8 for a clipboard write.
 /// </summary>
-public readonly record struct TerminalEvent(EventKind Kind, uint? ExitCode, bool Signaled);
+public readonly record struct TerminalEvent(
+    EventKind Kind, uint? ExitCode, bool Signaled, ulong Id = 0, uint Detail = 0, byte[]? Body = null)
+{
+    /// <summary>The body as text, bad bytes shown as U+FFFD; for kinds that are names, such as titles.</summary>
+    public string Text => Encoding.UTF8.GetString(Body ?? []);
+}
 
 /// <summary>What <see cref="Terminal.Spawn"/> runs, and where.</summary>
 public sealed record SpawnOptions

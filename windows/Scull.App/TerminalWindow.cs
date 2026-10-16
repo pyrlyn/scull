@@ -37,6 +37,9 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private sealed class Tab(TabViewItem item)
     {
         public TabViewItem Item { get; } = item;
+
+        /// <summary>The header while no program has set a title.</summary>
+        public string Name { get; init; } = "";
         public PaneSet Panes { get; set; } = null!;
         public Dictionary<int, TerminalPane> Views { get; } = [];
         public IReadOnlyList<PaneViewport> Layout { get; set; } = [];
@@ -216,7 +219,8 @@ internal sealed partial class TerminalWindow : Window, IDisposable
 
     private void AddTab()
     {
-        var tab = new Tab(new TabViewItem { Header = $"Terminal {++tabCount}" });
+        string name = $"Terminal {++tabCount}";
+        var tab = new Tab(new TabViewItem { Header = name }) { Name = name };
         tab.Item.Tag = tab;
         // The first pane is made inside the constructor, so a shell that will not start leaves no tab behind.
         tab.Panes = new PaneSet(id => SpawnPane(tab, id));
@@ -426,7 +430,16 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         {
             return;
         }
-        if (pane.Exited())
+        DrainedEvents drained = pane.Drain();
+        if (drained.Clipboard is { } text)
+        {
+            CopyToClipboard(text);
+        }
+        if (drained.TitleChanged)
+        {
+            ShowTitles();
+        }
+        if (drained.Exited)
         {
             ClosePane(tab, id);
         }
@@ -617,6 +630,30 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         Input(pane => e.Handled = pane.Pairing.KeyDown(key, scanCode, extended, e.KeyStatus.WasKeyDown, held));
     }
 
+    // A program's OSC 52 write; busy or refused, the copy is dropped as the paste is.
+    private static void CopyToClipboard(string text)
+    {
+        try
+        {
+            var package = new DataPackage();
+            package.SetText(text);
+            Clipboard.SetContent(package);
+        }
+        catch (COMException)
+        {
+            return;
+        }
+        try
+        {
+            // Keeps the text after the app exits, as a copy from a text box would.
+            Clipboard.Flush();
+        }
+        catch (COMException)
+        {
+            // Only the survival of the text is lost.
+        }
+    }
+
     private async void PasteClipboard()
     {
         string text;
@@ -690,8 +727,29 @@ internal sealed partial class TerminalWindow : Window, IDisposable
                 pane.SetFocus(window && tab == current && id == tab.Panes.Tree.Focused);
             }
         }
+        ShowTitles();
         Redraw(force: true);
     }
+
+    // A tab is named by the program in its focused pane; the window by the selected tab.
+    private void ShowTitles()
+    {
+        foreach (Tab tab in tabs)
+        {
+            string header = TitleOf(tab) ?? tab.Name;
+            if (!Equals(tab.Item.Header, header))
+            {
+                tab.Item.Header = header;
+            }
+        }
+        string window = current is { } selected ? TitleOf(selected) ?? "Scull" : "Scull";
+        if (Title != window)
+        {
+            Title = window;
+        }
+    }
+
+    private static string? TitleOf(Tab tab) => tab.Views.TryGetValue(tab.Panes.Tree.Focused, out TerminalPane? pane) ? pane.Title : null;
 
     public void Dispose()
     {

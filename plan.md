@@ -10,9 +10,12 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T15 | in progress | P1 | 5 | 90% | Claude Code / claude-opus-5-5 |
 | T16 | in progress | P1 | 4 | 85% | Claude Code / claude-opus-5-5 |
 | T17 | in progress | P1 | 5 | 95% | Claude Code / claude-opus-5-5 |
-| T18 | in progress | P2 | 5 | 90% | Claude Code / claude-sonnet-5-5 |
+| T18 | in progress | P2 | 5 | 95% | Claude Code / claude-sonnet-5-5 |
 | T20 | in progress | P2 | 3 | 95% | Claude Code / claude-sonnet-5-5 |
-| T21 | in progress | P2 | 3 | 90% | Claude Code / claude-sonnet-5-5 |
+| T21 | in progress | P2 | 3 | 95% | Claude Code / claude-sonnet-5-5 |
+| T31 | todo | P2 | 4 | 0% | |
+| T32 | todo | P3 | 3 | 0% | |
+| T33 | todo | P2 | 4 | 0% | |
 
 ### T3. Conformance and benchmark harness
 
@@ -167,4 +170,16 @@ Landed: T21.3.1. `Scull.Core` has `PaneTree` (the Swift rules: a split puts the 
 Landed: T21.3.2. A window is a `TabView` over one swap chain; each tab is a `PaneSet`, and the panes of the selected tab are `PaneTree.Layout` viewports of that swap chain, each drawn by its own `Renderer` through `Render(view, target, Region)` (so each pane keeps its own glyph atlas; sharing one is a later optimisation). Any change redraws every pane of the tab and presents once, because the flip buffers rotate. Ctrl+Shift+T, N, D, E, W, ] and [ run New Tab, New Window, Split Right, Split Down, Close Pane, Next and Previous Pane, and the tab strip's own buttons add and close tabs; a pane's focus shows as a block cursor and the others as a hollow box. Verified here: `just check`, `just windows-core-test` (122 Core tests, including key chords, hit testing and the poisoned pane) and a compile of `Scull.App` with warnings as errors. Not verified by anyone: `Scull.Render.Tests/RegionTests.cs` and `just windows-app` run only on Windows, and nobody has run the app by hand, so the tab strip's height with no content, focus returning from the tab strip, Ctrl+Shift chords also producing a character, the poison notice's position, DPI changes with several panes and the process ending with the last window are untested. The slice is over the 500-line budget (about 800 lines of code including the pane and window split).
 
 Landed: T21.3.3. `Scull.Render/GlyphAtlas.cs`: `GlyphAtlas` holds what each renderer used to keep per font (the faces, the run shaper and its cache, the sprite canvas, the shelf packer and its texture) with one frame counter for all its users; `GlyphAtlases` is a pool per device keyed by family and pixel size. A renderer acquires its atlas and releases it on `Dispose` or `SetFont`; the last release frees it and drops it from the pool. Each renderer's frame first touches the shelves every user's rows draw from, so evictions caused by one pane never drop texels a neighbour's reused rows still show; a grown atlas has a new generation, and every user rebuilds its rows on its next frame. `Renderer(device, family, size)` still works alone on a private pool, as the tests and the bench use it; `Renderer(device, atlases, family, size)` shares. `Scull.App`: each window holds one `GlyphAtlases` and gives it to its panes, which dispose before the device. Panes of every tab of a window share it, so a hidden tab's shelves are kept too. The app has no device-loss path yet, so an atlas lives and dies with its device. 4 new MSTest methods on WARP: two renderers on one atlas rasterise a glyph once and draw the same pixels, another size gets its own atlas and a `SetFont` to that size joins it, disposing one user keeps the atlas drawing for the other and the last frees it, and a pane forcing evictions in a 64-pixel atlas leaves its neighbour's picture unchanged. Verified: `just check`; `just windows-core-test` on macOS (the new tests skip there); the Windows job of CI run 38925315192 (Core 262 passed, 2 skipped; Render 92 passed, 0 skipped; `just windows-app` built). Not verified: GPU memory and frame times with many panes on a real device. About 230 lines of code added and 90 removed.
+
+### T31. OSC 8 hyperlinks on both platforms
+
+Programs mark text as a link with OSC 8; the core already keeps the link of each cell and reports `TT_EVENT_LINK`, but a host cannot ask which link a cell holds. Done when Ctrl+click (Cmd+click on macOS) on a linked cell opens its URI through the system, the link under the pointer is underlined while the modifier is held, only schemes a user expects to open are opened (http, https, mailto, file on this machine), and the core part has Rust tests and each platform its own.
+
+### T32. Desktop notifications from OSC 9 and OSC 777
+
+The core reports `TT_EVENT_NOTIFICATION` with a body and a title; both shells drop it. Done when a notification a program asks for shows as a system notification on macOS and Windows while the terminal's window is not the active one, is rate-limited so a program cannot flood the desktop, and the policy (when to show, the limit, the text cleaned of control characters and cut to a sane length) is pure code with tests on each platform.
+
+### T33. Jump between shell prompts with OSC 133 marks
+
+Shells that emit OSC 133 mark where each prompt starts; the core reports the marks as events but keeps no positions. Done when the core remembers prompt lines in the scrollback (dropped as history is trimmed), exports a call that scrolls the viewport to the previous or next prompt, and both shells bind it to a key (Ctrl+Shift+Up/Down on Windows, Cmd+Up/Down on macOS), with Rust tests for the marks and the jump and a test per platform for the binding.
 

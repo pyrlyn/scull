@@ -71,6 +71,53 @@ public sealed class RunShaperTests
     }
 
     [TestMethod]
+    public void IconsTheFontLacksComeFromTheSymbolsFont()
+    {
+        using var fonts = new FontFaces("Consolas", 16);
+        using var shaper = new RunShaper(fonts);
+        foreach (string icon in new[] { "\uF015", "\uE0A0", "\U000F0001" })
+        {
+            ShapedGlyph glyph = shaper.Shape(Encoding.UTF8.GetBytes(icon), 0, 1).Single();
+            Assert.IsTrue(shaper.IsSymbols(glyph.Key.Face), $"U+{char.ConvertToUtf32(icon, 0):X4} from Symbols Nerd Font Mono");
+            Assert.AreNotEqual(0, (int)glyph.Key.Glyph);
+            Assert.IsTrue(fonts.Rasterize(glyph.Key, out GlyphBitmap bitmap) && !bitmap.IsColor);
+        }
+    }
+
+    [TestMethod]
+    public void TextTheFaceHasKeepsTheFace()
+    {
+        using var fonts = new FontFaces("Consolas", 16);
+        using var shaper = new RunShaper(fonts);
+        Assert.AreEqual(0, (int)shaper.Shape("a\u00E9"u8, 0, 1)[0].Key.Face);
+        Assert.IsFalse(shaper.IsSymbols(0));
+        ShapedGlyph cjk = shaper.Shape("\u4E2D"u8, 0, 2).Single();
+        Assert.IsFalse(shaper.IsSymbols(cjk.Key.Face), "the system fallback still serves what is not private use");
+    }
+
+    [TestMethod]
+    public void APowerlineSeparatorStaysASprite()
+    {
+        using var fonts = new FontFaces("Consolas", 16);
+        using var shaper = new RunShaper(fonts);
+        Assert.AreEqual(Sprites.Key(0xE0B0), shaper.Shape("\uE0B0"u8, 0, 1).Single().Key);
+    }
+
+    [TestMethod]
+    public void AMissingOrBrokenSymbolsFileLeavesTheSystemFallback()
+    {
+        string notAFont = Path.Combine(AppContext.BaseDirectory, "Fonts", "SymbolsNerdFont-LICENSE");
+        foreach (string path in new[] { Path.Combine(AppContext.BaseDirectory, "no-such-font.ttf"), notAFont })
+        {
+            using var fonts = new FontFaces("Consolas", 16);
+            using var shaper = new RunShaper(fonts, symbolsPath: path);
+            ShapedGlyph icon = shaper.Shape("\uF015"u8, 0, 1).Single();
+            Assert.IsFalse(shaper.IsSymbols(icon.Key.Face), path);
+            Assert.IsGreaterThanOrEqualTo(4, (int)shaper.Shape("\u4E2D"u8, 0, 2).Single().Key.Face, "the system fallback still works");
+        }
+    }
+
+    [TestMethod]
     public void AShapedRunIsCachedAndBounded()
     {
         using var fonts = new FontFaces("Consolas", 16);

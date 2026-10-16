@@ -8,7 +8,8 @@ namespace Scull.Render;
 /// <summary>
 /// Shapes a row's runs with DirectWrite, as RunShaper.swift does with Core
 /// Text: script items, the system font fallback for characters the font
-/// lacks, then glyphs and placements per piece, laid on the grid by
+/// lacks (the bundled <see cref="SymbolFont"/> first for the Private Use
+/// Area), then glyphs and placements per piece, laid on the grid by
 /// <see cref="RunLayout"/>. Shaped runs are cached by text, face and width, so
 /// a frame of runs seen before shapes nothing and allocates nothing.
 /// </summary>
@@ -23,6 +24,7 @@ internal sealed unsafe class RunShaper : IDisposable
     private readonly RunCache<ShapedGlyph[]> cache;
     private IDWriteTextAnalyzer* analyzer;
     private IDWriteFontFallback* fallback;
+    private readonly SymbolFont? symbols;
     // The key is the face and width as two chars, then the run's text.
     private char[] key = new char[256];
     private ushort[] clusterMap = new ushort[64], glyphs = new ushort[112];
@@ -31,17 +33,30 @@ internal sealed unsafe class RunShaper : IDisposable
     private float[] advances = new float[112];
     private DWRITE_GLYPH_OFFSET[] offsets = new DWRITE_GLYPH_OFFSET[112];
 
-    public RunShaper(FontFaces fonts, int limit = 4096)
+    /// <param name="symbolsPath">The symbols font file; null for the one the build ships.</param>
+    public RunShaper(FontFaces fonts, int limit = 4096, string? symbolsPath = null)
     {
         this.fonts = fonts;
         cache = new RunCache<ShapedGlyph[]>(limit);
         IDWriteTextAnalyzer* a;
-        IDWriteFontFallback* f;
+        IDWriteFontFallback* f = null;
         fonts.Factory->CreateTextAnalyzer(&a);
         analyzer = a;
-        fonts.Factory->GetSystemFontFallback(&f);
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240))
+        {
+            symbols = SymbolFont.Load(fonts.Factory, symbolsPath ?? SymbolFont.BundledPath);
+            f = symbols is null ? null : symbols.Fallback(fonts.Factory);
+        }
+        if (f == null)
+        {
+            fonts.Factory->GetSystemFontFallback(&f);
+        }
         fallback = f;
     }
+
+    /// <summary>Whether <paramref name="face"/> came from the bundled symbols font, for tests.</summary>
+    public bool IsSymbols(int face) =>
+        OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240) && symbols is not null && face < fonts.Count && symbols.Owns(fonts[face]);
 
     /// <summary>Runs held in the cache, for tests of its bound.</summary>
     public int Cached => cache.Count;
@@ -177,6 +192,10 @@ internal sealed unsafe class RunShaper : IDisposable
     {
         Com.Release(ref fallback);
         Com.Release(ref analyzer);
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 10240))
+        {
+            symbols?.Dispose();
+        }
         analysis.Dispose();
     }
 }

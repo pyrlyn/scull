@@ -21,11 +21,11 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 7
+#define TT_ABI_VERSION_MINOR 8
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 7
+#define TT_ABI_VERSION 8
 
 // `tt_keybind.action`: paste the clipboard.
 #define TT_ACTION_PASTE 1
@@ -276,6 +276,9 @@
 // One wheel step right.
 #define TT_MOUSE_WHEEL_RIGHT 7
 
+// `tt_cell.flags`: the cell carries the link `tt_term_link_hover` set.
+#define TT_CELL_LINK 16
+
 // `tt_term_select_start` kind: cell by cell, for a drag.
 #define TT_SELECT_CELL 0
 
@@ -483,8 +486,8 @@ typedef struct tt_cell {
   uint16_t style;
   // Columns covered: 1, 2 for a wide character, 0 for the cell behind it.
   uint8_t width;
-  // `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH` and
-  // `TT_CELL_CURRENT_MATCH` bits.
+  // `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH`,
+  // `TT_CELL_CURRENT_MATCH` and `TT_CELL_LINK` bits.
   uint8_t flags;
 } tt_cell;
 
@@ -982,6 +985,25 @@ tt_status tt_term_mouse(const struct tt_term *term,
 //
 // `term` is `NULL` or live.
 tt_status tt_term_scroll_display(const struct tt_term *term, int32_t delta);
+
+// Writes the link id of viewport cell `row`, `col` to `*id`, for
+// `tt_term_link_uri`. `TT_EMPTY` (and 0) where no link covers the cell
+// or the cell is off the viewport; `TT_INVALID` for a `NULL` `id`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `id` is `NULL` or writable.
+tt_status tt_term_link_at(const struct tt_term *term, uint16_t row, uint16_t col, uint32_t *id);
+
+// Underlines link `id`: from the next `tt_frame_update` every viewport
+// cell carrying it has `TT_CELL_LINK`, across rows when it wraps. 0
+// clears it; so does an id no live link has, and the core dropping the
+// link later.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_link_hover(const struct tt_term *term, uint32_t id);
 
 // Starts a selection of `kind` (`TT_SELECT_*`) at viewport cell `row`,
 // `col` (clamped), replacing any other. It covers that cell, word or line

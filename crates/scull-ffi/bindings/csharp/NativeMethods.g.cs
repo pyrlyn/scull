@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 7;
+        internal const uint TT_ABI_VERSION_MINOR = 8;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 7;
+        internal const uint TT_ABI_VERSION = 8;
         /// <summary>
         ///  `tt_keybind.action`: paste the clipboard.
         /// </summary>
@@ -388,6 +388,10 @@ namespace Scull.Native
         ///  Most bytes `tt_term_selection_text` hands out; longer text is cut.
         /// </summary>
         internal const nuint TT_MAX_SELECTION_BYTES = 16777216;
+        /// <summary>
+        ///  `tt_cell.flags`: the cell carries the link `tt_term_link_hover` set.
+        /// </summary>
+        internal const byte TT_CELL_LINK = 16;
 
 
 
@@ -884,6 +888,31 @@ namespace Scull.Native
         [DllImport(__DllName, EntryPoint = "tt_term_search_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_term_search_count(tt_term* term, nuint* count);
 
+        /// <summary>
+        ///  Writes the link id of viewport cell `row`, `col` to `*id`, for
+        ///  `tt_term_link_uri`. `TT_EMPTY` (and 0) where no link covers the cell
+        ///  or the cell is off the viewport; `TT_INVALID` for a `NULL` `id`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `id` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_at", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_at(tt_term* term, ushort row, ushort col, uint* id);
+
+        /// <summary>
+        ///  Underlines link `id`: from the next `tt_frame_update` every viewport
+        ///  cell carrying it has `TT_CELL_LINK`, across rows when it wraps. 0
+        ///  clears it; so does an id no live link has, and the core dropping the
+        ///  link later.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_hover", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_hover(tt_term* term, uint id);
+
 
     }
 
@@ -1178,8 +1207,8 @@ namespace Scull.Native
         /// </summary>
         public byte width;
         /// <summary>
-        ///  `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH` and
-        ///  `TT_CELL_CURRENT_MATCH` bits.
+        ///  `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH`,
+        ///  `TT_CELL_CURRENT_MATCH` and `TT_CELL_LINK` bits.
         /// </summary>
         public byte flags;
     }

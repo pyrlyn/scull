@@ -32,6 +32,7 @@ mod event;
 mod frame;
 mod guard;
 mod input;
+mod link;
 mod select;
 mod spawn;
 mod term;
@@ -73,6 +74,7 @@ pub use input::{
     TT_MOUSE_WHEEL_RIGHT, TT_MOUSE_WHEEL_UP, tt_key_event, tt_mouse_event, tt_term_focus,
     tt_term_key, tt_term_mouse, tt_term_paste, tt_term_scroll_display, tt_term_text,
 };
+pub use link::{TT_CELL_LINK, tt_term_link_at, tt_term_link_hover};
 pub use select::{
     TT_MAX_SEARCH_MATCHES, TT_MAX_SEARCH_PATTERN, TT_MAX_SELECTION_BYTES, TT_SEARCH_IGNORE_CASE,
     TT_SELECT_BLOCK, TT_SELECT_CELL, TT_SELECT_LINE, TT_SELECT_WORD, tt_match,
@@ -89,11 +91,11 @@ pub const TT_ABI_VERSION_MAJOR: u32 = 0;
 
 /// Additions (new functions, fields appended to a struct) bump the minor.
 /// While the major is 0 every minor may break, so the minor must match too.
-pub const TT_ABI_VERSION_MINOR: u32 = 7;
+pub const TT_ABI_VERSION_MINOR: u32 = 8;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = 0x0000_0007;
+pub const TT_ABI_VERSION: u32 = 0x0000_0008;
 
 const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 
@@ -124,7 +126,7 @@ mod tests {
         assert!(!abi_compatible(TT_ABI_VERSION + 1));
         assert!(
             !abi_compatible(TT_ABI_VERSION - 1),
-            "a host without selection and search"
+            "a host without link lookup"
         );
         assert!(!abi_compatible(1 << MINOR_BITS | TT_ABI_VERSION_MINOR));
         assert!(!abi_compatible(0));

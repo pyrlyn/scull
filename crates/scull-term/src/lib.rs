@@ -14,6 +14,7 @@ mod edit;
 mod error;
 mod events;
 mod frame;
+mod hyperlink;
 mod images;
 mod input;
 mod modes;

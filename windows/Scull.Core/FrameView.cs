@@ -86,6 +86,9 @@ public readonly struct Cell
 
     /// <summary>The cell is part of the match the last search step went to.</summary>
     public bool IsCurrentMatch => (raw.flags & NativeMethods.TT_CELL_CURRENT_MATCH) != 0;
+
+    /// <summary>The cell carries the link <see cref="Terminal.HoverLink"/> set.</summary>
+    public bool IsLink => (raw.flags & NativeMethods.TT_CELL_LINK) != 0;
 }
 
 /// <summary>One viewport row: a stable id, a generation that changes with its content, and its text runs.</summary>

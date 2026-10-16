@@ -525,6 +525,64 @@ public sealed unsafe class Terminal : IDisposable
     /// <summary>The most matches <see cref="SearchCount"/> counts.</summary>
     public const int MaxSearchMatches = (int)NativeMethods.TT_MAX_SEARCH_MATCHES;
 
+    /// <summary>The OSC 8 link id of viewport cell (<paramref name="row"/>, <paramref name="col"/>); null where no link covers it.</summary>
+    public uint? LinkAt(ushort row, ushort col)
+    {
+        uint id = 0;
+        tt_status status;
+        using (var t = new Lease(term))
+        {
+            status = NativeMethods.tt_term_link_at((tt_term*)t.Pointer, row, col, &id);
+        }
+        if (status == tt_status.TT_EMPTY)
+        {
+            return null;
+        }
+        Check(status, "tt_term_link_at");
+        return id;
+    }
+
+    /// <summary>
+    /// The URI of link <paramref name="id"/> as the program wrote it: untrusted, so the caller
+    /// decides whether it may be opened. Null once the link is gone.
+    /// </summary>
+    public string? LinkUri(uint id)
+    {
+        byte[] buffer = new byte[256];
+        // The URI is fixed while its id lives, so one retry with the length it reported is enough.
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            nuint length = 0;
+            tt_status status;
+            using (var t = new Lease(term))
+            fixed (byte* p = buffer)
+            {
+                status = NativeMethods.tt_term_link_uri((tt_term*)t.Pointer, id, p, (nuint)buffer.Length, &length);
+            }
+            switch (status)
+            {
+                case tt_status.TT_OK:
+                    return Encoding.UTF8.GetString(buffer, 0, checked((int)length));
+                case tt_status.TT_EMPTY:
+                    return null;
+                case tt_status.TT_FULL:
+                    buffer = new byte[checked((int)length)];
+                    break;
+                default:
+                    Check(status, "tt_term_link_uri");
+                    break;
+            }
+        }
+        throw new ScullException(Status.Full, "tt_term_link_uri: the URI outgrew its reported length");
+    }
+
+    /// <summary>Underlines link <paramref name="id"/> (<see cref="Cell.IsLink"/>) from the next update; null clears it.</summary>
+    public void HoverLink(uint? id)
+    {
+        using var t = new Lease(term);
+        Check(NativeMethods.tt_term_link_hover((tt_term*)t.Pointer, id ?? 0), "tt_term_link_hover");
+    }
+
     /// <summary>Frees the frame, then the terminal. A second call does nothing.</summary>
     public void Dispose()
     {

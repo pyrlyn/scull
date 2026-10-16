@@ -36,8 +36,8 @@ pub struct tt_cell {
     pub style: u16,
     /// Columns covered: 1, 2 for a wide character, 0 for the cell behind it.
     pub width: u8,
-    /// `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH` and
-    /// `TT_CELL_CURRENT_MATCH` bits.
+    /// `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH`,
+    /// `TT_CELL_CURRENT_MATCH` and `TT_CELL_LINK` bits.
     pub flags: u8,
 }
 

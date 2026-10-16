@@ -62,6 +62,8 @@ impl FrameCell {
     pub const MATCH: u8 = 4;
     /// The cell is part of the current search match (also [`Self::MATCH`]).
     pub const CURRENT_MATCH: u8 = 8;
+    /// The cell carries the link the host hovers.
+    pub const LINK: u8 = 16;
 }
 
 /// Highlight bits laid over columns `start..end` of viewport row `row`.
@@ -416,6 +418,7 @@ impl Frame {
         self.marks.clear();
         term.selection_marks(&mut self.marks);
         term.search_marks(&mut self.marks);
+        term.link_marks(&mut self.marks);
         self.marks.sort_by_key(|m| m.row);
         for m in &self.marks {
             if let Some(slot) = self.slices.get_mut(usize::from(m.row)) {

@@ -256,6 +256,35 @@ public final class TerminalSession {
         return track(tt_term_search_count(term, &count)) == TT_OK ? count : 0
     }
 
+    /// The OSC 8 link id of viewport cell `row`, `col`; nil where no link
+    /// covers it.
+    public func linkAt(row: Int, col: Int) -> UInt32? {
+        guard let row = UInt16(exactly: row), let col = UInt16(exactly: col) else { return nil }
+        var id: UInt32 = 0
+        return track(tt_term_link_at(term, row, col, &id)) == TT_OK ? id : nil
+    }
+
+    /// The URI of link `id`, as the program wrote it: untrusted, so the
+    /// caller decides whether it may be opened. Nil once the link is gone.
+    public func linkURI(_ id: UInt32) -> String? {
+        var len = 0
+        // The first call only measures; the URI is fixed while the id lives.
+        let measured = track(tt_term_link_uri(term, id, nil, 0, &len))
+        guard measured == TT_OK || measured == TT_FULL else { return nil }
+        var bytes = [UInt8](repeating: 0, count: len)
+        let status = bytes.withUnsafeMutableBufferPointer {
+            track(tt_term_link_uri(term, id, $0.baseAddress, $0.count, &len))
+        }
+        guard status == TT_OK else { return nil }
+        return String(bytes: bytes.prefix(len), encoding: .utf8)
+    }
+
+    /// Underlines link `id` (`TT_CELL_LINK`) from the next update; nil
+    /// clears it.
+    public func hoverLink(_ id: UInt32?) {
+        track(tt_term_link_hover(term, id ?? 0))
+    }
+
     public func cell(row: Int, col: Int) -> tt_cell? {
         let index = row * Int(view.cols) + col
         guard col < view.cols, index >= 0, index < view.cells_len else { return nil }

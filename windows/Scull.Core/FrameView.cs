@@ -41,6 +41,9 @@ public readonly unsafe ref struct FrameView
     /// <summary>Rows to repaint, top to bottom.</summary>
     public ReadOnlySpan<ushort> Dirty => Span<ushort>(raw.dirty, raw.dirty_len);
 
+    /// <summary>The images in the viewport, lowest <see cref="Placement.Z"/> first.</summary>
+    public ReadOnlySpan<Placement> Placements => Span<Placement>(raw.placements, raw.placements_len);
+
     /// <summary>The style at <paramref name="index"/>, or the default one when the index is out of the table.</summary>
     public Style StyleAt(ushort index) => index < Styles.Length ? Styles[index] : default;
 
@@ -132,6 +135,69 @@ public readonly struct Style
     public StyleAttributes Attributes => (StyleAttributes)raw.attrs;
 
     public Underline Underline => (Underline)raw.underline;
+}
+
+/// <summary>
+/// One image in the viewport: the source rectangle of its pixels scaled to
+/// <see cref="Cols"/> x <see cref="Rows"/> cells from (<see cref="Row"/>,
+/// <see cref="Col"/>), moved by the pixel offset. Same layout as <c>tt_placement</c>.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly unsafe struct Placement
+{
+    private readonly tt_placement raw;
+
+    /// <summary>The image's identity while the view is valid; with <see cref="Generation"/> it keys a texture cache.</summary>
+    public nint Image => (nint)raw.image;
+
+    /// <summary>Changes whenever the pixels behind <see cref="Image"/> may have.</summary>
+    public ulong Generation => raw.generation;
+
+    /// <summary>Viewport row of the top-left cell; negative above the viewport.</summary>
+    public int Row => raw.row;
+
+    public uint Col => raw.col;
+
+    public uint Cols => raw.cols;
+
+    public uint Rows => raw.rows;
+
+    public uint OffsetX => raw.offset_x;
+
+    public uint OffsetY => raw.offset_y;
+
+    public uint SourceX => raw.src_x;
+
+    public uint SourceY => raw.src_y;
+
+    public uint SourceWidth => raw.src_w;
+
+    public uint SourceHeight => raw.src_h;
+
+    /// <summary>Stacking order; a negative one draws below the text.</summary>
+    public int Z => raw.z;
+
+    /// <summary>
+    /// The image's pixels: <paramref name="height"/> rows of <paramref name="stride"/> bytes, each
+    /// <paramref name="width"/> RGBA pixels with straight alpha. Valid while the view is; empty, with zero sizes, when
+    /// there are none or the sizes do not describe a buffer.
+    /// </summary>
+    public ReadOnlySpan<byte> Pixels(out int width, out int height, out int stride)
+    {
+        uint w, h;
+        nuint pitch;
+        byte* pixels = NativeMethods.tt_image_pixels(raw.image, &w, &h, &pitch);
+        // The sizes come from an image the child sent, so they are checked
+        // before they bound a span.
+        ulong length = h == 0 ? 0 : (ulong)pitch * (h - 1) + (ulong)w * 4;
+        if (pixels == null || w == 0 || h == 0 || pitch < (ulong)w * 4 || pitch > int.MaxValue || length > int.MaxValue)
+        {
+            (width, height, stride) = (0, 0, 0);
+            return default;
+        }
+        (width, height, stride) = ((int)w, (int)h, (int)pitch);
+        return new ReadOnlySpan<byte>(pixels, (int)length);
+    }
 }
 
 /// <summary>Rows <c>Start..End</c> of the new picture come from row <c>From</c> of the previous one.</summary>

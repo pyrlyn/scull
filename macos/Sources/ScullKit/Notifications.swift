@@ -46,25 +46,33 @@ public enum NotificationPolicy {
                 if !isDropped(scalar) { kept.append(scalar) }
             }
         }
+        // Only the space this method adds; other trailing whitespace is text, as on Windows.
         var clean = String(kept)
-        while clean.last == " " { clean.removeLast() }
+        if clean.last == " " { clean.removeLast() }
         return clean.count <= max ? clean : String(clean.prefix(max - 1)) + "…"
     }
 
-    // Formatting characters, except the joiners emoji and some scripts need.
+    // Controls, formatting characters except the joiners emoji and some scripts need, and the
+    // two code points XML 1.0 forbids (U+FFFE, U+FFFF), which a Windows toast cannot carry.
     private static func isDropped(_ scalar: Unicode.Scalar) -> Bool {
-        switch scalar.properties.generalCategory {
+        if scalar == "\u{FFFE}" || scalar == "\u{FFFF}" { return true }
+        return switch scalar.properties.generalCategory {
         case .control: true
         case .format: scalar != "\u{200C}" && scalar != "\u{200D}"
         default: false
         }
     }
 
-    /// Posts `notices` unless the window is the one the user is in. Any pane of
-    /// a window that is not key counts, so a pop-up never covers what is being read.
+    /// Whether a pane's notifications are wanted: not while the pane is on screen in the key
+    /// window, where the user is already looking. A macOS tab is a window of its own, so a
+    /// background tab is not key and does notify; Windows uses the same rule with its
+    /// selected tab. Asked before draining, so the unwanted ones spend no rate limit.
     @MainActor
-    public static func post(_ notices: [Notice], windowIsKey: Bool, fallbackTitle: String?, to poster: some NotificationPoster) {
-        guard !windowIsKey else { return }
+    public static func wanted(windowIsKey: Bool) -> Bool { !windowIsKey }
+
+    /// Posts `notices`, titled by `fallbackTitle` (the pane's own) when they bring none.
+    @MainActor
+    public static func post(_ notices: [Notice], fallbackTitle: String?, to poster: some NotificationPoster) {
         for notice in notices {
             poster.post(title: notice.title(fallback: fallbackTitle), body: notice.body)
         }
@@ -97,32 +105,43 @@ public protocol NotificationPoster {
     func post(title: String, body: String)
 }
 
-/// The system's notification centre. Authorization is asked on the first
-/// notification, and a refusal keeps it quiet. A process that is not an app
-/// bundle (`swift test`, a command-line run) has no notification centre, so it
+/// The system's notification centre. Authorization is asked once, however many
+/// notifications arrive meanwhile, and a refusal keeps it quiet; a request that
+/// failed (rather than being refused) is asked again later. A process with no
+/// bundle identifier (a command-line run) has no notification centre, so it
 /// posts nothing.
 @MainActor
 public final class UserNotificationPoster: NotificationPoster {
     public static let shared = UserNotificationPoster()
 
-    /// nil until the user was asked.
-    private var allowed: Bool?
+    private let bundleIdentifier: String?
     private let presenter = Presenter()
+    /// The one authorization request: nil until made, then shared by every post.
+    private var authorization: Task<Bool?, Never>?
 
-    private static var isAppBundle: Bool { Bundle.main.bundlePath.hasSuffix(".app") }
+    init(bundleIdentifier: String? = Bundle.main.bundleIdentifier) {
+        self.bundleIdentifier = bundleIdentifier
+    }
 
     public func post(title: String, body: String) {
-        guard Self.isAppBundle, allowed != false else { return }
+        guard bundleIdentifier != nil else { return }
         Task { await deliver(title: title, body: body) }
+    }
+
+    private func isAllowed(_ center: UNUserNotificationCenter) async -> Bool {
+        if let authorization { return await authorization.value == true }
+        let request = Task { try? await center.requestAuthorization(options: [.alert, .sound]) }
+        authorization = request
+        let answer = await request.value
+        // nil is an error, not a refusal: the next notification asks again.
+        if answer == nil { authorization = nil }
+        return answer == true
     }
 
     private func deliver(title: String, body: String) async {
         let center = UNUserNotificationCenter.current()
         center.delegate = presenter
-        if allowed == nil {
-            allowed = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
-        }
-        guard allowed == true else { return }
+        guard await isAllowed(center) else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

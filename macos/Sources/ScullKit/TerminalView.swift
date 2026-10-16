@@ -90,10 +90,10 @@ public final class TerminalView: NSView {
     private func wake() {
         guard let session else { return }
         let title = session.title
-        let exited = session.drainEvents(bell: { NSSound.beep() })
+        let exited = session.drainEvents(bell: { NSSound.beep() },
+                                         notify: NotificationPolicy.wanted(windowIsKey: window?.isKeyWindow ?? false))
         // Before the exit below: a program's last word can be a notification.
-        NotificationPolicy.post(session.takeNotices(), windowIsKey: window?.isKeyWindow ?? false,
-                                fallbackTitle: session.title, to: notificationPoster)
+        NotificationPolicy.post(session.takeNotices(), fallbackTitle: session.title, to: notificationPoster)
         if exited {
             if let onChildExit { onChildExit() } else { window?.close() }
             return

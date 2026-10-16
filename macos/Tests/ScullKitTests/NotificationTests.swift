@@ -70,7 +70,7 @@ private final class FakePoster: NotificationPoster {
 @Test func osc9IsABodyWithNoTitleAndOsc777CarriesBoth() throws {
     let session = try TerminalSession(cols: 20, rows: 3)
     _ = session.feed(Array("\u{1b}]9;build finished\u{7}\u{1b}]777;notify;Build;all green\u{7}".utf8))
-    _ = session.drainEvents {}
+    _ = session.drainEvents(bell: {})
     #expect(session.takeNotices() == [Notice(title: "", body: "build finished"), Notice(title: "Build", body: "all green")])
     #expect(session.takeNotices().isEmpty, "taken once")
 }
@@ -82,14 +82,14 @@ private final class FakePoster: NotificationPoster {
     session.clock = { now }
     let burst = (0..<5).map { "\u{1b}]9;n\($0)\u{7}" }.joined()
     _ = session.feed(Array(burst.utf8))
-    _ = session.drainEvents {}
+    _ = session.drainEvents(bell: {})
     #expect(session.takeNotices().count == 3, "the burst, the rest dropped")
     _ = session.feed(Array("\u{1b}]9;more\u{7}".utf8))
-    _ = session.drainEvents {}
+    _ = session.drainEvents(bell: {})
     #expect(session.takeNotices().isEmpty)
     now += 5
     _ = session.feed(Array("\u{1b}]9;later\u{7}".utf8))
-    _ = session.drainEvents {}
+    _ = session.drainEvents(bell: {})
     #expect(session.takeNotices().count == 1)
 }
 
@@ -98,23 +98,54 @@ private final class FakePoster: NotificationPoster {
     let session = try TerminalSession(cols: 20, rows: 3)
     session.clock = { 0 }
     _ = session.feed(Array("\u{1b}]9;\u{7}\u{1b}]9;\u{7}\u{1b}]9;\u{7}\u{1b}]9;\u{7}\u{1b}]9;a\u{7}\u{1b}]9;b\u{7}\u{1b}]9;c\u{7}".utf8))
-    _ = session.drainEvents {}
+    _ = session.drainEvents(bell: {})
     #expect(session.takeNotices().count == 3)
 }
 
 @MainActor
-@Test func nothingShowsWhileTheWindowIsTheKeyOne() {
+@Test func nothingIsWantedWhileThePaneIsInTheKeyWindow() throws {
+    #expect(!NotificationPolicy.wanted(windowIsKey: true))
+    #expect(NotificationPolicy.wanted(windowIsKey: false), "a background tab is a window that is not key")
+    // Notices nobody will see spend no token: ten of them leave the whole burst for the next three.
+    let session = try TerminalSession(cols: 20, rows: 3)
+    session.clock = { 0 }
+    _ = session.feed(Array((0..<10).map { "\u{1b}]9;hidden\($0)\u{7}" }.joined().utf8))
+    _ = session.drainEvents(bell: {}, notify: false)
+    #expect(session.takeNotices().isEmpty)
+    _ = session.feed(Array("\u{1b}]9;a\u{7}\u{1b}]9;b\u{7}\u{1b}]9;c\u{7}\u{1b}]9;d\u{7}".utf8))
+    _ = session.drainEvents(bell: {})
+    #expect(session.takeNotices().count == 3)
+}
+
+@MainActor
+@Test func aNoticeIsTitledByThePaneItCameFrom() {
     let poster = FakePoster()
     let notices = [Notice(title: "", body: "one"), Notice(title: "Build", body: "two")]
-    NotificationPolicy.post(notices, windowIsKey: true, fallbackTitle: "vim", to: poster)
-    #expect(poster.posted.isEmpty)
-    NotificationPolicy.post(notices, windowIsKey: false, fallbackTitle: "vim", to: poster)
+    NotificationPolicy.post(notices, fallbackTitle: "vim", to: poster)
     #expect(poster.posted.map(\.title) == ["vim", "Build"])
     #expect(poster.posted.map(\.body) == ["one", "two"])
 }
 
+@Test func tagCharactersOutsideTheFirstPlaneAreDropped() {
+    // U+E0041 is a tag "A": invisible, and a way to carry text no reader sees.
+    #expect(NotificationPolicy.clean("a\u{E0041}b", max: 50) == "ab")
+    #expect(NotificationPolicy.clean("a\u{E007F}b", max: 50) == "ab")
+    #expect(NotificationPolicy.clean("😀", max: 50) == "😀", "an ordinary supplementary character stays")
+}
+
+@Test func markupIsKeptAsTextAndTheCodePointsXmlForbidsAreDropped() {
+    #expect(NotificationPolicy.clean("</text><b>&amp;\"'", max: 50) == "</text><b>&amp;\"'")
+    #expect(NotificationPolicy.clean("a\u{FFFE}b\u{FFFF}", max: 50) == "ab")
+}
+
+@Test func onlyTheSpaceThePolicyAddsIsTrimmed() {
+    // The Windows side trims only U+0020; a no-break space is text.
+    #expect(NotificationPolicy.clean("a\u{A0}", max: 50) == "a\u{A0}")
+    #expect(NotificationPolicy.clean(" a\u{A0}b \n", max: 50) == "a\u{A0}b")
+}
+
 @MainActor
-@Test func theSystemPosterIsQuietOutsideAnAppBundle() {
-    // Under `swift test` there is no notification centre; posting must neither crash nor ask.
-    UserNotificationPoster.shared.post(title: "t", body: "b")
+@Test func theSystemPosterIsQuietWithoutABundleIdentifier() {
+    // A command-line run has no notification centre; posting must neither crash nor ask.
+    UserNotificationPoster(bundleIdentifier: nil).post(title: "t", body: "b")
 }

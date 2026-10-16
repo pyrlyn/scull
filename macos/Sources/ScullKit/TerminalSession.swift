@@ -121,8 +121,10 @@ public final class TerminalSession {
 
     /// Takes every pending event; true once the child has exited. Rings the
     /// bell through `bell`, keeps the title and directory, writes OSC 52
-    /// clipboard writes to `pasteboard` and collects notifications for `takeNotices`.
-    public func drainEvents(bell: () -> Void) -> Bool {
+    /// clipboard writes to `pasteboard` and collects notifications for `takeNotices`
+    /// unless `notify` is false (the user is looking at this pane): those are dropped
+    /// before the rate limit sees them, so they spend none of it.
+    public func drainEvents(bell: () -> Void, notify: Bool = true) -> Bool {
         var event = tt_event()
         event.struct_size = UInt32(MemoryLayout<tt_event>.size)
         var exited = false
@@ -145,7 +147,7 @@ public final class TerminalSession {
             case TT_EVENT_NOTIFICATION:
                 let body = eventText(event).map { String(decoding: $0, as: UTF8.self) } ?? ""
                 let heading = eventText(event, part: Int32(TT_EVENT_TEXT_TITLE)).map { String(decoding: $0, as: UTF8.self) } ?? ""
-                if let notice = NotificationPolicy.make(title: heading, body: body), limiter.allow(at: clock()) {
+                if notify, let notice = NotificationPolicy.make(title: heading, body: body), limiter.allow(at: clock()) {
                     notices.append(notice)
                 }
             case TT_EVENT_CLIPBOARD_READ:

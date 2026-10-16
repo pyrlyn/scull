@@ -119,16 +119,17 @@ public sealed partial class ScreenText
     /// The cells <paramref name="range"/> covers, one span per row, for
     /// bounding rectangles: the first and last row partly, the rows between whole.
     /// A span is at least one cell wide, so an empty range or a bare newline still has a place.
+    /// <paramref name="widthOfRow"/> answers, for a row, the cell width at a column.
     /// </summary>
-    public IReadOnlyList<LineSpan> LineSpans(TextRange range, Func<int, int> width)
+    public IReadOnlyList<LineSpan> LineSpans(TextRange range, Func<int, Func<int, int>> widthOfRow)
     {
-        ArgumentNullException.ThrowIfNull(width);
+        ArgumentNullException.ThrowIfNull(widthOfRow);
         int start = Math.Clamp(range.Start, 0, Length), end = Math.Clamp(range.End, start, Length);
         var spans = new List<LineSpan>();
         // The newline that ends a range belongs to the row before it.
         for (int line = LineFor(start), last = LineFor(Math.Max(start, end - 1)); line <= last; line++)
         {
-            var stops = Columns(line, width);
+            var stops = Columns(line, widthOfRow(line));
             int from = stops[0].Index, to = stops[^1].Index;
             int s = Math.Clamp(start, from, to), e = Math.Clamp(end, from, to);
             int startCol = stops.LastOrDefault(x => x.Index <= s).Col;

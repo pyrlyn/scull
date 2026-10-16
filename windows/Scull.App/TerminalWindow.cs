@@ -48,7 +48,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private readonly TabView tabView;
     private readonly SwapChainPanel panel = new();
     private readonly Canvas notices = new() { IsHitTestVisible = false };
-    private readonly UserControl host;
+    private readonly TerminalHost host;
     private readonly List<Tab> tabs = [];
     private readonly DispatcherQueueTimer resizeTimer;
     private readonly RenderDevice device;
@@ -74,7 +74,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
                 Select(tab);
             }
         };
-        host = new UserControl
+        host = new TerminalHost(FocusedSnapshot)
         {
             // The panel is a Grid, which takes no focus; this control does, so keys come here.
             IsTabStop = true,
@@ -370,7 +370,12 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         }
         target.Present();
         ShowNotices(tab);
+        host.TextChanged();
     }
+
+    // What a UI Automation client reads: the pane the typing goes to.
+    private TextSnapshot? FocusedSnapshot() =>
+        current is { } tab && tab.Views.TryGetValue(tab.Panes.Tree.Focused, out TerminalPane? pane) ? pane.Snapshot() : null;
 
     // A poisoned pane shows a notice in place of its stale grid; the other panes keep running.
     private void ShowNotices(Tab tab)

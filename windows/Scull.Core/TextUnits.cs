@@ -28,6 +28,23 @@ public readonly record struct TextRange(int Start, int End)
     public int Length => End - Start;
 
     public bool IsEmpty => End == Start;
+
+    public int At(TextEndpoint endpoint) => endpoint == TextEndpoint.Start ? Start : End;
+
+    /// <summary>
+    /// <c>CompareEndpoints</c>: negative, zero or positive as this range's endpoint lies before,
+    /// at or after the other's.
+    /// </summary>
+    public int CompareEndpoints(TextEndpoint endpoint, TextRange other, TextEndpoint otherEndpoint) =>
+        At(endpoint).CompareTo(other.At(otherEndpoint));
+
+    /// <summary>
+    /// One endpoint put at <paramref name="position"/>. An end that crosses the other drags it
+    /// along, leaving an empty range, as UI Automation moves endpoints.
+    /// </summary>
+    public TextRange WithEndpoint(TextEndpoint endpoint, int position) => endpoint == TextEndpoint.Start
+        ? new TextRange(position, Math.Max(End, position))
+        : new TextRange(Math.Min(Start, position), position);
 }
 
 /// <summary>Where each <see cref="TextUnit"/> starts in a text.</summary>

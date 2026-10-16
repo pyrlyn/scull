@@ -13,7 +13,7 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T18 | in progress | P2 | 5 | 95% | Claude Code / claude-sonnet-5-5 |
 | T20 | in progress | P2 | 3 | 95% | Claude Code / claude-sonnet-5-5 |
 | T21 | in progress | P2 | 3 | 95% | Claude Code / claude-sonnet-5-5 |
-| T31 | todo | P2 | 4 | 0% | |
+| T31 | in progress | P2 | 4 | 5% | Claude / opus-5.5 |
 | T32 | todo | P3 | 3 | 0% | |
 | T33 | todo | P2 | 4 | 0% | |
 
@@ -174,6 +174,14 @@ Landed: T21.3.3. `Scull.Render/GlyphAtlas.cs`: `GlyphAtlas` holds what each rend
 ### T31. OSC 8 hyperlinks on both platforms
 
 Programs mark text as a link with OSC 8; the core already keeps the link of each cell and reports `TT_EVENT_LINK`, but a host cannot ask which link a cell holds. Done when Ctrl+click (Cmd+click on macOS) on a linked cell opens its URI through the system, the link under the pointer is underlined while the modifier is held, only schemes a user expects to open are opened (http, https, mailto, file on this machine), and the core part has Rust tests and each platform its own.
+
+Execution plan, three slices of at most 500 lines each:
+
+- **T31.1 core.** `Terminal::link_at(row, col)` answers the link id of a viewport cell, and `Terminal::hover_link(id)` marks one link as hovered: every viewport cell carrying it gets a new `FrameCell::LINK` bit through the existing highlight marks, so its rows repaint and a host underlines them without knowing the link's extent (a wrapped URL spans rows). A sweep that frees the hovered id drops the hover, so a reused id is never underlined. FFI in its own block of `event.rs`: `tt_term_link_at(term, row, col, *id)` (`TT_EMPTY` for a cell with no link), `tt_term_link_hover(term, id)` (0 clears), `TT_CELL_LINK`; ABI minor 7 → 8; header and C# bindings regenerated (`just bindings`); Swift `TerminalSession.linkAt/linkURI/hoverLink`, C# `Terminal.LinkAt/LinkUri/HoverLink` and `Cell.IsLink`. Rust tests for the lookup, the mark, scrolled history and the sweep; a Swift and a C# test for the wrappers.
+- **T31.2 macOS.** A pure `LinkPolicy.openable(_:)` admits http, https, mailto and a `file` URL whose host is empty, `localhost` or this machine's name; everything else is ignored. Cmd+click on a linked cell opens it with `NSWorkspace.open` (never a shell); while Cmd is held the link under the pointer is hovered and the renderer underlines `TT_CELL_LINK` cells. Swift tests for the policy and the gesture's state.
+- **T31.3 Windows.** The same policy in `Scull.Core` (`LinkPolicy.Openable`), Ctrl+click opens through `Windows.System.Launcher.LaunchUriAsync`, Ctrl held hovers and the D3D renderer underlines `TT_CELL_LINK` cells. MSTest for the policy and a WARP test for the underline.
+
+Verify per slice: `just check`, `just macos-test`, `just windows-core-test`, CI on the branch.
 
 ### T32. Desktop notifications from OSC 9 and OSC 777
 

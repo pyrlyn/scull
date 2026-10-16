@@ -361,21 +361,9 @@ internal sealed partial class TerminalWindow : Window, IDisposable
 
     private static void Copy(TerminalPane pane)
     {
-        if (pane.SelectionText() is not { Length: > 0 } text)
+        if (pane.SelectionText() is { Length: > 0 } text)
         {
-            return;
-        }
-        var package = new DataPackage();
-        package.SetText(text);
-        try
-        {
-            Clipboard.SetContent(package);
-            // So the text outlives the window, as a text box's copy does.
-            Clipboard.Flush();
-        }
-        catch (COMException)
-        {
-            // Another program holds the clipboard open; the copy is dropped, as the paste is.
+            CopyToClipboard(text);
         }
     }
 
@@ -630,7 +618,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         Input(pane => e.Handled = pane.Pairing.KeyDown(key, scanCode, extended, e.KeyStatus.WasKeyDown, held));
     }
 
-    // A program's OSC 52 write; busy or refused, the copy is dropped as the paste is.
+    // The user's copy or a program's OSC 52 write; busy or refused, the copy is dropped as the paste is.
     private static void CopyToClipboard(string text)
     {
         try

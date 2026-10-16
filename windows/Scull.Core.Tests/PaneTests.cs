@@ -231,6 +231,7 @@ public sealed class PaneTests
 
     [TestMethod]
     [DataRow(0x54, PaneCommand.NewTab)]
+    [DataRow(0x46, PaneCommand.Find)]
     [DataRow(0x4E, PaneCommand.NewWindow)]
     [DataRow(0x44, PaneCommand.SplitRight)]
     [DataRow(0x45, PaneCommand.SplitDown)]

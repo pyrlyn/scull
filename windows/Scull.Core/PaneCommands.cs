@@ -11,6 +11,9 @@ public enum PaneCommand
     NextPane,
     PreviousPane,
 
+    /// <summary>The find bar on the focused pane.</summary>
+    Find,
+
     /// <summary>The settings window.</summary>
     OpenSettings,
 }
@@ -21,7 +24,7 @@ public static class PaneCommands
     private const KeyModifiers Chord = KeyModifiers.Shift | KeyModifiers.Alt | KeyModifiers.Control | KeyModifiers.Super;
 
     /// <summary>
-    /// The command for a virtual key with these modifiers held: Ctrl+Shift with T, N, D, E, W, ] or [, or Ctrl+, for settings.
+    /// The command for a virtual key with these modifiers held: Ctrl+Shift with T, F, N, D, E, W, ] or [, or Ctrl+, for settings.
     /// Ctrl+Shift is the terminal-safe prefix (paste is Ctrl+Shift+V), and the letters follow Windows Terminal where it has one.
     /// </summary>
     public static PaneCommand? Match(int virtualKey, KeyModifiers held) => (held & Chord) switch
@@ -35,6 +38,7 @@ public static class PaneCommands
     private static PaneCommand? ShiftChord(int virtualKey) => virtualKey switch
     {
         0x54 => PaneCommand.NewTab, // T
+        0x46 => PaneCommand.Find, // F, as in Windows Terminal
         0x4E => PaneCommand.NewWindow, // N
         0x44 => PaneCommand.SplitRight, // D
         0x45 => PaneCommand.SplitDown, // E

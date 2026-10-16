@@ -64,8 +64,10 @@ internal sealed unsafe class SymbolFont : IDisposable
             }
             return font;
         }
-        catch (COMException)
+        catch (Exception e) when (e is COMException or ArgumentException or IOException or UnauthorizedAccessException)
         {
+            // A broken file is E_INVALIDARG, which .NET raises as ArgumentException;
+            // one deleted or locked since the check is an I/O error.
             return null;
         }
         finally
@@ -112,7 +114,7 @@ internal sealed unsafe class SymbolFont : IDisposable
             builder->CreateFontFallback(&made);
             return made;
         }
-        catch (COMException)
+        catch (Exception e) when (e is COMException or ArgumentException)
         {
             return null;
         }

@@ -84,7 +84,9 @@ public sealed class CompositionTests
         tracker.Started();
         tracker.Started();
         Assert.IsTrue(tracker.Active);
+        Assert.IsFalse(tracker.OnlyOne, "two are open");
         Assert.IsFalse(tracker.Ended(), "one is still open");
+        Assert.IsTrue(tracker.OnlyOne);
         Assert.IsFalse(tracker.Pending);
 
         Assert.IsTrue(tracker.Ended());
@@ -136,6 +138,16 @@ public sealed class CompositionTests
 
         Assert.AreEqual(new PixelRect(130, 90, 60, 20), geometry.Box(2, 3, 6));
         Assert.AreEqual(new PixelRect(100, 50, 10, 20), geometry.Box(0, 0, 0), "never narrower than a cell");
+    }
+
+    [TestMethod]
+    public void TheCandidateWindowFollowsThePreeditOrElseTheCursor()
+    {
+        var geometry = new CellGeometry(10, 20, 100, 50);
+        var cursor = new Cursor(1, 4, true);
+
+        Assert.AreEqual(new PixelRect(130, 90, 60, 20), geometry.CompositionBox(new Preedit(2, 3, 6), cursor));
+        Assert.AreEqual(new PixelRect(140, 70, 10, 20), geometry.CompositionBox(new Preedit(0, 0, 0), cursor));
     }
 
     [TestMethod]

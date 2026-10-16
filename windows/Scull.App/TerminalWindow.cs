@@ -49,6 +49,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private readonly SwapChainPanel panel = new();
     private readonly Canvas notices = new() { IsHitTestVisible = false };
     private readonly TerminalHost host;
+    private readonly TerminalInputMethod ime;
     private readonly List<Tab> tabs = [];
     private readonly DispatcherQueueTimer resizeTimer;
     private readonly RenderDevice device;
@@ -89,6 +90,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             Children = { tabView, host },
         };
         WireInput();
+        ime = new TerminalInputMethod(WinRT.Interop.WindowNative.GetWindowHandle(this), host, FocusedPane, Input);
         device = CreateDevice();
         resizeTimer = DispatcherQueue.CreateTimer();
         resizeTimer.IsRepeating = false;
@@ -104,10 +106,13 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private void WireInput()
     {
         host.KeyDown += OnKeyDown;
-        host.KeyUp += (_, e) => Input(pane => e.Handled = pane.Pairing.KeyUp((int)e.Key, e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey, Held()));
+        host.KeyUp += (_, e) => Input(pane => e.Handled = !ime.Intercept((int)e.Key) && pane.Pairing.KeyUp((int)e.Key, e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey, Held()));
         host.CharacterReceived += (_, e) =>
         {
-            Input(pane => pane.Pairing.Character(e.Character));
+            if (!ime.Composing)
+            {
+                Input(pane => pane.Pairing.Character(e.Character));
+            }
             e.Handled = true;
         };
         host.PointerPressed += (_, e) =>
@@ -374,8 +379,10 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     }
 
     // What a UI Automation client reads: the pane the typing goes to.
-    private TextSnapshot? FocusedSnapshot() =>
-        current is { } tab && tab.Views.TryGetValue(tab.Panes.Tree.Focused, out TerminalPane? pane) ? pane.Snapshot() : null;
+    private TerminalPane? FocusedPane() =>
+        current is { } tab && tab.Views.TryGetValue(tab.Panes.Tree.Focused, out TerminalPane? pane) ? pane : null;
+
+    private TextSnapshot? FocusedSnapshot() => FocusedPane()?.Snapshot();
 
     // A poisoned pane shows a notice in place of its stale grid; the other panes keep running.
     private void ShowNotices(Tab tab)
@@ -486,6 +493,10 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
         int key = (int)e.Key;
+        if (ime.Intercept(key))
+        {
+            return;
+        }
         (uint scanCode, bool extended) = (e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey);
         KeyModifiers held = Held();
         if (PaneCommands.Match(key, held) is { } command)
@@ -573,6 +584,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     public void Dispose()
     {
         resizeTimer.Stop();
+        ime.Dispose();
         foreach (Tab tab in tabs)
         {
             tab.Closed = true;

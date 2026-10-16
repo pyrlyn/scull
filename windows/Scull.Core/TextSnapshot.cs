@@ -9,6 +9,10 @@ public readonly record struct CellGeometry(double CellWidth, double CellHeight, 
     /// <summary>The rectangle of <paramref name="cells"/> cells (at least one) from a row and column, in the surface's pixels.</summary>
     public PixelRect Box(int row, int col, int cells) =>
         new(X + (col * CellWidth), Y + (row * CellHeight), Math.Max(cells, 1) * CellWidth, CellHeight);
+
+    /// <summary>Where an input method's candidate window goes: under the composing text, or at the cursor when there is none.</summary>
+    public PixelRect CompositionBox(Preedit preedit, Cursor cursor) =>
+        preedit.Cols > 0 ? Box(preedit.Row, preedit.Col, preedit.Cols) : Box(cursor.Row, cursor.Col, 1);
 }
 
 /// <summary>

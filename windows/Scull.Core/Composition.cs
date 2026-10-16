@@ -12,6 +12,9 @@ public sealed class CompositionTracker
 
     public bool Active => open > 0;
 
+    /// <summary>Exactly one composition is open: the case in which an edit changes the text on show.</summary>
+    public bool OnlyOne => open == 1;
+
     /// <summary>A composition ended and its text has not been read.</summary>
     public bool Pending { get; private set; }
 

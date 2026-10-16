@@ -4,16 +4,26 @@ namespace Scull.Core;
 /// <param name="Exited">The child has ended.</param>
 /// <param name="TitleChanged">The window title or the working directory differs from before.</param>
 /// <param name="Clipboard">The text an OSC 52 write wants on the clipboard (the last, if several); null for none.</param>
-public readonly record struct DrainedEvents(bool Exited, bool TitleChanged, string? Clipboard);
+/// <param name="Notifications">The notifications to show, cleaned and within the pane's rate limit; null for none.</param>
+public readonly record struct DrainedEvents(bool Exited, bool TitleChanged, string? Clipboard, IReadOnlyList<Notice>? Notifications = null)
+{
+    public IReadOnlyList<Notice> Notices => Notifications ?? [];
+}
 
 /// <summary>
 /// What a host keeps from a terminal's events, as <c>TerminalSession.swift</c> does on macOS:
-/// the window title (an icon name is not one), the working directory, the clipboard text to write.
+/// the window title (an icon name is not one), the working directory, the clipboard text to write,
+/// the notifications to show (cleaned, and limited per pane).
 /// A clipboard read is always denied: answering it would hand the user's clipboard to whatever
 /// the shell runs, which may be a remote machine's program.
 /// </summary>
 public sealed class PaneEvents
 {
+    private readonly NotificationLimiter limiter;
+
+    /// <param name="milliseconds">A monotonic clock for the notification limit; the system's by default.</param>
+    public PaneEvents(Func<long>? milliseconds = null) => limiter = new NotificationLimiter(milliseconds);
+
     /// <summary>The title the program set; null while it has set none, or cleared it.</summary>
     public string? Title { get; private set; }
 
@@ -26,6 +36,7 @@ public sealed class PaneEvents
         bool exited = false;
         bool changed = false;
         string? clipboard = null;
+        List<Notice>? notices = null;
         while (terminal.TryPollEvent(out TerminalEvent next))
         {
             switch (next.Kind)
@@ -45,11 +56,17 @@ public sealed class PaneEvents
                 case EventKind.ClipboardWrite:
                     clipboard = EventPolicy.ClipboardText(next) ?? clipboard;
                     break;
+                case EventKind.Notification:
+                    if (NotificationPolicy.Make(next.HeadingText, next.Text) is { } notice && limiter.Allow())
+                    {
+                        (notices ??= []).Add(notice);
+                    }
+                    break;
                 case EventKind.ClipboardRead:
                     terminal.ClipboardDeny(next.Id);
                     break;
             }
         }
-        return new DrainedEvents(exited, changed, clipboard);
+        return new DrainedEvents(exited, changed, clipboard, notices);
     }
 }

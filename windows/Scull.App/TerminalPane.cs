@@ -114,6 +114,20 @@ internal sealed class TerminalPane : IDisposable
         }
     }
 
+    /// <summary>An input method's composing text, shown at the cursor from the next update; empty clears it.</summary>
+    public void SetPreedit(string text, int caret) => Send(t => t.SetPreedit(text, caret));
+
+    /// <summary>Where the input method's candidate window goes, in the swap chain's pixels.</summary>
+    public PixelRect CompositionBox()
+    {
+        if (Poisoned)
+        {
+            return default;
+        }
+        FrameView view = terminal.View;
+        return new CellGeometry(Metrics.Width, Metrics.Height, Area.X, Area.Y).CompositionBox(view.Preedit, view.Cursor);
+    }
+
     /// <summary>True when the child has exited.</summary>
     public bool Exited()
     {

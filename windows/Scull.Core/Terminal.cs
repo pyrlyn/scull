@@ -197,6 +197,24 @@ public sealed unsafe class Terminal : IDisposable
     /// </summary>
     public bool Paste(string text) => SendText(text, &NativeMethods.tt_term_paste, "tt_term_paste");
 
+    /// <summary>
+    /// Shows an input method's composing text at the cursor from the next <see cref="Update"/>;
+    /// empty clears it. <paramref name="caret"/> is a UTF-16 index into <paramref name="text"/>.
+    /// It never reaches the child: commit text with <see cref="Text"/>.
+    /// </summary>
+    public void SetPreedit(string text, int caret)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        // The core wants a byte offset; it moves one inside a character back onto its start.
+        nuint at = (nuint)Encoding.UTF8.GetByteCount(text.AsSpan(0, Math.Clamp(caret, 0, text.Length)));
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
+        using var f = new Lease(frame);
+        fixed (byte* p = bytes)
+        {
+            Check(NativeMethods.tt_frame_preedit((tt_frame*)f.Pointer, p, (nuint)bytes.Length, at), "tt_frame_preedit");
+        }
+    }
+
     /// <summary>Tells the program the view gained or lost focus, if it asked to know. False as for <see cref="Key"/>.</summary>
     public bool Focus(bool focused)
     {

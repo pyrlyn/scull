@@ -38,6 +38,9 @@ public readonly unsafe ref struct FrameView
     /// <summary>Rows to blit from the previous picture, applied before <see cref="Dirty"/>.</summary>
     public ReadOnlySpan<Scroll> Scrolls => Span<Scroll>(raw.scrolls, raw.scrolls_len);
 
+    /// <summary>Where the input method's composing text sits; <see cref="Preedit.Cols"/> is 0 when none is shown.</summary>
+    public Preedit Preedit => new(raw.preedit.row, raw.preedit.col, raw.preedit.cols);
+
     /// <summary>Rows to repaint, top to bottom.</summary>
     public ReadOnlySpan<ushort> Dirty => Span<ushort>(raw.dirty, raw.dirty_len);
 
@@ -54,6 +57,9 @@ public readonly unsafe ref struct FrameView
 }
 
 public readonly record struct Cursor(ushort Row, ushort Col, bool Visible);
+
+/// <summary>The span of composing text in the frame: already in the row's cells, so a renderer only marks it.</summary>
+public readonly record struct Preedit(ushort Row, ushort Col, ushort Cols);
 
 /// <summary>One grid cell. Same layout as <c>tt_cell</c>, so a span of them is the core's buffer.</summary>
 [StructLayout(LayoutKind.Sequential)]

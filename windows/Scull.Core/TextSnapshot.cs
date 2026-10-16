@@ -4,7 +4,16 @@ namespace Scull.Core;
 public readonly record struct PixelRect(double X, double Y, double Width, double Height);
 
 /// <summary>Where a pane's cells are: the cell size and the pane's top left, all in the surface's pixels.</summary>
-public readonly record struct CellGeometry(double CellWidth, double CellHeight, double X, double Y);
+public readonly record struct CellGeometry(double CellWidth, double CellHeight, double X, double Y)
+{
+    /// <summary>The rectangle of <paramref name="cells"/> cells (at least one) from a row and column, in the surface's pixels.</summary>
+    public PixelRect Box(int row, int col, int cells) =>
+        new(X + (col * CellWidth), Y + (row * CellHeight), Math.Max(cells, 1) * CellWidth, CellHeight);
+
+    /// <summary>Where an input method's candidate window goes: under the composing text, or at the cursor when there is none.</summary>
+    public PixelRect CompositionBox(Preedit preedit, Cursor cursor) =>
+        preedit.Cols > 0 ? Box(preedit.Row, preedit.Col, preedit.Cols) : Box(cursor.Row, cursor.Col, 1);
+}
 
 /// <summary>
 /// One pane's text as UI Automation sees it at one moment: the text, the cursor's

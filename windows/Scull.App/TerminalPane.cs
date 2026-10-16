@@ -18,6 +18,7 @@ internal sealed class TerminalPane : IDisposable
     private readonly WheelSteps wheel = new();
     private readonly WheelSteps wheelAcross = new();
     private readonly FontZoom font = new();
+    private readonly PaneEvents events = new();
     private Renderer renderer;
     private float scale;
     private bool focused;
@@ -165,18 +166,18 @@ internal sealed class TerminalPane : IDisposable
         return new CellGeometry(Metrics.Width, Metrics.Height, Area.X, Area.Y).CompositionBox(view.Preedit, view.Cursor);
     }
 
-    /// <summary>True when the child has exited.</summary>
-    public bool Exited()
+    /// <summary>The title the program set, null for none.</summary>
+    public string? Title => events.Title;
+
+    /// <summary>The directory the program last reported; kept only, as the macOS shell does.</summary>
+    public string? WorkingDirectory => events.WorkingDirectory;
+
+    /// <summary>Takes the terminal's waiting events: the child's exit, a new title, text for the clipboard.</summary>
+    public DrainedEvents Drain()
     {
-        bool exited = false;
-        Send(t =>
-        {
-            while (t.TryPollEvent(out TerminalEvent next))
-            {
-                exited |= next.Kind == EventKind.ChildExited;
-            }
-        });
-        return exited;
+        DrainedEvents drained = default;
+        Send(t => drained = events.Drain(t));
+        return drained;
     }
 
     /// <summary>Runs a call on the terminal; a poisoned one is marked and left alone from then on.</summary>

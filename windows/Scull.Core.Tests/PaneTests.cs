@@ -245,6 +245,16 @@ public sealed class PaneTests
     }
 
     [TestMethod]
+    public void CtrlCommaOpensSettingsAndNothingElseDoes()
+    {
+        Assert.AreEqual(PaneCommand.OpenSettings, PaneCommands.Match(0xBC, KeyModifiers.Control));
+        Assert.AreEqual(PaneCommand.OpenSettings, PaneCommands.Match(0xBC, KeyModifiers.Control | KeyModifiers.NumLock));
+        Assert.IsNull(PaneCommands.Match(0xBC, KeyModifiers.None));
+        Assert.IsNull(PaneCommands.Match(0xBC, KeyModifiers.Control | KeyModifiers.Shift));
+        Assert.IsNull(PaneCommands.Match(0xBC, KeyModifiers.Control | KeyModifiers.Alt), "AltGr+comma types a character");
+    }
+
+    [TestMethod]
     [DataRow(0x54, KeyModifiers.Control)]
     [DataRow(0x54, KeyModifiers.Shift)]
     [DataRow(0x54, KeyModifiers.None)]

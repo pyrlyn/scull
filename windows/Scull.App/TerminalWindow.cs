@@ -313,6 +313,9 @@ internal sealed partial class TerminalWindow : Window, IDisposable
                 case PaneCommand.NewWindow:
                     ((App)Application.Current).OpenWindow();
                     break;
+                case PaneCommand.OpenSettings:
+                    ((App)Application.Current).OpenSettings();
+                    break;
                 case PaneCommand.SplitRight:
                 case PaneCommand.SplitDown:
                     tab.Panes.Split(command == PaneCommand.SplitRight ? SplitAxis.SideBySide : SplitAxis.Stacked);

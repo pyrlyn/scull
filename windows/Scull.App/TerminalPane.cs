@@ -25,6 +25,9 @@ internal sealed class TerminalPane : IDisposable
     private readonly WheelSteps wheelAcross = new();
     private readonly ClickCounter clicks = new();
     private SelectionDrag? drag;
+    private uint? hoveredLink;
+    // A Ctrl+click on a link is the host's from press to release.
+    private bool linkClick;
     private readonly FontZoom font = new();
     private readonly PaneEvents events = new();
     private Renderer renderer;
@@ -281,6 +284,17 @@ internal sealed class TerminalPane : IDisposable
         int kind = (int)p.PointerUpdateKind;
         var at = CellAt(x, y);
         MouseInput? mouse = pointer.Update(kind, p.IsLeftButtonPressed, p.IsMiddleButtonPressed, p.IsRightButtonPressed, held, at);
+        if (kind == LeftPressed && (held & KeyModifiers.Control) != 0 && OpenLink(at))
+        {
+            linkClick = true;
+            return false;
+        }
+        if (linkClick)
+        {
+            // The program never saw the press, so it hears nothing until the release.
+            linkClick = kind != LeftReleased;
+            return false;
+        }
         if (kind == LeftPressed)
         {
             drag = null;
@@ -398,13 +412,57 @@ internal sealed class TerminalPane : IDisposable
     {
         foreach (MouseInput release in pointer.Lose(held))
         {
-            // The drag took the left press, so the program never saw it.
-            if (drag is null || release.Button != MouseButton.Left)
+            // A drag or a link took the left press, so the program never saw it.
+            if ((drag is null && !linkClick) || release.Button != MouseButton.Left)
             {
                 Send(t => t.Mouse(release));
             }
         }
         drag = null;
+        linkClick = false;
+    }
+
+    /// <summary>
+    /// Underlines the link at window pixels (<paramref name="x"/>, <paramref name="y"/>) while Ctrl is
+    /// held, else none; true when that changed and wants drawing.
+    /// </summary>
+    public bool HoverLink(double x, double y, KeyModifiers held)
+    {
+        uint? id = null;
+        if ((held & KeyModifiers.Control) != 0 && x >= Area.X && y >= Area.Y && x < Area.X + Area.Width && y < Area.Y + Area.Height)
+        {
+            var at = CellAt(x, y);
+            Send(t => id = t.LinkAt((ushort)at.Row, (ushort)at.Col));
+        }
+        if (id == hoveredLink)
+        {
+            return false;
+        }
+        hoveredLink = id;
+        Send(t => t.HoverLink(id));
+        return true;
+    }
+
+    /// <summary>Opens the link at <paramref name="at"/> if the policy admits it; true when a link is there at all.</summary>
+    private bool OpenLink((uint Col, uint Row, uint XPx, uint YPx) at)
+    {
+        uint? id = null;
+        string? uri = null;
+        Send(t =>
+        {
+            id = t.LinkAt((ushort)at.Row, (ushort)at.Col);
+            uri = id is uint found ? t.LinkUri(found) : null;
+        });
+        if (id is null)
+        {
+            return false;
+        }
+        // The URI is the program's text: only what the policy admits reaches the launcher.
+        if (uri is not null && EventPolicy.OpenableLink(uri, Environment.MachineName) is Uri target)
+        {
+            LinkLauncher.Open(target);
+        }
+        return true;
     }
 
     /// <summary>A wheel turn; true when the view scrolled and wants drawing.</summary>

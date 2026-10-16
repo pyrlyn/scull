@@ -136,6 +136,23 @@ public sealed class RendererTests
     }
 
     [TestMethod]
+    public void TheHoveredLinkIsUnderlined()
+    {
+        using var scene = new Scene();
+        byte[] plain = scene.Draw("\e[?25l\e]8;;https://example.com\e\\  \e]8;;\e\\  "u8);
+        CellMetrics m = scene.Metrics;
+        Assert.AreEqual(Background, scene.Pixel(plain, 1, m.Underline), "not before it is hovered");
+
+        scene.Terminal.HoverLink(scene.Terminal.LinkAt(0, 0));
+        byte[] pixels = scene.Draw(default);
+        for (int x = 0; x < 2 * m.Width; x++)
+        {
+            Assert.AreEqual(Foreground, scene.Pixel(pixels, x, m.Underline), $"underline at x {x}");
+        }
+        Assert.AreEqual(Background, scene.Pixel(pixels, 2 * m.Width + 1, m.Underline), "past the link");
+    }
+
+    [TestMethod]
     public void BoxDrawingJoinsAcrossCellsAndRows()
     {
         using var scene = new Scene();

@@ -458,6 +458,11 @@ public sealed unsafe class Renderer : IDisposable
             {
                 quads[fgBase + nf++] = Rect(x, 0, w, m.Thickness, color);
             }
+            // The link under the pointer while Ctrl is held: a plain line in the text's colour, whatever the program styled.
+            if (cell.IsLink && nf < capFg)
+            {
+                quads[fgBase + nf++] = Rect(x, m.Underline, w, m.Thickness, Rgba(fg));
+            }
         }
         (bgCount[slot], fgCount[slot]) = (nb, nf);
         // One upload per rebuilt row: its backgrounds' region and its glyphs.

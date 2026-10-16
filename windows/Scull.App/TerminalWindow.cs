@@ -63,6 +63,10 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private SwapChainTarget? target;
     private Tab? current;
     private TerminalPane? pressed;
+    // The pane under the pointer and where it is, so pressing Ctrl can underline a link before it moves.
+    private TerminalPane? pointerPane;
+    private (double X, double Y) pointerAt;
+    private TerminalPane? linkPane;
     private readonly SwallowedKeys swallowed = new();
     private float scale;
     private int tabCount;
@@ -123,6 +127,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         host.KeyDown += OnKeyDown;
         host.KeyUp += (_, e) =>
         {
+            FollowCtrl((int)e.Key);
             // The press ran as a command and never reached the program, so neither does its release.
             if (swallowed.Release((int)e.Key))
             {
@@ -601,6 +606,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
         int key = (int)e.Key;
+        FollowCtrl(key);
         if (ime.Intercept(key))
         {
             return;
@@ -694,13 +700,40 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     {
         e.Handled = true;
         PointerPoint point = e.GetCurrentPoint(panel);
+        (double x, double y) = (point.Position.X * panel.CompositionScaleX, point.Position.Y * panel.CompositionScaleY);
+        (pointerPane, pointerAt) = (PaneUnder(point, out _), (x, y));
         // A drag stays with the pane it started in.
-        TerminalPane? pane = pressed ?? PaneUnder(point, out _);
+        TerminalPane? pane = pressed ?? pointerPane;
+        bool hovered = HoverLink();
         // A selection changes the frame at once; what a program makes of a mouse event comes back as output.
-        if (pane?.Pointer(point, Held(), point.Position.X * panel.CompositionScaleX, point.Position.Y * panel.CompositionScaleY) == true)
+        if (pane?.Pointer(point, Held(), x, y) == true || hovered)
         {
             Redraw(force: false);
         }
+    }
+
+    // Ctrl, either side, underlines the link under the pointer while it is held.
+    private void FollowCtrl(int key)
+    {
+        if (key is 17 or 162 or 163 && HoverLink())
+        {
+            Redraw(force: false);
+        }
+    }
+
+    /// <summary>Moves the link underline to the pane under the pointer; true when a pane wants drawing.</summary>
+    private bool HoverLink()
+    {
+        // A closed pane's terminal is gone, and so is its underline.
+        bool Alive(TerminalPane pane) => tabs.Any(t => t.Views.ContainsValue(pane));
+        TerminalPane? under = pointerPane is { } p && Alive(p) ? p : null;
+        bool changed = false;
+        if (linkPane is { } old && old != under && Alive(old))
+        {
+            changed = old.HoverLink(pointerAt.X, pointerAt.Y, KeyModifiers.None);
+        }
+        linkPane = under;
+        return (under?.HoverLink(pointerAt.X, pointerAt.Y, Held()) ?? false) | changed;
     }
 
     private void LosePointer()

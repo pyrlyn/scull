@@ -84,9 +84,27 @@ public sealed partial class ScreenText
             }
             position = b[previous];
         }
-        return endpoint == TextEndpoint.Start
-            ? new TextRange(position, Math.Max(end, position))
-            : new TextRange(Math.Min(start, position), position);
+        return new TextRange(start, end).WithEndpoint(endpoint, position);
+    }
+
+    /// <summary>
+    /// <c>FindText</c>: the first match of <paramref name="needle"/> inside <paramref name="within"/>
+    /// (the last when <paramref name="backward"/>), or null. The match is by code unit, which
+    /// is what a client's search string is.
+    /// </summary>
+    public TextRange? Find(TextRange within, string needle, bool backward, bool ignoreCase)
+    {
+        ArgumentNullException.ThrowIfNull(needle);
+        (int start, int end) = Normalize(within);
+        if (needle.Length == 0 || end - start < needle.Length)
+        {
+            return null;
+        }
+        StringComparison comparison = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        int at = backward
+            ? Text.LastIndexOf(needle, end - 1, end - start, comparison)
+            : Text.IndexOf(needle, start, end - start, comparison);
+        return at < 0 ? null : new TextRange(at, at + needle.Length);
     }
 
     private (int Start, int End) Normalize(TextRange range)

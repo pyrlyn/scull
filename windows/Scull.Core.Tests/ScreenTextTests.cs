@@ -81,16 +81,16 @@ public sealed class ScreenTextTests
 
         CollectionAssert.AreEqual(
             new[] { new LineSpan(0, 1, 3), new LineSpan(1, 0, 3), new LineSpan(2, 0, 2) },
-            text.LineSpans(new TextRange(1, 10), One).ToArray());
-        CollectionAssert.AreEqual(new[] { new LineSpan(0, 0, 3) }, text.LineSpans(new TextRange(0, 4), One).ToArray(), "the newline belongs to its row");
-        CollectionAssert.AreEqual(new[] { new LineSpan(0, 1, 2) }, text.LineSpans(new TextRange(1, 1), One).ToArray(), "an empty range is one cell");
-        CollectionAssert.AreEqual(new[] { new LineSpan(0, 3, 4) }, text.LineSpans(new TextRange(3, 4), One).ToArray(), "a bare newline is the cell after the row");
-        CollectionAssert.AreEqual(new[] { new LineSpan(2, 3, 4) }, text.LineSpans(new TextRange(99, 99), One).ToArray());
+            text.LineSpans(new TextRange(1, 10), _ => One).ToArray());
+        CollectionAssert.AreEqual(new[] { new LineSpan(0, 0, 3) }, text.LineSpans(new TextRange(0, 4), _ => One).ToArray(), "the newline belongs to its row");
+        CollectionAssert.AreEqual(new[] { new LineSpan(0, 1, 2) }, text.LineSpans(new TextRange(1, 1), _ => One).ToArray(), "an empty range is one cell");
+        CollectionAssert.AreEqual(new[] { new LineSpan(0, 3, 4) }, text.LineSpans(new TextRange(3, 4), _ => One).ToArray(), "a bare newline is the cell after the row");
+        CollectionAssert.AreEqual(new[] { new LineSpan(2, 3, 4) }, text.LineSpans(new TextRange(99, 99), _ => One).ToArray());
 
         const string row = "a世界";
         CollectionAssert.AreEqual(
             new[] { new LineSpan(0, 1, 5) },
-            new ScreenText(row).LineSpans(new TextRange(1, 3), Widths(row)).ToArray());
+            new ScreenText(row).LineSpans(new TextRange(1, 3), _ => Widths(row)).ToArray());
     }
 
     [TestMethod]
@@ -307,7 +307,7 @@ public sealed class ScreenTextTests
         Assert.AreEqual(4, text.OffsetOf(0, 5, RowWidth(0)), "the column of 界 is 5, after the two of 世");
         CollectionAssert.AreEqual(
             new[] { new LineSpan(0, 3, 7) },
-            text.LineSpans(new TextRange(3, 5), RowWidth(0)).ToArray());
+            text.LineSpans(new TextRange(3, 5), RowWidth).ToArray());
 
         terminal.Feed("\r\nmore"u8);
         terminal.Update();

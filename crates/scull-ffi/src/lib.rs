@@ -34,6 +34,7 @@ mod guard;
 mod input;
 mod link;
 mod link_target;
+mod prompt;
 mod select;
 mod spawn;
 mod term;
@@ -79,6 +80,7 @@ pub use link::{TT_CELL_LINK, tt_term_link_at, tt_term_link_hover};
 pub use link_target::{
     TT_LINK_DIRECTORY, TT_LINK_FILE, TT_LINK_MAIL, TT_LINK_REFUSED, TT_LINK_WEB, tt_link_target,
 };
+pub use prompt::tt_term_scroll_to_prompt;
 pub use select::{
     TT_MAX_SEARCH_MATCHES, TT_MAX_SEARCH_PATTERN, TT_MAX_SELECTION_BYTES, TT_SEARCH_IGNORE_CASE,
     TT_SELECT_BLOCK, TT_SELECT_CELL, TT_SELECT_LINE, TT_SELECT_WORD, tt_match,
@@ -95,11 +97,11 @@ pub const TT_ABI_VERSION_MAJOR: u32 = 0;
 
 /// Additions (new functions, fields appended to a struct) bump the minor.
 /// While the major is 0 every minor may break, so the minor must match too.
-pub const TT_ABI_VERSION_MINOR: u32 = 8;
+pub const TT_ABI_VERSION_MINOR: u32 = 9;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = 0x0000_0008;
+pub const TT_ABI_VERSION: u32 = 0x0000_0009;
 
 const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 

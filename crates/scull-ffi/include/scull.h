@@ -21,11 +21,11 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 8
+#define TT_ABI_VERSION_MINOR 9
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 8
+#define TT_ABI_VERSION 9
 
 // `tt_keybind.action`: paste the clipboard.
 #define TT_ACTION_PASTE 1
@@ -1040,6 +1040,20 @@ tt_status tt_link_target(struct tt_str uri,
                          uint8_t *buf,
                          size_t cap,
                          size_t *len);
+
+// Scrolls the viewport so the previous (`forward` 0) or next (`forward`
+// non-zero) prompt the shell marked with OSC 133 `A` is its top row, or
+// the live screen when that prompt is on it. `TT_EMPTY`, and nothing
+// moves, when there is no such prompt: none marked, none above the
+// viewport, or the next one already in view at the bottom. Marks follow
+// the text through a resize, and go with the lines the scrollback's
+// trimming, ED 2, ED 3 or a full reset remove. Call `tt_frame_update`
+// afterwards.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_scroll_to_prompt(const struct tt_term *term, uint8_t forward);
 
 // Starts a selection of `kind` (`TT_SELECT_*`) at viewport cell `row`,
 // `col` (clamped), replacing any other. It covers that cell, word or line

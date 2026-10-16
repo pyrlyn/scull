@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 8;
+        internal const uint TT_ABI_VERSION_MINOR = 9;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 8;
+        internal const uint TT_ABI_VERSION = 9;
         /// <summary>
         ///  `tt_keybind.action`: paste the clipboard.
         /// </summary>
@@ -951,6 +951,23 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_link_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_link_target(tt_str uri, tt_str machine, uint* kind, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Scrolls the viewport so the previous (`forward` 0) or next (`forward`
+        ///  non-zero) prompt the shell marked with OSC 133 `A` is its top row, or
+        ///  the live screen when that prompt is on it. `TT_EMPTY`, and nothing
+        ///  moves, when there is no such prompt: none marked, none above the
+        ///  viewport, or the next one already in view at the bottom. Marks follow
+        ///  the text through a resize, and go with the lines the scrollback's
+        ///  trimming, ED 2, ED 3 or a full reset remove. Call `tt_frame_update`
+        ///  afterwards.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_scroll_to_prompt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_scroll_to_prompt(tt_term* term, byte forward);
 
 
     }

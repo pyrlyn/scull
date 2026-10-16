@@ -23,6 +23,7 @@ mod osc;
 mod pen;
 mod preedit;
 mod print;
+mod prompts;
 mod reply;
 mod resize;
 mod screen;

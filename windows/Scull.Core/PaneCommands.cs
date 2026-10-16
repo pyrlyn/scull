@@ -13,6 +13,9 @@ public enum PaneCommand
 
     /// <summary>The settings window.</summary>
     OpenSettings,
+
+    /// <summary>The focused pane's selected text to the clipboard.</summary>
+    Copy,
 }
 
 /// <summary>The keys that run a <see cref="PaneCommand"/>, so the program never sees them.</summary>
@@ -21,7 +24,7 @@ public static class PaneCommands
     private const KeyModifiers Chord = KeyModifiers.Shift | KeyModifiers.Alt | KeyModifiers.Control | KeyModifiers.Super;
 
     /// <summary>
-    /// The command for a virtual key with these modifiers held: Ctrl+Shift with T, N, D, E, W, ] or [, or Ctrl+, for settings.
+    /// The command for a virtual key with these modifiers held: Ctrl+Shift with T, N, D, E, W, C, ] or [, or Ctrl+, for settings.
     /// Ctrl+Shift is the terminal-safe prefix (paste is Ctrl+Shift+V), and the letters follow Windows Terminal where it has one.
     /// </summary>
     public static PaneCommand? Match(int virtualKey, KeyModifiers held) => (held & Chord) switch
@@ -39,6 +42,7 @@ public static class PaneCommands
         0x44 => PaneCommand.SplitRight, // D
         0x45 => PaneCommand.SplitDown, // E
         0x57 => PaneCommand.ClosePane, // W
+        0x43 => PaneCommand.Copy, // C, the twin of paste's Ctrl+Shift+V
         0xDD => PaneCommand.NextPane, // VK_OEM_6, ]
         0xDB => PaneCommand.PreviousPane, // VK_OEM_4, [
         _ => null,

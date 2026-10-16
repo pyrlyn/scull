@@ -12,11 +12,16 @@ namespace Scull.App;
 /// </summary>
 internal sealed class TerminalPane : IDisposable
 {
+    // PointerUpdateKind: the left button going down and up.
+    private const int LeftPressed = 1, LeftReleased = 2;
+
     private readonly RenderDevice device;
     private readonly Terminal terminal;
     private readonly WindowsPointer pointer = new();
     private readonly WheelSteps wheel = new();
     private readonly WheelSteps wheelAcross = new();
+    private readonly ClickCounter clicks = new();
+    private SelectionDrag? drag;
     private readonly FontZoom font = new();
     private Renderer renderer;
     private float scale;
@@ -243,15 +248,114 @@ internal sealed class TerminalPane : IDisposable
         Send(t => t.Focus(now));
     }
 
-    /// <summary>A mouse event; <paramref name="x"/> and <paramref name="y"/> are window pixels. Not drawn here: what the program makes of it comes back as output.</summary>
-    public void Pointer(PointerPoint point, KeyModifiers held, double x, double y)
+    /// <summary>
+    /// A mouse event; <paramref name="x"/> and <paramref name="y"/> are window pixels. True when the
+    /// selection changed and wants drawing; what the program makes of a mouse event comes back as output.
+    /// </summary>
+    public bool Pointer(PointerPoint point, KeyModifiers held, double x, double y)
     {
         PointerPointProperties p = point.Properties;
-        if (pointer.Update((int)p.PointerUpdateKind, p.IsLeftButtonPressed, p.IsMiddleButtonPressed, p.IsRightButtonPressed,
-                held, CellAt(x, y)) is MouseInput mouse)
+        int kind = (int)p.PointerUpdateKind;
+        var at = CellAt(x, y);
+        MouseInput? mouse = pointer.Update(kind, p.IsLeftButtonPressed, p.IsMiddleButtonPressed, p.IsRightButtonPressed, held, at);
+        if (kind == LeftPressed)
         {
-            Send(t => t.Mouse(mouse));
+            drag = null;
+            // The program sees the press first, unless Shift asks for the host's selection.
+            if (mouse is MouseInput press && !SelectionGesture.ForcesSelection(held) && Taken(press))
+            {
+                return false;
+            }
+            return BeginSelection(point, held, x, y, at);
         }
+        if (drag is { } selecting && kind != LeftReleased)
+        {
+            // Motion, or another button: the drag owns the left button, so the program hears neither of its motion.
+            if (kind is >= 1 and <= 10)
+            {
+                SendMouse(mouse);
+                return false;
+            }
+            return Extend(selecting, x, y, at);
+        }
+        if (drag is { } ended)
+        {
+            drag = null;
+            if (ended.ClearsOnRelease)
+            {
+                Send(t => t.ClearSelection());
+                return true;
+            }
+            return false;
+        }
+        SendMouse(mouse);
+        return false;
+    }
+
+    /// <summary>The selected text, or null when nothing is selected.</summary>
+    public string? SelectionText()
+    {
+        string? text = null;
+        Send(t => text = t.SelectionText());
+        return text;
+    }
+
+    private bool Taken(MouseInput mouse)
+    {
+        bool taken = false;
+        Send(t => taken = t.Mouse(mouse));
+        return taken;
+    }
+
+    private void SendMouse(MouseInput? mouse)
+    {
+        if (mouse is MouseInput m)
+        {
+            Send(t => t.Mouse(m));
+        }
+    }
+
+    private bool BeginSelection(PointerPoint point, KeyModifiers held, double x, double y, (uint Col, uint Row, uint XPx, uint YPx) at)
+    {
+        (long interval, double slop) = SystemInput.DoubleClick();
+        // The timestamp is in microseconds.
+        int clicks = this.clicks.Press((long)(point.Timestamp / 1000), x, y, interval, slop);
+        bool has = false;
+        Send(t => has = t.HasSelection);
+        SelectionPress press = SelectionGesture.Press(clicks, held, has);
+        ushort row = (ushort)at.Row, col = (ushort)at.Col;
+        Send(t =>
+        {
+            if (press.Extend)
+            {
+                t.ExtendSelection(row, col);
+            }
+            else
+            {
+                t.Select(press.Kind, row, col);
+            }
+        });
+        drag = new SelectionDrag(at.Col, at.Row, press.ClearsOnRelease);
+        return true;
+    }
+
+    private bool Extend(SelectionDrag selecting, double x, double y, (uint Col, uint Row, uint XPx, uint YPx) at)
+    {
+        // Past an edge the history scrolls a row per motion event.
+        int scroll = SelectionDrag.EdgeScroll(y - Area.Y, Area.Height);
+        if (!selecting.Move(at.Col, at.Row, scroll != 0))
+        {
+            return false;
+        }
+        Send(t =>
+        {
+            if (scroll != 0)
+            {
+                t.ScrollDisplay(scroll);
+            }
+            t.ExtendSelection((ushort)at.Row, (ushort)at.Col);
+        });
+        return true;
     }
 
     /// <summary>The pointer capture was lost or cancelled: releases the buttons still held, so the program sees none stuck.</summary>
@@ -259,8 +363,13 @@ internal sealed class TerminalPane : IDisposable
     {
         foreach (MouseInput release in pointer.Lose(held))
         {
-            Send(t => t.Mouse(release));
+            // The drag took the left press, so the program never saw it.
+            if (drag is null || release.Button != MouseButton.Left)
+            {
+                Send(t => t.Mouse(release));
+            }
         }
+        drag = null;
     }
 
     /// <summary>A wheel turn; true when the view scrolled and wants drawing.</summary>

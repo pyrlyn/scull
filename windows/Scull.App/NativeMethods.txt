@@ -27,3 +27,5 @@ CoCreateInstance
 ClientToScreen
 MessageBeep
 SystemParametersInfo
+GetDoubleClickTime
+GetSystemMetrics

@@ -260,6 +260,75 @@ public sealed unsafe class Terminal : IDisposable
         Check(NativeMethods.tt_term_scroll_display((tt_term*)t.Pointer, rows), "tt_term_scroll_display");
     }
 
+    /// <summary>Starts a selection of <paramref name="kind"/> at a viewport cell (clamped), replacing any other; output that rewrites its rows, a resize and a screen switch drop it.</summary>
+    public void Select(SelectionKind kind, ushort row, ushort col)
+    {
+        using var t = new Lease(term);
+        Check(NativeMethods.tt_term_select_start((tt_term*)t.Pointer, (uint)kind, row, col), "tt_term_select_start");
+    }
+
+    /// <summary>Moves the selection's free end to a viewport cell (clamped); nothing without a selection.</summary>
+    public void ExtendSelection(ushort row, ushort col)
+    {
+        using var t = new Lease(term);
+        Check(NativeMethods.tt_term_select_extend((tt_term*)t.Pointer, row, col), "tt_term_select_extend");
+    }
+
+    /// <summary>Drops the selection.</summary>
+    public void ClearSelection()
+    {
+        using var t = new Lease(term);
+        Check(NativeMethods.tt_term_select_clear((tt_term*)t.Pointer), "tt_term_select_clear");
+    }
+
+    /// <summary>Whether there is a selection; the core is asked because output can drop it.</summary>
+    public bool HasSelection
+    {
+        get
+        {
+            nuint length = 0;
+            using var t = new Lease(term);
+            tt_status status = NativeMethods.tt_term_selection_text((tt_term*)t.Pointer, null, 0, &length);
+            if (status != tt_status.TT_EMPTY)
+            {
+                Check(status is tt_status.TT_FULL ? tt_status.TT_OK : status, "tt_term_selection_text");
+            }
+            return status != tt_status.TT_EMPTY;
+        }
+    }
+
+    /// <summary>The selected text as the core copies it (soft-wrapped rows joined, hard line ends as <c>\n</c>, trailing spaces trimmed); null when nothing is selected.</summary>
+    public string? SelectionText()
+    {
+        byte[] buffer = [];
+        // The selection can change between asking for the length and reading, so a few tries with some room.
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            nuint length = 0;
+            tt_status status;
+            using (var t = new Lease(term))
+            fixed (byte* p = buffer)
+            {
+                status = NativeMethods.tt_term_selection_text((tt_term*)t.Pointer, p, (nuint)buffer.Length, &length);
+            }
+            int needed = checked((int)length);
+            if (status == tt_status.TT_EMPTY)
+            {
+                return null;
+            }
+            if (status == tt_status.TT_OK)
+            {
+                return Encoding.UTF8.GetString(buffer, 0, needed);
+            }
+            if (status != tt_status.TT_FULL)
+            {
+                Check(status, "tt_term_selection_text");
+            }
+            buffer = new byte[checked(needed + needed / 8)];
+        }
+        throw new ScullException(Status.Full, "tt_term_selection_text: the text kept outgrowing the buffer");
+    }
+
     private bool SendText(string text, delegate*<tt_term*, byte*, nuint, tt_status> send, string call)
     {
         ArgumentNullException.ThrowIfNull(text);

@@ -392,6 +392,28 @@ namespace Scull.Native
         ///  `tt_cell.flags`: the cell carries the link `tt_term_link_hover` set.
         /// </summary>
         internal const byte TT_CELL_LINK = 16;
+        /// <summary>
+        ///  `tt_link_target` kind: nothing to open.
+        /// </summary>
+        internal const uint TT_LINK_REFUSED = 0;
+        /// <summary>
+        ///  An http or https page; the target is the URI.
+        /// </summary>
+        internal const uint TT_LINK_WEB = 1;
+        /// <summary>
+        ///  A mailto address; the target is the URI.
+        /// </summary>
+        internal const uint TT_LINK_MAIL = 2;
+        /// <summary>
+        ///  A directory on this machine, to open in the file manager; the target is
+        ///  its path.
+        /// </summary>
+        internal const uint TT_LINK_DIRECTORY = 3;
+        /// <summary>
+        ///  Any other existing file on this machine, to reveal in the file manager
+        ///  and never open; the target is its path.
+        /// </summary>
+        internal const uint TT_LINK_FILE = 4;
 
 
 
@@ -912,6 +934,23 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_term_link_hover", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_term_link_hover(tt_term* term, uint id);
+
+        /// <summary>
+        ///  Sorts the OSC 8 `uri` a click landed on: writes a `TT_LINK_*` to
+        ///  `*kind` and copies the target (the URI, or a local path in this
+        ///  platform's style) into `buf` as `tt_term_link_uri` does. `machine` is
+        ///  this computer's name, which a file URL may give as its host. A refused
+        ///  link is `TT_OK` with `TT_LINK_REFUSED` and an empty target; so is a file
+        ///  URL whose path does not exist. `TT_INVALID` for text that is not UTF-8
+        ///  or a `NULL` `kind` or `len`.
+        ///
+        ///  # Safety
+        ///
+        ///  `uri` and `machine` are valid as `tt_str`; `kind` is `NULL` or
+        ///  writable; `buf`, `cap` and `len` as for `tt_term_link_uri`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_link_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_link_target(tt_str uri, tt_str machine, uint* kind, byte* buf, nuint cap, nuint* len);
 
 
     }

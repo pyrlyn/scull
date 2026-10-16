@@ -25,21 +25,28 @@ import Testing
     #expect(session.cell(row: 0, col: 1)!.flags & UInt8(TT_CELL_LINK) == 0)
 }
 
-@Test func onlyLinksAUserExpectsToOpenAreOpenable() {
-    let open = { (uri: String) in LinkPolicy.openable(uri, localNames: ["mymac", "mymac.local"]) }
-    #expect(open("https://example.com/a?b=1")?.absoluteString == "https://example.com/a?b=1")
-    #expect(open("HTTP://example.com") != nil)
-    #expect(open("mailto:someone@example.com") != nil)
-    #expect(open("file:///tmp/a%20b")?.path == "/tmp/a b")
-    #expect(open("file://localhost/tmp/x")?.path == "/tmp/x")
-    #expect(open("file://MyMac.local/tmp/x") == URL(fileURLWithPath: "/tmp/x"))
-    #expect(open("file://other/tmp/x") == nil, "another machine's path")
-    #expect(open("https://") == nil)
-    #expect(open("mailto:") == nil)
-    for refused in ["javascript:alert(1)", "ftp://example.com", "data:text/html,x", "ssh://host",
-                    "x-apple.systempreferences:", "/etc/passwd", "not a url", ""] {
-        #expect(open(refused) == nil, "\(refused)")
+@Test func theCoreDecidesWhichLinksOpen() {
+    let of = { (uri: String) in LinkTarget.of(uri, machine: "mymac.local") }
+    #expect(of("https://example.com/a?b=1") == .web(URL(string: "https://example.com/a?b=1")!))
+    #expect(of("HTTP://example.com") != nil)
+    #expect(of("mailto:someone@example.com") == .mail(URL(string: "mailto:someone@example.com")!))
+    #expect(of("file://localhost/tmp") == .directory("/tmp"))
+    #expect(of("file://MyMac/tmp") == .directory("/tmp"), "the machine's first label")
+    #expect(of("file://other/tmp") == nil, "another machine's path")
+    for refused in ["javascript:alert(1)", "ftp://example.com", "https://a@b", "file:////h/s/x",
+                    "file:///no/such/path", "/etc/passwd", "not a url", ""] {
+        #expect(of(refused) == nil, "\(refused)")
     }
+}
+
+@Test func aLocalDirectoryOpensAndAFileIsOnlyRevealed() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("scull links \(UUID())")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let script = dir.appendingPathComponent("run me.command")
+    try Data("#!/bin/sh\n".utf8).write(to: script)
+    #expect(LinkTarget.of(dir.absoluteString) == .directory(dir.path))
+    #expect(LinkTarget.of(script.absoluteString) == .file(script.path))
 }
 
 /// A view over a terminal with no child showing `text`, in a window of its
@@ -48,7 +55,7 @@ import Testing
 private final class LinkScreen {
     let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
     let window: NSWindow
-    var opened: [URL] = []
+    var opened: [LinkTarget] = []
 
     init(_ text: String) throws {
         let session = try TerminalSession(cols: 12, rows: 2)
@@ -58,7 +65,7 @@ private final class LinkScreen {
         view.setFrameSize(NSSize(width: 12.5 * view.cellWidth, height: 2.5 * view.cellHeight))
         window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = view
-        view.openURL = { [unowned self] in opened.append($0) }
+        view.launch = { [unowned self] in opened.append($0) }
     }
 
     func event(_ type: NSEvent.EventType, col: Int, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {
@@ -98,7 +105,7 @@ private func link(_ uri: String, _ text: String) -> String { "\u{1b}]8;;\(uri)\u
     screen.click(col: 1)
     #expect(screen.opened.isEmpty, "a plain click selects")
     screen.click(col: 1, .command)
-    #expect(screen.opened == [URL(string: "https://example.com/x")!])
+    #expect(screen.opened == [.web(URL(string: "https://example.com/x")!)])
     screen.click(col: 2, .command)
     #expect(screen.opened.count == 1, "a refused scheme opens nothing")
     #expect(screen.view.session?.hasSelection == false, "and the click is not a selection")

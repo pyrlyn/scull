@@ -43,7 +43,7 @@ public final class TerminalView: NSView {
     /// The link underlined while Cmd is held.
     var hoveredLink: UInt32?
     /// Opens a link the user Cmd+clicked; tests catch it instead.
-    var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
+    var launch: (LinkTarget) -> Void = { $0.launch() }
     #if DEBUG
     private var initialInput = UserDefaults.standard.string(forKey: "ScullInitialInput")
     private var probe: LatencyProbe?

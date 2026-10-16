@@ -279,6 +279,23 @@
 // `tt_cell.flags`: the cell carries the link `tt_term_link_hover` set.
 #define TT_CELL_LINK 16
 
+// `tt_link_target` kind: nothing to open.
+#define TT_LINK_REFUSED 0
+
+// An http or https page; the target is the URI.
+#define TT_LINK_WEB 1
+
+// A mailto address; the target is the URI.
+#define TT_LINK_MAIL 2
+
+// A directory on this machine, to open in the file manager; the target is
+// its path.
+#define TT_LINK_DIRECTORY 3
+
+// Any other existing file on this machine, to reveal in the file manager
+// and never open; the target is its path.
+#define TT_LINK_FILE 4
+
 // `tt_term_select_start` kind: cell by cell, for a drag.
 #define TT_SELECT_CELL 0
 
@@ -1004,6 +1021,25 @@ tt_status tt_term_link_at(const struct tt_term *term, uint16_t row, uint16_t col
 //
 // `term` is `NULL` or live.
 tt_status tt_term_link_hover(const struct tt_term *term, uint32_t id);
+
+// Sorts the OSC 8 `uri` a click landed on: writes a `TT_LINK_*` to
+// `*kind` and copies the target (the URI, or a local path in this
+// platform's style) into `buf` as `tt_term_link_uri` does. `machine` is
+// this computer's name, which a file URL may give as its host. A refused
+// link is `TT_OK` with `TT_LINK_REFUSED` and an empty target; so is a file
+// URL whose path does not exist. `TT_INVALID` for text that is not UTF-8
+// or a `NULL` `kind` or `len`.
+//
+// # Safety
+//
+// `uri` and `machine` are valid as `tt_str`; `kind` is `NULL` or
+// writable; `buf`, `cap` and `len` as for `tt_term_link_uri`.
+tt_status tt_link_target(struct tt_str uri,
+                         struct tt_str machine,
+                         uint32_t *kind,
+                         uint8_t *buf,
+                         size_t cap,
+                         size_t *len);
 
 // Starts a selection of `kind` (`TT_SELECT_*`) at viewport cell `row`,
 // `col` (clamped), replacing any other. It covers that cell, word or line

@@ -28,33 +28,9 @@ public static class EventPolicy
     /// The local path an OSC 7 <c>file://</c> URL names, or null for anything else. A URL naming
     /// another machine is refused: its path would be taken for a local one.
     /// </summary>
-    public static string? PathOfUrl(string url) => LocalPath(url, machine: null);
+    public static string? PathOfUrl(string url) => LocalPath(url);
 
-    /// <summary>
-    /// What a click on an OSC 8 link to <paramref name="uri"/> may open: http and https with a
-    /// host, mailto, and a <c>file://</c> URL with no host, <c>localhost</c> or
-    /// <paramref name="machine"/> (this computer's name), rebuilt from its local path. Null for
-    /// everything else; the result goes to the system's launcher, never to a shell.
-    /// </summary>
-    public static Uri? OpenableLink(string uri, string machine)
-    {
-        if (uri.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
-        {
-            return LocalPath(uri, machine) is { } path ? new Uri(path) : null;
-        }
-        if (!Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed))
-        {
-            return null;
-        }
-        return parsed.Scheme switch
-        {
-            "http" or "https" when parsed.Host.Length > 0 => parsed,
-            "mailto" when uri.Length > "mailto:".Length => parsed,
-            _ => null,
-        };
-    }
-
-    private static string? LocalPath(string url, string? machine)
+    private static string? LocalPath(string url)
     {
         const string scheme = "file://";
         if (!url.StartsWith(scheme, StringComparison.OrdinalIgnoreCase))
@@ -69,12 +45,18 @@ public static class EventPolicy
             return null;
         }
         string host = rest[..slash];
-        if (host.Length != 0 && !host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-            && (machine is null || !host.Equals(machine, StringComparison.OrdinalIgnoreCase)))
+        if (host.Length != 0 && !host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
-        return Uri.TryCreate(scheme + rest[slash..], UriKind.Absolute, out Uri? uri) && uri.IsFile ? uri.LocalPath : null;
+        if (!Uri.TryCreate(scheme + rest[slash..], UriKind.Absolute, out Uri? uri) || !uri.IsFile)
+        {
+            return null;
+        }
+        // An empty host with a second slash (file:////h/s), or slashes spelled %5C, still names a
+        // share: the directory would be another machine's.
+        string path = uri.LocalPath;
+        return uri.IsUnc || path.StartsWith(@"\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal) ? null : path;
     }
 
     /// <summary>

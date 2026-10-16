@@ -34,6 +34,7 @@
 | anyhow | local | https://github.com/dtolnay/anyhow | Error type of the `scull-ucd-gen` binary |
 | sha2 | local | https://github.com/RustCrypto/hashes | Verifies the pinned Unicode data files |
 | ureq | local | https://github.com/algesten/ureq | Downloads the Unicode data files in `scull-ucd-gen` |
+| percent-encoding | local | https://github.com/servo/rust-url | Decodes the path of a `file:` OSC 8 link in `scull-ffi` (`tt_link_target`) |
 | memchr | local | https://github.com/BurntSushi/memchr | Bulk search for the end of DCS/APC payloads in scull-parser |
 | divan | local | https://github.com/nvzqz/divan | Parser throughput bench and the stub baseline (`crates/scull-bench`) |
 | vte | local | https://github.com/alacritty/vte | Baseline parser in the throughput bench (dev-dependency) |

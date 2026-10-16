@@ -443,7 +443,7 @@ internal sealed class TerminalPane : IDisposable
         return true;
     }
 
-    /// <summary>Opens the link at <paramref name="at"/> if the policy admits it; true when a link is there at all.</summary>
+    /// <summary>Opens the link at <paramref name="at"/> if the core admits it; true when a link is there at all.</summary>
     private bool OpenLink((uint Col, uint Row, uint XPx, uint YPx) at)
     {
         uint? id = null;
@@ -457,8 +457,8 @@ internal sealed class TerminalPane : IDisposable
         {
             return false;
         }
-        // The URI is the program's text: only what the policy admits reaches the launcher.
-        if (uri is not null && EventPolicy.OpenableLink(uri, Environment.MachineName) is Uri target)
+        // The URI is the program's text: only what the core admits reaches the launcher.
+        if (uri is not null && LinkTarget.Of(uri, Environment.MachineName) is { Kind: not LinkKind.Refused } target)
         {
             LinkLauncher.Open(target);
         }

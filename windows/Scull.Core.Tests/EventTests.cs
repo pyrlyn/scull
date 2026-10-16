@@ -111,6 +111,8 @@ public sealed class EventTests
     [DataRow("file://localhost/home/me", "/home/me")]
     [DataRow("file:///home/me/a%20b", "/home/me/a b")]
     [DataRow("file://elsewhere/home/me", null)]
+    [DataRow("file:////h/s/x", null)]
+    [DataRow("file://localhost//h/s/x", null)]
     [DataRow("https://example.com/x", null)]
     [DataRow("/home/me", null)]
     [DataRow("", null)]
@@ -129,6 +131,10 @@ public sealed class EventTests
         {
             Assert.AreEqual(@"C:\Users\me\a b", EventPolicy.PathOfUrl("file:///C:/Users/me/a%20b"));
             Assert.IsNull(EventPolicy.PathOfUrl("file://server/share/x"));
+            Assert.IsNull(EventPolicy.PathOfUrl("file:////server/share/x"), "an empty host and a share path");
+            Assert.IsNull(EventPolicy.PathOfUrl("file://localhost//server/share/x"));
+            Assert.IsNull(EventPolicy.PathOfUrl("file:///%5C%5Cserver/share"));
+            Assert.IsNull(EventPolicy.PathOfUrl("file:///\\\\server\\share"));
         }
     }
 }

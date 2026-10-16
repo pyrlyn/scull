@@ -33,6 +33,7 @@ mod frame;
 mod guard;
 mod input;
 mod link;
+mod link_target;
 mod select;
 mod spawn;
 mod term;
@@ -75,6 +76,9 @@ pub use input::{
     tt_term_key, tt_term_mouse, tt_term_paste, tt_term_scroll_display, tt_term_text,
 };
 pub use link::{TT_CELL_LINK, tt_term_link_at, tt_term_link_hover};
+pub use link_target::{
+    TT_LINK_DIRECTORY, TT_LINK_FILE, TT_LINK_MAIL, TT_LINK_REFUSED, TT_LINK_WEB, tt_link_target,
+};
 pub use select::{
     TT_MAX_SEARCH_MATCHES, TT_MAX_SEARCH_PATTERN, TT_MAX_SELECTION_BYTES, TT_SEARCH_IGNORE_CASE,
     TT_SELECT_BLOCK, TT_SELECT_CELL, TT_SELECT_LINE, TT_SELECT_WORD, tt_match,

@@ -27,38 +27,40 @@ public sealed class LinkTests
     }
 
     [TestMethod]
-    [DataRow("https://example.com/a?b=1")]
-    [DataRow("HTTP://example.com")]
-    [DataRow("mailto:someone@example.com")]
-    public void WebAndMailLinksOpen(string uri) => Assert.IsNotNull(EventPolicy.OpenableLink(uri, "MYPC"));
-
-    [TestMethod]
-    [DataRow("javascript:alert(1)")]
-    [DataRow("ftp://example.com")]
-    [DataRow("data:text/html,x")]
-    [DataRow("ms-settings:")]
-    [DataRow("search-ms:query=x")]
-    [DataRow("\\\\server\\share\\x")]
-    [DataRow("https://")]
-    [DataRow("mailto:")]
-    [DataRow("file://elsewhere/x/y")]
-    [DataRow("not a url")]
-    [DataRow("")]
-    public void EverythingElseIsIgnored(string uri) => Assert.IsNull(EventPolicy.OpenableLink(uri, "MYPC"));
-
-    [TestMethod]
-    public void AFileUrlOpensWhenItNamesThisMachine()
+    [DataRow("https://example.com/a?b=1", LinkKind.Web)]
+    [DataRow("mailto:someone@example.com", LinkKind.Mail)]
+    [DataRow("javascript:alert(1)", LinkKind.Refused)]
+    [DataRow("https://bank.example@evil.example", LinkKind.Refused)]
+    [DataRow("file:////h/s/x", LinkKind.Refused)]
+    [DataRow("file://localhost//h/s/x", LinkKind.Refused)]
+    [DataRow("file:///%5C%5Ch/s", LinkKind.Refused)]
+    public void TheCoreSortsLinks(string uri, LinkKind kind)
     {
-        string local = OperatingSystem.IsWindows() ? "file:///C:/Users/me/a%20b" : "file:///home/me/a%20b";
-        string path = OperatingSystem.IsWindows() ? @"C:\Users\me\a b" : "/home/me/a b";
-        string named = local.Replace("file:///", "file://mypc/", StringComparison.Ordinal);
-        string localhost = local.Replace("file:///", "file://localhost/", StringComparison.Ordinal);
-        foreach (string uri in new[] { local, named, localhost })
+        LinkTarget target = LinkTarget.Of(uri, "MYPC");
+        Assert.AreEqual(kind, target.Kind);
+        Assert.AreEqual(kind is LinkKind.Refused ? "" : uri, target.Target);
+    }
+
+    [TestMethod]
+    public void ALocalDirectoryOpensAndAFileIsOnlyRevealed()
+    {
+        string dir = Directory.CreateTempSubdirectory("scull-link").FullName;
+        try
         {
-            Uri? opened = EventPolicy.OpenableLink(uri, "MYPC");
-            Assert.IsNotNull(opened, uri);
-            Assert.IsTrue(opened.IsFile, uri);
-            Assert.AreEqual(path, opened.LocalPath, uri);
+            string file = Path.Combine(dir, "a b.cmd");
+            File.WriteAllText(file, "x");
+            string Url(string path) => new Uri(path).AbsoluteUri;
+            LinkTarget folder = LinkTarget.Of(Url(dir), Environment.MachineName);
+            Assert.AreEqual(LinkKind.Directory, folder.Kind);
+            Assert.AreEqual(Path.GetFullPath(dir), Path.GetFullPath(folder.Target));
+            LinkTarget script = LinkTarget.Of(Url(file), Environment.MachineName);
+            Assert.AreEqual(LinkKind.File, script.Kind, "a script is revealed, not run");
+            Assert.AreEqual(Path.GetFullPath(file), Path.GetFullPath(script.Target));
+            Assert.AreEqual(LinkKind.Refused, LinkTarget.Of(Url(Path.Combine(dir, "missing")), "").Kind);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
         }
     }
 }

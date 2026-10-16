@@ -214,6 +214,44 @@ public sealed class PaneTests
         Assert.AreEqual(0, panes.Poisoned.Count());
     }
 
+    [TestMethod]
+    public void APixelBelongsToTheViewportThatContainsItAndNoneOverADivider()
+    {
+        var tree = new PaneTree();
+        int right = tree.SplitFocused(SplitAxis.SideBySide);
+        PaneViewport[] views = [.. tree.Layout(101, 50, divider: 1)];
+
+        Assert.AreEqual(0, PaneTree.PaneAt(views, 0, 0));
+        Assert.AreEqual(0, PaneTree.PaneAt(views, 49.9, 49.9));
+        Assert.IsNull(PaneTree.PaneAt(views, 50, 10), "the divider column");
+        Assert.AreEqual(right, PaneTree.PaneAt(views, 51, 10));
+        Assert.IsNull(PaneTree.PaneAt(views, 101, 10), "right of the surface");
+        Assert.IsNull(PaneTree.PaneAt(views, 10, -1), "above it");
+    }
+
+    [TestMethod]
+    [DataRow(0x54, PaneCommand.NewTab)]
+    [DataRow(0x4E, PaneCommand.NewWindow)]
+    [DataRow(0x44, PaneCommand.SplitRight)]
+    [DataRow(0x45, PaneCommand.SplitDown)]
+    [DataRow(0x57, PaneCommand.ClosePane)]
+    [DataRow(0xDD, PaneCommand.NextPane)]
+    [DataRow(0xDB, PaneCommand.PreviousPane)]
+    public void CtrlShiftChordsRunPaneCommands(int key, PaneCommand command)
+    {
+        Assert.AreEqual(command, PaneCommands.Match(key, KeyModifiers.Control | KeyModifiers.Shift));
+        // Lock keys do not stop a chord.
+        Assert.AreEqual(command, PaneCommands.Match(key, KeyModifiers.Control | KeyModifiers.Shift | KeyModifiers.CapsLock | KeyModifiers.NumLock));
+    }
+
+    [TestMethod]
+    [DataRow(0x54, KeyModifiers.Control)]
+    [DataRow(0x54, KeyModifiers.Shift)]
+    [DataRow(0x54, KeyModifiers.None)]
+    [DataRow(0x54, KeyModifiers.Control | KeyModifiers.Shift | KeyModifiers.Alt)]
+    [DataRow(0x56, KeyModifiers.Control | KeyModifiers.Shift)] // paste stays paste
+    public void OtherKeysReachTheProgram(int key, KeyModifiers held) => Assert.IsNull(PaneCommands.Match(key, held));
+
     private static bool Overlap(PaneViewport a, PaneViewport b) =>
         a.Width > 0 && a.Height > 0 && b.Width > 0 && b.Height > 0
         && a.X < b.X + b.Width && b.X < a.X + a.Width

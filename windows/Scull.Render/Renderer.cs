@@ -406,9 +406,11 @@ public sealed unsafe class Renderer : IDisposable
                     {
                         break;
                     }
+                    // The current match's background is bright in any theme, so its text has its own colour.
+                    uint tint = cells[col].IsCurrentMatch ? Rgba(palette.CurrentMatchText, alpha) : color;
                     // Pinned to its cluster's column, so a fallback's own
                     // advances never push the rest of the run off the grid.
-                    Glyph(Entry(g.Key), col * m.Width + (int)MathF.Round(g.Dx), color, alpha, (int)MathF.Round(g.Dy));
+                    Glyph(Entry(g.Key), col * m.Width + (int)MathF.Round(g.Dx), tint, alpha, (int)MathF.Round(g.Dy));
                 }
             }
         }
@@ -419,6 +421,7 @@ public sealed unsafe class Renderer : IDisposable
             Cell cell = col < cols ? cells[col] : default;
             Style style = view.StyleAt(cell.Style);
             (uint fg, uint bg) = palette.Colors(style);
+            bg = palette.Highlight(cell, bg);
             // Neighbouring cells of one colour share a quad; the default
             // background is the clear colour.
             if (col == cols || bg != current)

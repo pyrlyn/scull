@@ -34,11 +34,18 @@ public sealed class Palette
     }
 
     /// <summary>The configured colours, as Palette+Config.swift lays them over xterm's.</summary>
-    public Palette(ConfigSettings settings)
+    /// <param name="accent">The system accent colour, 0xRRGGBB; null keeps the built-in selection colour.</param>
+    public Palette(ConfigSettings settings, uint? accent = null)
         : this()
     {
         ArgumentNullException.ThrowIfNull(settings);
         (Foreground, Background, Cursor) = (settings.Foreground, settings.Background, settings.Cursor);
+        // The config has no selection colour yet; the accent, toned down over
+        // the background, keeps the text on it readable.
+        if (accent is uint rgb)
+        {
+            Selection = Blend(rgb, Background, 0.45);
+        }
         // The core sends the sixteen it resolved; the 6x6x6 cube and the greys stay xterm's.
         for (int i = 0; i < Math.Min(16, settings.Ansi.Count); i++)
         {
@@ -51,6 +58,31 @@ public sealed class Palette
     public uint Background { get; init; } = 0x141414;
 
     public uint Cursor { get; init; } = 0xE5E5E5;
+
+    public uint Selection { get; init; } = 0x264F78;
+
+    public uint Match { get; init; } = 0x6B5A1A;
+
+    public uint CurrentMatch { get; init; } = 0xF2A33A;
+
+    /// <summary>Text on the current match, whose background is bright in any theme: black.</summary>
+    public uint CurrentMatchText { get; init; }
+
+    /// <summary>The background a cell shows: the current match over the selection over other matches over its own <paramref name="bg"/>.</summary>
+    public uint Highlight(in Cell cell, uint bg) =>
+        cell.IsCurrentMatch ? CurrentMatch : cell.IsSelected ? Selection : cell.IsMatch ? Match : bg;
+
+    /// <summary><paramref name="top"/> over <paramref name="bottom"/> at <paramref name="alpha"/>, per channel, rounded.</summary>
+    public static uint Blend(uint top, uint bottom, double alpha)
+    {
+        uint rgb = 0;
+        for (int shift = 16; shift >= 0; shift -= 8)
+        {
+            double t = top >> shift & 0xFF, b = bottom >> shift & 0xFF;
+            rgb |= (uint)Math.Round(t * alpha + b * (1 - alpha), MidpointRounding.AwayFromZero) << shift;
+        }
+        return rgb;
+    }
 
     /// <summary>The RGB value of a core colour, <paramref name="fallback"/> for the default.</summary>
     public uint Rgb(uint color, uint fallback) => (color & NativeMethods.TT_COLOR_KIND_MASK) switch

@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -46,6 +50,7 @@ jobs:
   # The C ABI driven from C under ASan+UBSan and TSan (`just c-abi-test`). Repository-specific:
   # not part of the shared workflow. The Windows runner's cc has no sanitizer runtimes.
   c-abi:
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -53,6 +58,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       # Ubuntu's kernel randomises mmap with more bits than the sanitizer
       # runtimes of the runner's compilers can map around.
@@ -64,6 +71,7 @@ jobs:
   # everywhere and its Direct3D tests draw on WARP on Windows. The WinUI 3 shell builds only on
   # Windows. The .NET SDK is pinned in windows/global.json.
   csharp:
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -71,6 +79,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -87,6 +97,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       - run: just ucd-check
 
@@ -98,6 +110,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       - name: nightly toolchain
         run: rustup toolchain install nightly --profile minimal

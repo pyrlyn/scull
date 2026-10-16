@@ -58,6 +58,8 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private readonly List<Tab> tabs = [];
     private readonly DispatcherQueueTimer resizeTimer;
     private readonly RenderDevice device;
+    // One per window, so panes drawing the same font rasterise each glyph once.
+    private readonly GlyphAtlases atlases;
     private SwapChainTarget? target;
     private Tab? current;
     private TerminalPane? pressed;
@@ -104,6 +106,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         WireFind();
         ime = new TerminalInputMethod(WinRT.Interop.WindowNative.GetWindowHandle(this), host, FocusedPane, Input);
         device = CreateDevice();
+        atlases = new GlyphAtlases(device);
         resizeTimer = DispatcherQueue.CreateTimer();
         resizeTimer.IsRepeating = false;
         resizeTimer.Interval = ResizeSettle;
@@ -244,7 +247,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         Terminal terminal = Terminal.Spawn(cols, rows, () => queue.TryEnqueue(wake), spawn);
         try
         {
-            tab.Views[id] = new TerminalPane(device, terminal, scale, (cols, rows), app.Settings);
+            tab.Views[id] = new TerminalPane(device, atlases, terminal, scale, (cols, rows), app.Settings);
         }
         catch
         {

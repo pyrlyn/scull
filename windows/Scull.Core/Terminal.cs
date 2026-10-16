@@ -165,6 +165,13 @@ public sealed unsafe class Terminal : IDisposable
     }
 
     /// <summary>
+    /// Whether the last send (<see cref="Key"/>, <see cref="Text"/>, <see cref="Paste"/>, <see cref="Focus"/>
+    /// or <see cref="Mouse"/>) was refused because the child is not reading and its input queue is full,
+    /// which a host answers with a beep; false when it went through or the child is gone.
+    /// </summary>
+    public bool InputFull { get; private set; }
+
+    /// <summary>
     /// Sends a key, encoded for the program's key modes. False when nothing could
     /// be sent: there is no child, or it is not reading and its input queue is full.
     /// </summary>
@@ -268,6 +275,7 @@ public sealed unsafe class Terminal : IDisposable
     // The child not reading or gone is an everyday answer to input, not an error.
     private bool Sent(tt_status status, string call)
     {
+        InputFull = status == tt_status.TT_FULL;
         if (status is tt_status.TT_FULL or tt_status.TT_CLOSED)
         {
             return false;

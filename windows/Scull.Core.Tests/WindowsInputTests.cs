@@ -270,4 +270,86 @@ public sealed class WindowsInputTests
     public void WheelStepsPressAWheelButton(int steps, bool horizontal, MouseButton button) =>
         Assert.AreEqual(new MouseInput(MouseAction.Press, button, KeyModifiers.Shift, 7, 8, 70, 160),
             new WindowsPointer().Wheel(steps, horizontal, KeyModifiers.Shift, (7, 8, 70, 160)));
+
+    [TestMethod]
+    public void ALostCaptureReleasesEveryHeldButtonAtTheLastPosition()
+    {
+        var pointer = new WindowsPointer();
+        pointer.Update(1, true, false, false, 0, (1, 1, 15, 25));
+        pointer.Update(5, true, true, false, 0, (1, 1, 15, 25));
+        pointer.Update(0, true, true, false, 0, (4, 2, 45, 35));
+        pointer.Update(2, false, true, false, 0, (4, 2, 45, 35));
+
+        IReadOnlyList<MouseInput> lost = pointer.Lose(KeyModifiers.Shift);
+
+        Assert.HasCount(1, lost);
+        Assert.AreEqual(new MouseInput(MouseAction.Release, MouseButton.Middle, KeyModifiers.Shift, 4, 2, 45, 35), lost[0]);
+        Assert.IsEmpty(pointer.Lose(KeyModifiers.None), "a second loss has nothing left to release");
+    }
+
+    [TestMethod]
+    public void ALostCaptureReleasesInTheOrderLeftRightMiddleBackForward()
+    {
+        var pointer = new WindowsPointer();
+        foreach (int pressed in new[] { 9, 5, 3, 1, 7 })
+        {
+            pointer.Update(pressed, false, false, false, 0, (0, 0, 0, 0));
+        }
+
+        MouseButton[] released = [.. pointer.Lose(KeyModifiers.None).Select(m => m.Button)];
+
+        CollectionAssert.AreEqual(
+            new[] { MouseButton.Left, MouseButton.Right, MouseButton.Middle, MouseButton.Back, MouseButton.Forward },
+            released);
+    }
+
+    [TestMethod]
+    public void NothingIsLostAfterTheReleasesArrived()
+    {
+        var pointer = new WindowsPointer();
+        pointer.Update(1, true, false, false, 0, (2, 2, 25, 35));
+        pointer.Update(2, false, false, false, 0, (2, 2, 25, 35));
+
+        Assert.IsEmpty(pointer.Lose(KeyModifiers.None));
+        Assert.IsEmpty(new WindowsPointer().Lose(KeyModifiers.None));
+    }
+
+    [TestMethod]
+    public void AReleaseIsDroppedOnlyForAKeyWhosePressWasSwallowed()
+    {
+        var keys = new SwallowedKeys();
+        keys.Press(0x56, swallowed: true);
+        keys.Press(0x2D, swallowed: true);
+        keys.Press(0x41, swallowed: false);
+
+        Assert.IsTrue(keys.Release(0x56));
+        Assert.IsFalse(keys.Release(0x56), "owed once");
+        Assert.IsTrue(keys.Release(0x2D));
+        Assert.IsFalse(keys.Release(0x41));
+        Assert.IsFalse(keys.Release(0x10), "never pressed here");
+    }
+
+    [TestMethod]
+    public void ASentPressForgetsAReleaseOwedFromBefore()
+    {
+        var keys = new SwallowedKeys();
+        keys.Press(0x56, swallowed: true);
+        // The focus left the window, so the release never came; the next press is sent.
+        keys.Press(0x56, swallowed: false);
+
+        Assert.IsFalse(keys.Release(0x56));
+    }
+
+    [TestMethod]
+    [DataRow(1, 3u, 24, 3)]
+    [DataRow(-2, 3u, 24, -6)]
+    [DataRow(2, 1u, 24, 2)]
+    [DataRow(1, 0u, 24, 0)]
+    [DataRow(3, WheelScroll.Page, 24, 72)]
+    [DataRow(-1, WheelScroll.Page, 24, -24)]
+    [DataRow(1, WheelScroll.Page, 0, 0)]
+    [DataRow(int.MaxValue, 100u, 24, int.MaxValue)]
+    [DataRow(int.MinValue, 100u, 24, -int.MaxValue)]
+    public void ANotchScrollsTheSystemsLinesOrAPage(int steps, uint lines, int pageRows, int rows) =>
+        Assert.AreEqual(rows, WheelScroll.Rows(steps, lines, pageRows));
 }

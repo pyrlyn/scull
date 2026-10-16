@@ -96,6 +96,24 @@ internal sealed class TerminalPane : IDisposable
         }
     }
 
+    /// <summary>The pane's text and geometry as of the last update, for UI Automation; null once poisoned.</summary>
+    public TextSnapshot? Snapshot()
+    {
+        if (Poisoned)
+        {
+            return null;
+        }
+        try
+        {
+            return TextSnapshot.Capture(terminal, new CellGeometry(Metrics.Width, Metrics.Height, Area.X, Area.Y));
+        }
+        catch (TerminalPoisonedException)
+        {
+            Poisoned = true;
+            return null;
+        }
+    }
+
     /// <summary>True when the child has exited.</summary>
     public bool Exited()
     {

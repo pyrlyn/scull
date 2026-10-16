@@ -10,6 +10,9 @@ public enum PaneCommand
     ClosePane,
     NextPane,
     PreviousPane,
+
+    /// <summary>The settings window.</summary>
+    OpenSettings,
 }
 
 /// <summary>The keys that run a <see cref="PaneCommand"/>, so the program never sees them.</summary>
@@ -18,19 +21,26 @@ public static class PaneCommands
     private const KeyModifiers Chord = KeyModifiers.Shift | KeyModifiers.Alt | KeyModifiers.Control | KeyModifiers.Super;
 
     /// <summary>
-    /// The command for a virtual key with these modifiers held: Ctrl+Shift with T, N, D, E, W, ] or [.
+    /// The command for a virtual key with these modifiers held: Ctrl+Shift with T, N, D, E, W, ] or [, or Ctrl+, for settings.
     /// Ctrl+Shift is the terminal-safe prefix (paste is Ctrl+Shift+V), and the letters follow Windows Terminal where it has one.
     /// </summary>
-    public static PaneCommand? Match(int virtualKey, KeyModifiers held) =>
-        (held & Chord) != (KeyModifiers.Control | KeyModifiers.Shift) ? null : virtualKey switch
-        {
-            0x54 => PaneCommand.NewTab, // T
-            0x4E => PaneCommand.NewWindow, // N
-            0x44 => PaneCommand.SplitRight, // D
-            0x45 => PaneCommand.SplitDown, // E
-            0x57 => PaneCommand.ClosePane, // W
-            0xDD => PaneCommand.NextPane, // VK_OEM_6, ]
-            0xDB => PaneCommand.PreviousPane, // VK_OEM_4, [
-            _ => null,
-        };
+    public static PaneCommand? Match(int virtualKey, KeyModifiers held) => (held & Chord) switch
+    {
+        // Ctrl+, opens settings, as Cmd+, does on macOS; the comma has no control character to lose.
+        KeyModifiers.Control => virtualKey == 0xBC ? PaneCommand.OpenSettings : null, // VK_OEM_COMMA
+        KeyModifiers.Control | KeyModifiers.Shift => ShiftChord(virtualKey),
+        _ => null,
+    };
+
+    private static PaneCommand? ShiftChord(int virtualKey) => virtualKey switch
+    {
+        0x54 => PaneCommand.NewTab, // T
+        0x4E => PaneCommand.NewWindow, // N
+        0x44 => PaneCommand.SplitRight, // D
+        0x45 => PaneCommand.SplitDown, // E
+        0x57 => PaneCommand.ClosePane, // W
+        0xDD => PaneCommand.NextPane, // VK_OEM_6, ]
+        0xDB => PaneCommand.PreviousPane, // VK_OEM_4, [
+        _ => null,
+    };
 }

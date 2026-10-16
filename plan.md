@@ -9,10 +9,10 @@ A terminal emulator with a Rust core and a native UI per platform: SwiftUI on ma
 | T3 | in progress | P0 | 3 | 80% | Cursor / grok 4.7 |
 | T15 | in progress | P1 | 5 | 90% | Claude Code / claude-opus-5-5 |
 | T16 | in progress | P1 | 4 | 85% | Claude Code / claude-opus-5-5 |
-| T17 | in progress | P1 | 5 | 72% | Claude Code / claude-opus-5-5 |
-| T18 | in progress | P2 | 5 | 0% | Claude Code / claude-sonnet-5-5 |
+| T17 | in progress | P1 | 5 | 80% | Claude Code / claude-opus-5-5 |
+| T18 | in progress | P2 | 5 | 25% | Claude Code / claude-sonnet-5-5 |
 | T20 | in progress | P2 | 3 | 80% | Claude Code / claude-sonnet-5-5 |
-| T21 | in progress | P2 | 3 | 70% | Claude Code / claude-sonnet-5-5 |
+| T21 | in progress | P2 | 3 | 90% | Claude Code / claude-sonnet-5-5 |
 
 ### T3. Conformance and benchmark harness
 

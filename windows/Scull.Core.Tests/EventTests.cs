@@ -132,3 +132,95 @@ public sealed class EventTests
         }
     }
 }
+
+[TestClass]
+public sealed class PaneEventsTests
+{
+    private static DrainedEvents Drain(PaneEvents events, string output)
+    {
+        using var terminal = new Terminal(20, 4);
+        terminal.Feed(Encoding.UTF8.GetBytes(output));
+        return events.Drain(terminal);
+    }
+
+    [TestMethod]
+    public void TheTitleAndDirectoryAreKept()
+    {
+        var events = new PaneEvents();
+        DrainedEvents drained = Drain(events, "\e]2;build\a\e]7;file:///work/app\a");
+        Assert.IsTrue(drained.TitleChanged);
+        Assert.AreEqual("build", events.Title);
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.AreEqual("/work/app", events.WorkingDirectory);
+        }
+        Assert.IsFalse(drained.Exited);
+        Assert.IsNull(drained.Clipboard);
+    }
+
+    [TestMethod]
+    public void ARepeatedTitleIsNoChange()
+    {
+        var events = new PaneEvents();
+        Drain(events, "\e]2;same\a");
+        Assert.IsFalse(Drain(events, "\e]2;same\a").TitleChanged);
+        Assert.IsTrue(Drain(events, "\e]2;other\a").TitleChanged);
+    }
+
+    [TestMethod]
+    public void AnEmptyTitleClearsIt()
+    {
+        var events = new PaneEvents();
+        Drain(events, "\e]2;named\a");
+        Assert.IsTrue(Drain(events, "\e]2;\a").TitleChanged);
+        Assert.IsNull(events.Title);
+    }
+
+    [TestMethod]
+    public void AnIconNameAndAForeignDirectoryChangeNothing()
+    {
+        var events = new PaneEvents();
+        DrainedEvents drained = Drain(events, "\e]1;icon\a\e]7;file://elsewhere/etc\a");
+        Assert.IsFalse(drained.TitleChanged);
+        Assert.IsNull(events.Title);
+        Assert.IsNull(events.WorkingDirectory);
+    }
+
+    [TestMethod]
+    public void TheLastClipboardWriteWinsAndOnlyUtf8Counts()
+    {
+        var events = new PaneEvents();
+        string Osc(byte[] bytes) => $"\e]52;c;{Convert.ToBase64String(bytes)}\a";
+        Assert.AreEqual("two", Drain(events, Osc("one"u8.ToArray()) + Osc("two"u8.ToArray())).Clipboard);
+        Assert.AreEqual("kept", Drain(events, Osc("kept"u8.ToArray()) + Osc([0xFF])).Clipboard, "bad bytes do not replace good text");
+        Assert.IsNull(Drain(events, Osc([0xFF])).Clipboard);
+    }
+
+    [TestMethod]
+    public void AClipboardReadIsDeniedAndGivesNothing()
+    {
+        var events = new PaneEvents();
+        DrainedEvents drained = Drain(events, "\e]52;c;?\a");
+        Assert.IsNull(drained.Clipboard);
+        Assert.IsFalse(drained.TitleChanged);
+    }
+
+    [TestMethod]
+    public void AClipboardReadIsAnsweredWithADenialTheChildCanSee()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+        using Terminal terminal = Terminal.Spawn(80, 24, () => { },
+            new SpawnOptions { Program = "/bin/sh", Arguments = ["-c", "stty raw -echo; printf '\\033]52;c;?\\007'; dd bs=1 count=1 2>/dev/null; echo done"] });
+        var events = new PaneEvents();
+        bool exited = false;
+        for (int i = 0; i < 200 && !exited; i++)
+        {
+            exited = events.Drain(terminal).Exited;
+            Thread.Sleep(25);
+        }
+        Assert.IsTrue(exited, "the child finished: the denial reached it");
+    }
+}

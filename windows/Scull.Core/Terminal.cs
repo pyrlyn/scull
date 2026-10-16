@@ -460,6 +460,71 @@ public sealed unsafe class Terminal : IDisposable
         throw new ScullException(Status.Full, "tt_term_read_text: the text kept outgrowing the buffer");
     }
 
+    /// <summary>
+    /// Searches the history and the screen for <paramref name="pattern"/>, literal text,
+    /// replacing any earlier search; the frame marks the matches in view. Empty ends the
+    /// search. False when the core refuses the pattern (over <see cref="MaxSearchPattern"/>
+    /// UTF-8 bytes), which ends the search too.
+    /// </summary>
+    public bool SearchSet(string pattern, bool ignoreCase)
+    {
+        ArgumentNullException.ThrowIfNull(pattern);
+        byte[] bytes = Encoding.UTF8.GetBytes(pattern);
+        uint flags = ignoreCase ? NativeMethods.TT_SEARCH_IGNORE_CASE : 0;
+        tt_status status;
+        using (var t = new Lease(term))
+        fixed (byte* p = bytes)
+        {
+            status = NativeMethods.tt_term_search_set((tt_term*)t.Pointer, new tt_str { ptr = p, len = (nuint)bytes.Length }, flags);
+        }
+        if (status == tt_status.TT_INVALID)
+        {
+            return false;
+        }
+        Check(status, "tt_term_search_set");
+        return true;
+    }
+
+    /// <summary>
+    /// Steps to the next match (or the previous one) from the current match, or from the
+    /// viewport's edge, wrapping at the ends; the viewport scrolls to show it. False with
+    /// no search or no match.
+    /// </summary>
+    public bool SearchStep(bool forward, out SearchMatch found)
+    {
+        var raw = new tt_match { struct_size = (uint)sizeof(tt_match) };
+        tt_status status;
+        using (var t = new Lease(term))
+        {
+            status = NativeMethods.tt_term_search_step((tt_term*)t.Pointer, forward ? (byte)1 : (byte)0, &raw);
+        }
+        if (status == tt_status.TT_EMPTY)
+        {
+            found = default;
+            return false;
+        }
+        Check(status, "tt_term_search_step");
+        found = new SearchMatch(raw.start_col, raw.end_col, raw.start_line, raw.end_line);
+        return true;
+    }
+
+    /// <summary>Matches in the whole history, up to <see cref="MaxSearchMatches"/>; 0 without a search. It rescans everything.</summary>
+    public int SearchCount()
+    {
+        nuint count = 0;
+        using (var t = new Lease(term))
+        {
+            Check(NativeMethods.tt_term_search_count((tt_term*)t.Pointer, &count), "tt_term_search_count");
+        }
+        return (int)count;
+    }
+
+    /// <summary>The longest pattern <see cref="SearchSet"/> takes, in UTF-8 bytes.</summary>
+    public const int MaxSearchPattern = (int)NativeMethods.TT_MAX_SEARCH_PATTERN;
+
+    /// <summary>The most matches <see cref="SearchCount"/> counts.</summary>
+    public const int MaxSearchMatches = (int)NativeMethods.TT_MAX_SEARCH_MATCHES;
+
     /// <summary>Frees the frame, then the terminal. A second call does nothing.</summary>
     public void Dispose()
     {
@@ -515,6 +580,12 @@ public readonly record struct TerminalEvent(
     /// <summary>The body as text, bad bytes shown as U+FFFD; for kinds that are names, such as titles.</summary>
     public string Text => Encoding.UTF8.GetString(Body ?? []);
 }
+
+/// <summary>
+/// A search match, first and last cell inclusive (a wide character's right half
+/// included). Lines count from the first line ever output, so they hold while the text scrolls.
+/// </summary>
+public readonly record struct SearchMatch(ushort StartCol, ushort EndCol, ulong StartLine, ulong EndLine);
 
 /// <summary>What <see cref="Terminal.Spawn"/> runs, and where.</summary>
 public sealed record SpawnOptions

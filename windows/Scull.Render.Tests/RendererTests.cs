@@ -311,6 +311,65 @@ public sealed class RendererTests
         Assert.AreEqual(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
 
+    // Most of a cell in one colour: a glyph covers well under half of it.
+    private static bool Mostly(Scene scene, byte[] pixels, int col, uint color)
+    {
+        uint[] cell = [.. scene.Cell(pixels, 0, col)];
+        return cell.Count(p => p == color) > cell.Length / 2;
+    }
+
+    [TestMethod]
+    public void MatchesTheSelectionAndTheCurrentMatchPaintTheirCells()
+    {
+        using var scene = new Scene();
+        scene.Draw("\e[?25lab ab cd ab"u8);
+        scene.Terminal.SearchSet("ab", ignoreCase: false);
+        scene.Terminal.SearchStep(forward: true, out _);
+        TestSelection.Select(scene.Terminal, 0, 3, 0, 6);
+        Palette palette = scene.Renderer.Palette;
+        byte[] pixels = scene.Draw([]);
+
+        Assert.IsTrue(Mostly(scene, pixels, 0, palette.CurrentMatch), "the current match");
+        Assert.IsTrue(Mostly(scene, pixels, 3, palette.Selection), "a selected match shows the selection");
+        Assert.IsTrue(scene.Cell(pixels, 0, 5).All(p => p == palette.Selection), "a selected blank");
+        Assert.IsTrue(Mostly(scene, pixels, 9, palette.Match), "another match");
+        Assert.IsTrue(scene.Cell(pixels, 0, 2).All(p => p == Background), "a blank in neither");
+        Assert.IsTrue(Mostly(scene, pixels, 7, Background));
+    }
+
+    [TestMethod]
+    public void TheCurrentMatchsTextIsDarkOnItsBrightBackground()
+    {
+        using var scene = new Scene();
+        scene.Draw("\e[?25lab ab"u8);
+        scene.Terminal.SearchSet("ab", ignoreCase: false);
+        scene.Terminal.SearchStep(forward: true, out _);
+        byte[] pixels = scene.Draw([]);
+
+        static bool Dark(uint p) => (p >> 16 & 0xFF) < 0x40 && (p >> 8 & 0xFF) < 0x40 && (p & 0xFF) < 0x40;
+        Assert.IsTrue(scene.Cell(pixels, 0, 0).Any(Dark), "the current match's ink is black");
+        Assert.IsFalse(scene.Cell(pixels, 0, 0).Any(p => p == Foreground));
+        Assert.IsTrue(scene.Cell(pixels, 0, 3).Any(p => p == Foreground), "another match keeps the foreground");
+    }
+
+    [TestMethod]
+    public void ANewSearchMovesTheHighlightsAndAnEmptyOneClearsThem()
+    {
+        using var scene = new Scene();
+        scene.Draw("\e[?25lab cd"u8);
+        scene.Terminal.SearchSet("ab", ignoreCase: false);
+        scene.Draw([]);
+        scene.Terminal.SearchSet("cd", ignoreCase: false);
+        Palette palette = scene.Renderer.Palette;
+        byte[] pixels = scene.Draw([]);
+        Assert.IsTrue(Mostly(scene, pixels, 0, Background), "the old match is gone");
+        Assert.IsTrue(Mostly(scene, pixels, 3, palette.Match));
+
+        scene.Terminal.SearchSet("", ignoreCase: false);
+        pixels = scene.Draw([]);
+        Assert.IsTrue(Mostly(scene, pixels, 3, Background));
+    }
+
     [TestMethod]
     public void ANewPaletteRedrawsEveryRow()
     {

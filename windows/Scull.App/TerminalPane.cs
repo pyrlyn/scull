@@ -1,6 +1,8 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI.Input;
 using Scull.Core;
 using Scull.Render;
+using Windows.UI.ViewManagement;
 
 namespace Scull.App;
 
@@ -36,12 +38,15 @@ internal sealed class TerminalPane : IDisposable
         {
             font.Apply(settings);
         }
-        renderer = CreateRenderer(settings is null ? new Palette() : new Palette(settings));
+        renderer = CreateRenderer(settings is null ? new Palette() : new Palette(settings, Accent()));
         // A release the child cannot take is no one's fault, so it does not beep.
         Pairing = new WindowsKeyPairing(key => Type(t => t.Key(key), key.Action != KeyAction.Release), text => Type(t => t.Text(text)));
     }
 
     public WindowsKeyPairing Pairing { get; }
+
+    /// <summary>This pane's search, kept across the find bar's closes.</summary>
+    public FindState Find { get; } = new();
 
     /// <summary>Where the pane sits in the swap chain, in pixels.</summary>
     public Region Area { get; set; }
@@ -55,6 +60,21 @@ internal sealed class TerminalPane : IDisposable
     public CellMetrics Metrics => renderer.Metrics;
 
     private float Pixels => font.Size * Math.Max(scale, 0.5f);
+
+    // The selection colour follows the system accent, as it does on macOS.
+    private static uint? Accent()
+    {
+        try
+        {
+            Windows.UI.Color c = new UISettings().GetColorValue(UIColorType.Accent);
+            return (uint)(c.R << 16 | c.G << 8 | c.B);
+        }
+        catch (COMException)
+        {
+            // No accent to be had: the built-in selection colour stays.
+            return null;
+        }
+    }
 
     private Renderer CreateRenderer(Palette palette)
     {
@@ -94,7 +114,7 @@ internal sealed class TerminalPane : IDisposable
     /// <summary>Takes new settings: colours at once, a new font only when the file changed it. The window refits the grid after.</summary>
     public void Configure(ConfigSettings settings)
     {
-        renderer.Palette = new Palette(settings);
+        renderer.Palette = new Palette(settings, Accent());
         if (font.Apply(settings))
         {
             WithFamily(family => renderer.SetFont(family, Pixels));

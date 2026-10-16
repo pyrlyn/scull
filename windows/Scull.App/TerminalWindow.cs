@@ -91,14 +91,17 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         };
         Grid.SetRow(configError, 1);
         Grid.SetRow(host, 2);
+        // Over the terminal but outside its host, so typing in the field never reaches the program.
+        Grid.SetRow(findBar, 2);
         Content = new Grid
         {
             RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition() },
-            Children = { tabView, configError, host },
+            Children = { tabView, configError, host, findBar },
         };
         ShowConfigError();
         app.ConfigChanged += OnConfig;
         WireInput();
+        WireFind();
         ime = new TerminalInputMethod(WinRT.Interop.WindowNative.GetWindowHandle(this), host, FocusedPane, Input);
         device = CreateDevice();
         resizeTimer = DispatcherQueue.CreateTimer();
@@ -327,6 +330,9 @@ internal sealed partial class TerminalWindow : Window, IDisposable
                 case PaneCommand.NewTab:
                     AddTab();
                     break;
+                case PaneCommand.Find:
+                    OpenFind();
+                    break;
                 case PaneCommand.NewWindow:
                     ((App)Application.Current).OpenWindow();
                     break;
@@ -451,6 +457,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         {
             return;
         }
+        FollowFind();
         bool changed = force;
         foreach (TerminalPane pane in tab.Views.Values)
         {

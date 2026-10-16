@@ -25,3 +25,5 @@ TF_POPF_ALL
 TF_INVALID_COOKIE
 CoCreateInstance
 ClientToScreen
+MessageBeep
+SystemParametersInfo

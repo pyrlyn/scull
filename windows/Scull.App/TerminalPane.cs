@@ -31,7 +31,8 @@ internal sealed class TerminalPane : IDisposable
             font.Apply(settings);
         }
         renderer = CreateRenderer(settings is null ? new Palette() : new Palette(settings));
-        Pairing = new WindowsKeyPairing(key => Send(t => t.Key(key)), text => Send(t => t.Text(text)));
+        // A release the child cannot take is no one's fault, so it does not beep.
+        Pairing = new WindowsKeyPairing(key => Type(t => t.Key(key), key.Action != KeyAction.Release), text => Type(t => t.Text(text)));
     }
 
     public WindowsKeyPairing Pairing { get; }
@@ -180,7 +181,17 @@ internal sealed class TerminalPane : IDisposable
     }
 
     /// <summary>Runs a call on the terminal; a poisoned one is marked and left alone from then on.</summary>
-    public void Send(Action<Terminal> call)
+    public void Send(Action<Terminal> call) => Type(t =>
+    {
+        call(t);
+        return true;
+    }, audible: false);
+
+    /// <summary>
+    /// Sends typed input, or a paste, and beeps when the child could not take it because it is not
+    /// reading, as <c>TerminalView.swift</c> does on <c>TT_FULL</c>. Poisoning is handled as in <see cref="Send"/>.
+    /// </summary>
+    public void Type(Func<Terminal, bool> send, bool audible = true)
     {
         if (Poisoned)
         {
@@ -188,7 +199,10 @@ internal sealed class TerminalPane : IDisposable
         }
         try
         {
-            call(terminal);
+            if (!send(terminal) && audible && terminal.InputFull)
+            {
+                SystemInput.Beep();
+            }
         }
         catch (TerminalPoisonedException)
         {
@@ -240,6 +254,15 @@ internal sealed class TerminalPane : IDisposable
         }
     }
 
+    /// <summary>The pointer capture was lost or cancelled: releases the buttons still held, so the program sees none stuck.</summary>
+    public void LosePointer(KeyModifiers held)
+    {
+        foreach (MouseInput release in pointer.Lose(held))
+        {
+            Send(t => t.Mouse(release));
+        }
+    }
+
     /// <summary>A wheel turn; true when the view scrolled and wants drawing.</summary>
     public bool Wheel(PointerPoint point, KeyModifiers held, double x, double y)
     {
@@ -263,7 +286,7 @@ internal sealed class TerminalPane : IDisposable
             else if (!across)
             {
                 // History scrolling sends no wakeup, so the view refreshes here.
-                t.ScrollDisplay(steps);
+                t.ScrollDisplay(WheelScroll.Rows(steps, SystemInput.WheelLines(), Cells.Rows));
                 scrolled = true;
             }
         });

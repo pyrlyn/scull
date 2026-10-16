@@ -58,6 +58,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private SwapChainTarget? target;
     private Tab? current;
     private TerminalPane? pressed;
+    private readonly SwallowedKeys swallowed = new();
     private float scale;
     private int tabCount;
     private bool resizing;
@@ -111,7 +112,16 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private void WireInput()
     {
         host.KeyDown += OnKeyDown;
-        host.KeyUp += (_, e) => Input(pane => e.Handled = !ime.Intercept((int)e.Key) && pane.Pairing.KeyUp((int)e.Key, e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey, Held()));
+        host.KeyUp += (_, e) =>
+        {
+            // The press ran as a command and never reached the program, so neither does its release.
+            if (swallowed.Release((int)e.Key))
+            {
+                e.Handled = true;
+                return;
+            }
+            Input(pane => e.Handled = !ime.Intercept((int)e.Key) && pane.Pairing.KeyUp((int)e.Key, e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey, Held()));
+        };
         host.CharacterReceived += (_, e) =>
         {
             if (!ime.Composing)
@@ -142,9 +152,12 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             if (!p.IsLeftButtonPressed && !p.IsMiddleButtonPressed && !p.IsRightButtonPressed)
             {
                 pressed = null;
+                host.ReleasePointerCapture(e.Pointer);
             }
-            host.ReleasePointerCapture(e.Pointer);
         };
+        // Without the release the program would see the button held for good.
+        host.PointerCaptureLost += (_, _) => LosePointer();
+        host.PointerCanceled += (_, _) => LosePointer();
         host.PointerWheelChanged += OnWheel;
         host.GotFocus += (_, _) =>
         {
@@ -557,6 +570,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         if (PaneCommands.Match(key, held) is { } command)
         {
             e.Handled = true;
+            swallowed.Press(key, true);
             Run(command);
             return;
         }
@@ -564,15 +578,18 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         if (app.Settings is { } settings && ConfigBindings.Match(settings.Keybinds, mapped, held) is { } action)
         {
             e.Handled = true;
+            swallowed.Press(key, true);
             RunBinding(action);
             return;
         }
         if (WindowsKeys.IsPaste(mapped, held))
         {
             e.Handled = true;
+            swallowed.Press(key, true);
             PasteClipboard();
             return;
         }
+        swallowed.Press(key, false);
         // Handled once sent, so Tab and the arrows do not move XAML's focus.
         Input(pane => e.Handled = pane.Pairing.KeyDown(key, scanCode, extended, e.KeyStatus.WasKeyDown, held));
     }
@@ -594,7 +611,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             // Another program holds the clipboard open; the paste is dropped, as a text box does.
             return;
         }
-        Input(pane => pane.Send(t => t.Paste(text)));
+        Input(pane => pane.Type(t => t.Paste(text)));
     }
 
     // Positions come in DIPs; panes are laid out in the swap chain's physical pixels.
@@ -616,6 +633,12 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         // A drag stays with the pane it started in.
         TerminalPane? pane = pressed ?? PaneUnder(point, out _);
         pane?.Pointer(point, Held(), point.Position.X * panel.CompositionScaleX, point.Position.Y * panel.CompositionScaleY);
+    }
+
+    private void LosePointer()
+    {
+        pressed?.LosePointer(Held());
+        pressed = null;
     }
 
     private void OnWheel(object sender, PointerRoutedEventArgs e)

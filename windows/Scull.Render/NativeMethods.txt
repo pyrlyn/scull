@@ -35,3 +35,4 @@ IDWriteTextAnalysisSource
 IDWriteTextAnalysisSink
 IDWriteFontFallback
 IDWriteFontFile
+ID3D11SamplerState

@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.InteropServices;
 using Scull.Core;
 using System.Runtime.Versioning;
@@ -28,8 +29,10 @@ public sealed unsafe class Renderer : IDisposable
         public ushort U, V;
         public uint Color;
         public uint Kind;
+        public ushort SpanU, SpanV;
     }
 
+    internal const uint Image = 3;
     private const uint Solid = 0, Coverage = 1, ColorGlyph = 2;
     private const int CursorQuads = 24;
 
@@ -38,6 +41,7 @@ public sealed unsafe class Renderer : IDisposable
     private readonly AtlasPacker packer = new();
     private readonly SpriteCanvas sprites = new();
     private readonly RunShaper shaper;
+    private readonly ImageLayer images;
     private readonly Palette palette;
     private readonly Quad[] cursor = new Quad[CursorQuads];
     private ID3D11VertexShader* vertexShader;
@@ -47,6 +51,9 @@ public sealed unsafe class Renderer : IDisposable
     private ID3D11RasterizerState* raster;
     private ID3D11Buffer* uniforms;
     private ID3D11Buffer* overlay;
+    private ID3D11Buffer* pictures;
+    private ID3D11SamplerState* sampler;
+    private int picturesCapacity;
     private ID3D11Buffer* instances;
     private ID3D11Texture2D* atlas;
     private ID3D11ShaderResourceView* atlasView;
@@ -68,6 +75,7 @@ public sealed unsafe class Renderer : IDisposable
         try
         {
             shaper = new RunShaper(fonts);
+            images = new ImageLayer(device);
             CreatePipeline();
         }
         catch
@@ -87,6 +95,9 @@ public sealed unsafe class Renderer : IDisposable
 
     public int AtlasGeneration => packer.Generation;
 
+    /// <summary>Image textures held, for tests of their release.</summary>
+    internal int ImageTextures => images.Textures;
+
     private ID3D11DeviceContext* Context => device.Context;
 
     private void CreatePipeline()
@@ -105,7 +116,7 @@ public sealed unsafe class Renderer : IDisposable
             {
                 d->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), null, p);
             }
-            fixed (byte* rect = "RECT"u8, uv = "UV"u8, color = "COLOR"u8, kind = "KIND"u8)
+            fixed (byte* rect = "RECT"u8, uv = "UV"u8, color = "COLOR"u8, kind = "KIND"u8, span = "SPAN"u8)
             fixed (ID3D11InputLayout** l = &layout)
             {
                 D3D11_INPUT_ELEMENT_DESC* elements = stackalloc D3D11_INPUT_ELEMENT_DESC[]
@@ -114,8 +125,9 @@ public sealed unsafe class Renderer : IDisposable
                     Element(uv, DXGI_FORMAT.DXGI_FORMAT_R16G16_UINT, 16),
                     Element(color, DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM, 20),
                     Element(kind, DXGI_FORMAT.DXGI_FORMAT_R32_UINT, 24),
+                    Element(span, DXGI_FORMAT.DXGI_FORMAT_R16G16_UINT, 28),
                 };
-                d->CreateInputLayout(elements, 4, vs->GetBufferPointer(), vs->GetBufferSize(), l);
+                d->CreateInputLayout(elements, 5, vs->GetBufferPointer(), vs->GetBufferSize(), l);
             }
         }
         finally
@@ -137,11 +149,21 @@ public sealed unsafe class Renderer : IDisposable
         };
         // No culling: a quad's winding is whatever its corners give.
         var rasterDesc = new D3D11_RASTERIZER_DESC { FillMode = D3D11_FILL_MODE.D3D11_FILL_SOLID, CullMode = D3D11_CULL_MODE.D3D11_CULL_NONE, DepthClipEnable = true };
+        var samplerDesc = new D3D11_SAMPLER_DESC
+        {
+            Filter = D3D11_FILTER.D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+            AddressU = D3D11_TEXTURE_ADDRESS_MODE.D3D11_TEXTURE_ADDRESS_CLAMP,
+            AddressV = D3D11_TEXTURE_ADDRESS_MODE.D3D11_TEXTURE_ADDRESS_CLAMP,
+            AddressW = D3D11_TEXTURE_ADDRESS_MODE.D3D11_TEXTURE_ADDRESS_CLAMP,
+            MaxLOD = float.MaxValue,
+        };
         fixed (ID3D11BlendState** b = &blend)
         fixed (ID3D11RasterizerState** r = &raster)
+        fixed (ID3D11SamplerState** s = &sampler)
         {
             device.Device->CreateBlendState(&blendDesc, b);
             device.Device->CreateRasterizerState(&rasterDesc, r);
+            device.Device->CreateSamplerState(&samplerDesc, s);
         }
         uniforms = Buffer(16, D3D11_BIND_FLAG.D3D11_BIND_CONSTANT_BUFFER);
         overlay = Buffer(CursorQuads * sizeof(Quad), D3D11_BIND_FLAG.D3D11_BIND_VERTEX_BUFFER);
@@ -484,6 +506,10 @@ public sealed unsafe class Renderer : IDisposable
         c->VSSetConstantBuffers(0, 1, &u);
         ID3D11ShaderResourceView* a = atlasView;
         c->PSSetShaderResources(0, 1, &a);
+        ID3D11SamplerState* s = sampler;
+        c->PSSetSamplers(0, 1, &s);
+        images.Place(view, fonts.Metrics);
+        UploadPictures();
         if (region is not null)
         {
             // A region cannot be cleared by ClearRenderTargetView, so one background quad does it.
@@ -520,8 +546,20 @@ public sealed unsafe class Renderer : IDisposable
                     c->DrawInstanced(4, (uint)count, 0, (uint)(slot * stride + (layer == 0 ? 0 : capBg)));
                 }
             }
+            // Images with a negative z go under the text, the rest over it.
             // The cursor block goes over the backgrounds; the glyph under it
             // is drawn again on top in the background colour.
+            for (int i = 0; i < images.Count; i++)
+            {
+                if (images.Below(i) == (layer == 0))
+                {
+                    Bind(pictures);
+                    Origin(0);
+                    ID3D11ShaderResourceView* picture = images.View(i);
+                    c->PSSetShaderResources(1, 1, &picture);
+                    c->DrawInstanced(4, 1, 0, (uint)i);
+                }
+            }
             int n = layer == 0 ? under : over;
             if (n > 0)
             {
@@ -529,6 +567,27 @@ public sealed unsafe class Renderer : IDisposable
                 Origin(0);
                 c->DrawInstanced(4, (uint)n, 0, layer == 0 ? 0u : (uint)under);
             }
+        }
+    }
+
+    private void UploadPictures()
+    {
+        int count = images.Count;
+        if (count == 0)
+        {
+            return;
+        }
+        if (count > picturesCapacity)
+        {
+            // Grown by doubling, so a steady set of images allocates nothing.
+            Com.Release(ref pictures);
+            picturesCapacity = Math.Max(4, (int)BitOperations.RoundUpToPowerOf2((uint)count));
+            pictures = Buffer(picturesCapacity * sizeof(Quad), D3D11_BIND_FLAG.D3D11_BIND_VERTEX_BUFFER);
+        }
+        var box = new D3D11_BOX { right = (uint)(count * sizeof(Quad)), bottom = 1, back = 1 };
+        fixed (Quad* q = images.Quads)
+        {
+            Context->UpdateSubresource((ID3D11Resource*)pictures, 0, &box, q, 0, 0);
         }
     }
 
@@ -585,6 +644,9 @@ public sealed unsafe class Renderer : IDisposable
         Com.Release(ref atlasView);
         Com.Release(ref atlas);
         Com.Release(ref instances);
+        images?.Dispose();
+        Com.Release(ref pictures);
+        Com.Release(ref sampler);
         Com.Release(ref overlay);
         Com.Release(ref uniforms);
         Com.Release(ref raster);

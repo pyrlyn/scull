@@ -23,7 +23,8 @@ internal static unsafe class Shaders
             float4 rect : RECT;   // x, y, width, height in pixels from the origin
             uint2 uv : UV;        // atlas texel of the top-left corner
             float4 color : COLOR; // straight alpha
-            uint kind : KIND;     // 0 solid, 1 tinted coverage, 2 colour glyph
+            uint kind : KIND;     // 0 solid, 1 tinted coverage, 2 colour glyph, 3 image
+            uint2 span : SPAN;    // texels an image samples; others sample as many texels as pixels
         };
 
         struct Fragment {
@@ -38,17 +39,26 @@ internal static unsafe class Shaders
             float2 p = origin + q.rect.xy + corner * q.rect.zw;
             Fragment o;
             o.position = float4(p / viewport * float2(2, -2) + float2(-1, 1), 0, 1);
-            o.uv = float2(q.uv) + corner * q.rect.zw;
+            o.uv = float2(q.uv) + corner * (q.kind == 3 ? float2(q.span) : q.rect.zw);
             o.color = q.color;
             o.kind = q.kind;
             return o;
         }
 
         Texture2D<float4> atlas : register(t0);
+        Texture2D<float4> image : register(t1);
+        SamplerState scaled : register(s0);
 
         // Output is premultiplied; the blend is one, one minus source alpha.
         // Quads sit on whole pixels, so a texel fetch needs no sampler.
         float4 ps(Fragment f) : SV_Target {
+            if (f.kind == 3) {
+                // An image is scaled, so it is filtered; its pixels have straight alpha.
+                float w, h;
+                image.GetDimensions(w, h);
+                float4 i = image.Sample(scaled, f.uv / float2(w, h));
+                return float4(i.rgb * i.a, i.a);
+            }
             if (f.kind == 0) return float4(f.color.rgb * f.color.a, f.color.a);
             float4 t = atlas.Load(int3(f.uv, 0));
             if (f.kind == 2) return t * f.color.a;

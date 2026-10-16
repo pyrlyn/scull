@@ -204,6 +204,47 @@ public sealed class RendererTests
     }
 
     [TestMethod]
+    public void ImagesDrawOverAndUnderTheText()
+    {
+        using var scene = new Scene(cols: 4, rows: 2);
+        CellMetrics m = scene.Metrics;
+        // The core sizes placements in cells from the cell's pixel size.
+        scene.Terminal.Resize(4, 2, (ushort)(4 * m.Width), (ushort)(2 * m.Height));
+        // 2 x 2 red pixels scaled to one cell, then the same image under text
+        // on the next cell, which keeps showing the text over it.
+        string red = "/wAA//8AAP//AAD//wAA/w==";
+        scene.Terminal.Feed(System.Text.Encoding.UTF8.GetBytes($"\e[?25l\e_Gf=32,s=2,v=2,a=T,i=1,c=1,r=1;{red}\e\\"));
+        byte[] pixels = scene.Draw("\e[1;2H\e_Ga=p,i=1,c=1,r=1,z=-1,C=1\e\\\u2588\e[1;3H\e_Ga=p,i=1,c=1,r=1,z=-1,C=1\e\\"u8);
+
+        Assert.IsTrue(scene.Cell(pixels, 0, 0).All(p => p == 0xFF0000), "the image fills its cell");
+        Assert.IsTrue(scene.Cell(pixels, 0, 1).All(p => p == Foreground), "a full block over the image");
+        Assert.IsTrue(scene.Cell(pixels, 0, 2).All(p => p == 0xFF0000), "under nothing, the image shows");
+        Assert.IsTrue(scene.Cell(pixels, 0, 3).All(p => p == Background));
+        Assert.AreEqual(1, scene.Renderer.ImageTextures, "one texture for one image placed three times");
+
+        byte[] cleared = scene.Draw("\e_Ga=d,d=A\e\\"u8);
+        Assert.IsTrue(scene.Cell(cleared, 0, 0).All(p => p == Background), "a deleted image is no longer drawn");
+        Assert.AreEqual(0, scene.Renderer.ImageTextures, "and its texture is released");
+    }
+
+    [TestMethod]
+    public void AnImageInAPaneStaysInItsRegion()
+    {
+        using var scene = new Scene(cols: 4, rows: 2);
+        CellMetrics m = scene.Metrics;
+        scene.Terminal.Resize(4, 2, (ushort)(4 * m.Width), (ushort)(2 * m.Height));
+        scene.Terminal.Feed("\e[?25l\e_Gf=32,s=2,v=2,a=T,i=1,c=2,r=1;/wAA//8AAP//AAD//wAA/w==\e\\"u8);
+        scene.Terminal.Update();
+        scene.Renderer.Absorb(scene.Terminal.View);
+        // A pane one cell in: the image's two cells start at its left edge.
+        scene.Renderer.Render(scene.Terminal.View, scene.Target, new Region(m.Width, 0, 3 * m.Width, 2 * m.Height));
+        byte[] pixels = scene.Target.ReadPixels();
+
+        Assert.IsTrue(scene.Cell(pixels, 0, 1).Concat(scene.Cell(pixels, 0, 2)).All(p => p == 0xFF0000));
+        Assert.IsFalse(scene.Cell(pixels, 0, 0).Contains(0xFF0000u), "nothing left of the pane");
+    }
+
+    [TestMethod]
     public void AColourGlyphKeepsItsColours()
     {
         using var scene = new Scene();

@@ -13,53 +13,82 @@ using Scull.Render;
 namespace Scull.App;
 
 /// <summary>
-/// One window, one terminal, one swap chain: the shell's surface. Every
-/// <c>tt_*</c> call happens on this window's UI thread; the core's wakeup only
-/// posts to its dispatcher queue, as TerminalSession.swift does on macOS.
+/// One window: a tab strip over one swap chain. Each tab is a <see cref="PaneSet"/>, and
+/// the selected tab's panes are viewports of that one swap chain, each drawn by its own
+/// <see cref="TerminalPane"/>. Every <c>tt_*</c> call happens on this window's UI thread;
+/// the core's wakeup only posts to its dispatcher queue, as TerminalSession.swift does on macOS.
 /// </summary>
 internal sealed partial class TerminalWindow : Window, IDisposable
 {
-    private const float FontSize = 14;
-    private static readonly string[] FontFamilies = ["Cascadia Mono", "Consolas"];
+    // What shows between panes; the panes' own background fills the rest.
+    private const uint DividerColor = 0x3C3C3C;
 
     // WinUI 3 reports no start or end of a window drag, so a burst of size
     // changes stands in for one: output is held at the first and the grid
     // follows once the size has rested this long.
     private static readonly TimeSpan ResizeSettle = TimeSpan.FromMilliseconds(120);
 
+    private static readonly SpawnOptions Spawn = new()
+    {
+        WorkingDirectory = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
+        Environment = ["TERM=xterm-256color", "COLORTERM=truecolor"],
+    };
+
+    private sealed class Tab(TabViewItem item)
+    {
+        public TabViewItem Item { get; } = item;
+        public PaneSet Panes { get; set; } = null!;
+        public Dictionary<int, TerminalPane> Views { get; } = [];
+        public IReadOnlyList<PaneViewport> Layout { get; set; } = [];
+        public bool Closed { get; set; }
+
+        public TerminalPane Focused => Views[Panes.Tree.Focused];
+    }
+
+    private readonly TabView tabView;
     private readonly SwapChainPanel panel = new();
+    private readonly Canvas notices = new() { IsHitTestVisible = false };
     private readonly UserControl host;
-    private readonly WindowsKeyPairing pairing;
-    private readonly WindowsPointer pointer = new();
-    private readonly WheelSteps wheel = new();
-    private readonly WheelSteps wheelAcross = new();
-    private readonly DispatcherQueueHandler wake;
+    private readonly List<Tab> tabs = [];
     private readonly DispatcherQueueTimer resizeTimer;
     private readonly RenderDevice device;
-    private Renderer? renderer;
     private SwapChainTarget? target;
-    private Terminal? terminal;
+    private Tab? current;
+    private TerminalPane? pressed;
     private float scale;
+    private int tabCount;
     private bool resizing;
     private bool active;
     private bool keyboard;
-    private bool focused;
 
     public TerminalWindow()
     {
         Title = "Scull";
+        tabView = new TabView { VerticalAlignment = VerticalAlignment.Top };
+        tabView.AddTabButtonClick += (_, _) => Run(PaneCommand.NewTab);
+        tabView.TabCloseRequested += (_, e) => CloseTab((Tab)e.Tab.Tag);
+        tabView.SelectionChanged += (_, _) =>
+        {
+            if (tabView.SelectedItem is TabViewItem { Tag: Tab tab })
+            {
+                Select(tab);
+            }
+        };
         host = new UserControl
         {
             // The panel is a Grid, which takes no focus; this control does, so keys come here.
             IsTabStop = true,
             UseSystemFocusVisuals = false,
             // A swap chain is nothing XAML can hit-test; a transparent background is.
-            Content = new Grid { Background = new SolidColorBrush(Colors.Transparent), Children = { panel } },
+            Content = new Grid { Background = new SolidColorBrush(Colors.Transparent), Children = { panel, notices } },
         };
-        Content = host;
-        pairing = new WindowsKeyPairing(key => Send(t => t.Key(key)), text => Send(t => t.Text(text)));
+        Grid.SetRow(host, 1);
+        Content = new Grid
+        {
+            RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition() },
+            Children = { tabView, host },
+        };
         WireInput();
-        wake = Wake;
         device = CreateDevice();
         resizeTimer = DispatcherQueue.CreateTimer();
         resizeTimer.IsRepeating = false;
@@ -75,10 +104,10 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private void WireInput()
     {
         host.KeyDown += OnKeyDown;
-        host.KeyUp += (_, e) => e.Handled = pairing.KeyUp((int)e.Key, e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey, Held());
+        host.KeyUp += (_, e) => Input(pane => e.Handled = pane.Pairing.KeyUp((int)e.Key, e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey, Held()));
         host.CharacterReceived += (_, e) =>
         {
-            pairing.Character(e.Character);
+            Input(pane => pane.Pairing.Character(e.Character));
             e.Handled = true;
         };
         host.PointerPressed += (_, e) =>
@@ -86,29 +115,41 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             host.Focus(FocusState.Pointer);
             // Drags keep reporting past the window's edge until the last button goes up.
             host.CapturePointer(e.Pointer);
+            PointerPoint point = e.GetCurrentPoint(panel);
+            if (current is { } tab && PaneUnder(point, out int id) is { } under)
+            {
+                pressed = under;
+                tab.Panes.Tree.Focus(id);
+                UpdateFocus();
+            }
             OnPointer(e);
         };
         host.PointerMoved += (_, e) => OnPointer(e);
         host.PointerReleased += (_, e) =>
         {
             OnPointer(e);
+            PointerPointProperties p = e.GetCurrentPoint(panel).Properties;
+            if (!p.IsLeftButtonPressed && !p.IsMiddleButtonPressed && !p.IsRightButtonPressed)
+            {
+                pressed = null;
+            }
             host.ReleasePointerCapture(e.Pointer);
         };
         host.PointerWheelChanged += OnWheel;
         host.GotFocus += (_, _) =>
         {
             keyboard = true;
-            FocusChanged();
+            UpdateFocus();
         };
         host.LostFocus += (_, _) =>
         {
             keyboard = false;
-            FocusChanged();
+            UpdateFocus();
         };
         Activated += (_, e) =>
         {
             active = e.WindowActivationState != WindowActivationState.Deactivated;
-            FocusChanged();
+            UpdateFocus();
         };
     }
 
@@ -130,149 +171,324 @@ internal sealed partial class TerminalWindow : Window, IDisposable
 
     private void Start()
     {
-        if (terminal is not null)
+        if (target is not null)
         {
             return;
         }
         host.Focus(FocusState.Programmatic);
-        Renderer r = CreateRenderer();
+        scale = panel.CompositionScaleX;
         (int width, int height) = PixelSize;
         target = new SwapChainTarget(device, width, height);
         target.Resize(target.Width, target.Height, panel.CompositionScaleX, panel.CompositionScaleY);
         SwapChainPanelNative.SetSwapChain(panel, target.NativeSwapChain);
-        (ushort cols, ushort rows) = Grid(r.Metrics, width, height);
-        DispatcherQueue queue = DispatcherQueue;
-        DispatcherQueueHandler handler = wake;
-        var options = new SpawnOptions
-        {
-            WorkingDirectory = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile),
-            Environment = ["TERM=xterm-256color", "COLORTERM=truecolor"],
-        };
         try
         {
-            // Runs on a core thread: post and return, the work happens in Wake.
-            terminal = Terminal.Spawn(cols, rows, () => queue.TryEnqueue(handler), options);
+            AddTab();
         }
         catch (ScullException e)
         {
-            ShowNotice($"The shell did not start: {e.Message}");
-            return;
+            Content = new TextBlock { Text = $"The shell did not start: {e.Message}", Margin = new Thickness(14), TextWrapping = TextWrapping.Wrap };
         }
-        Draw(force: true);
     }
 
-    private Renderer CreateRenderer()
+    private void AddTab()
     {
-        renderer?.Dispose();
-        renderer = null;
-        scale = panel.CompositionScaleX;
-        float pixels = FontSize * Math.Max(scale, 0.5f);
-        foreach (string family in FontFamilies)
-        {
-            try
-            {
-                return renderer = new Renderer(device, family, pixels);
-            }
-            catch (ArgumentException) when (family != FontFamilies[^1])
-            {
-                // Not installed (Cascadia ships with Windows 11 and Terminal); try the next.
-            }
-        }
-        throw new InvalidOperationException("unreachable: the last family rethrows");
+        var tab = new Tab(new TabViewItem { Header = $"Terminal {++tabCount}" });
+        tab.Item.Tag = tab;
+        // The first pane is made inside the constructor, so a shell that will not start leaves no tab behind.
+        tab.Panes = new PaneSet(id => SpawnPane(tab, id));
+        tabs.Add(tab);
+        tabView.TabItems.Add(tab.Item);
+        tabView.SelectedItem = tab.Item;
     }
 
-    private static (ushort Cols, ushort Rows) Grid(CellMetrics metrics, int width, int height) =>
-        ((ushort)Math.Clamp(width / metrics.Width, 1, ushort.MaxValue), (ushort)Math.Clamp(height / metrics.Height, 1, ushort.MaxValue));
-
-    private void Wake()
+    // A new pane starts with its neighbour's grid; the layout that follows resizes both to fit.
+    private Terminal SpawnPane(Tab tab, int id)
     {
-        if (terminal is null)
+        (ushort cols, ushort rows) = tab.Panes is { } set ? tab.Views[set.Tree.Focused].Cells : ((ushort)80, (ushort)24);
+        DispatcherQueue queue = DispatcherQueue;
+        DispatcherQueueHandler wake = () => Wake(tab, id);
+        // Runs on a core thread: post and return, the work happens in Wake.
+        Terminal terminal = Terminal.Spawn(cols, rows, () => queue.TryEnqueue(wake), Spawn);
+        try
+        {
+            tab.Views[id] = new TerminalPane(device, terminal, scale, (cols, rows));
+        }
+        catch
+        {
+            terminal.Dispose();
+            throw;
+        }
+        return terminal;
+    }
+
+    private void Select(Tab tab)
+    {
+        current = tab;
+        host.Focus(FocusState.Programmatic);
+        Relayout(tab, force: false);
+        UpdateFocus();
+    }
+
+    private void CloseTab(Tab tab)
+    {
+        if (tab.Closed)
         {
             return;
         }
-        Guard(() =>
+        tab.Closed = true;
+        tabs.Remove(tab);
+        if (current == tab)
         {
-            while (terminal.TryPollEvent(out TerminalEvent next))
+            current = null;
+        }
+        pressed = null;
+        // Removing the item selects a neighbour, which draws it.
+        tabView.TabItems.Remove(tab.Item);
+        Free(tab);
+        if (tabs.Count == 0)
+        {
+            Close();
+        }
+    }
+
+    // Freeing the terminals joins their threads, so no wakeup follows; one already queued finds the tab closed.
+    private static void Free(Tab tab)
+    {
+        tab.Panes.Dispose();
+        foreach (TerminalPane pane in tab.Views.Values)
+        {
+            pane.Dispose();
+        }
+        tab.Views.Clear();
+    }
+
+    private void ClosePane(Tab tab, int id)
+    {
+        if (!tab.Panes.Tree.Panes.Contains(id))
+        {
+            return;
+        }
+        if (tab.Panes.Tree.Panes.Count == 1)
+        {
+            CloseTab(tab);
+            return;
+        }
+        tab.Panes.Close(id);
+        tab.Views.Remove(id, out TerminalPane? gone);
+        gone?.Dispose();
+        pressed = null;
+        if (tab == current)
+        {
+            Relayout(tab, force: false);
+            UpdateFocus();
+        }
+    }
+
+    private void Run(PaneCommand command)
+    {
+        if (current is not { } tab)
+        {
+            return;
+        }
+        try
+        {
+            switch (command)
             {
-                if (next.Kind == EventKind.ChildExited)
+                case PaneCommand.NewTab:
+                    AddTab();
+                    break;
+                case PaneCommand.NewWindow:
+                    ((App)Application.Current).OpenWindow();
+                    break;
+                case PaneCommand.SplitRight:
+                case PaneCommand.SplitDown:
+                    tab.Panes.Split(command == PaneCommand.SplitRight ? SplitAxis.SideBySide : SplitAxis.Stacked);
+                    Relayout(tab, force: false);
+                    UpdateFocus();
+                    break;
+                case PaneCommand.ClosePane:
+                    ClosePane(tab, tab.Panes.Tree.Focused);
+                    break;
+                case PaneCommand.NextPane:
+                case PaneCommand.PreviousPane:
+                    tab.Panes.Tree.FocusNext(command == PaneCommand.NextPane ? 1 : -1);
+                    UpdateFocus();
+                    break;
+            }
+        }
+        catch (ScullException e)
+        {
+            // A shell that would not start; the tab strip has no room for a message.
+            Title = $"Scull: {e.Message}";
+        }
+    }
+
+    private void Wake(Tab tab, int id)
+    {
+        if (tab.Closed || !tab.Views.TryGetValue(id, out TerminalPane? pane))
+        {
+            return;
+        }
+        if (pane.Exited())
+        {
+            ClosePane(tab, id);
+        }
+        else if (tab == current)
+        {
+            Redraw(force: false);
+        }
+        else
+        {
+            pane.Update();
+        }
+    }
+
+    /// <summary>
+    /// Updates the selected tab's panes and draws them all when one changed or <paramref name="force"/>:
+    /// the swap chain's buffers rotate, so a frame is never built on the last one.
+    /// </summary>
+    private void Redraw(bool force)
+    {
+        if (target is null || current is not { } tab)
+        {
+            return;
+        }
+        bool changed = force;
+        foreach (TerminalPane pane in tab.Views.Values)
+        {
+            changed |= pane.Update();
+        }
+        if (!changed)
+        {
+            return;
+        }
+        target.Clear(DividerColor);
+        foreach (TerminalPane pane in tab.Views.Values)
+        {
+            pane.Paint(target);
+        }
+        target.Present();
+        ShowNotices(tab);
+    }
+
+    // A poisoned pane shows a notice in place of its stale grid; the other panes keep running.
+    private void ShowNotices(Tab tab)
+    {
+        if (notices.Children.Count == 0 && !tab.Views.Values.Any(p => p.Poisoned))
+        {
+            return;
+        }
+        notices.Children.Clear();
+        foreach (TerminalPane pane in tab.Views.Values.Where(p => p.Poisoned))
+        {
+            Region a = pane.Area;
+            var notice = new Border
+            {
+                Width = a.Width / scale,
+                Height = a.Height / scale,
+                Background = new SolidColorBrush(Colors.DimGray),
+                Child = new TextBlock
                 {
-                    Close();
-                    return;
-                }
-            }
-            Draw(force: false);
-        });
+                    Text = "This terminal crashed. Close the pane to dismiss it.",
+                    Margin = new Thickness(14),
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = new SolidColorBrush(Colors.White),
+                },
+            };
+            Canvas.SetLeft(notice, a.X / scale);
+            Canvas.SetTop(notice, a.Y / scale);
+            notices.Children.Add(notice);
+        }
     }
 
-    /// <summary>Updates the frame, folds its damage in and draws when it changed or <paramref name="force"/>.</summary>
-    private void Draw(bool force)
+    // Places the tab's panes on the surface and sends each the grid that fits its region.
+    private void Relayout(Tab tab, bool force)
     {
-        if (terminal is null || renderer is null || target is null)
+        if (target is null)
         {
             return;
         }
-        bool changed = terminal.Update();
-        renderer.Absorb(terminal.View);
-        if (changed || force)
+        int divider = Math.Max(1, (int)Math.Round(scale));
+        tab.Layout = tab.Panes.Tree.Layout(target.Width, target.Height, divider);
+        foreach (PaneViewport v in tab.Layout)
         {
-            renderer.Render(terminal.View, target);
-            target.Present();
+            TerminalPane pane = tab.Views[v.Pane];
+            pane.Area = new Region(v.X, v.Y, v.Width, v.Height);
+            if (!resizing)
+            {
+                pane.Fit(force);
+            }
         }
+        Redraw(force: true);
     }
 
     private void SurfaceChanged()
     {
-        if (terminal is null || target is null)
+        if (target is null || current is not { } tab)
         {
             return;
         }
-        Guard(() =>
+        if (!resizing)
         {
-            if (!resizing)
+            foreach (TerminalPane pane in tab.Views.Values)
             {
-                terminal.ResizeBegin();
-                resizing = true;
+                pane.BeginResize();
             }
-            if (panel.CompositionScaleX != scale)
+            resizing = true;
+        }
+        if (panel.CompositionScaleX != scale)
+        {
+            scale = panel.CompositionScaleX;
+            foreach (TerminalPane pane in tabs.SelectMany(t => t.Views.Values))
             {
-                CreateRenderer();
+                pane.Rebuild(scale);
             }
-            // The buffers follow at once, so the last frame stays sharp and
-            // unstretched while the grid waits for the size to settle.
-            (int width, int height) = PixelSize;
-            target.Resize(width, height, panel.CompositionScaleX, panel.CompositionScaleY);
-            Draw(force: true);
-            resizeTimer.Stop();
-            resizeTimer.Start();
-        });
+        }
+        // The buffers follow at once, so the last frame stays sharp and
+        // unstretched while the grids wait for the size to settle.
+        (int width, int height) = PixelSize;
+        target.Resize(width, height, panel.CompositionScaleX, panel.CompositionScaleY);
+        Relayout(tab, force: false);
+        resizeTimer.Stop();
+        resizeTimer.Start();
     }
 
     private void FitGrid()
     {
-        if (terminal is null || renderer is null || target is null)
-        {
-            return;
-        }
         resizing = false;
-        Guard(() =>
+        if (current is { } tab)
         {
-            (ushort cols, ushort rows) = Grid(renderer.Metrics, target.Width, target.Height);
-            // Always sent: it is also what releases the output held since ResizeBegin.
-            terminal.Resize(cols, rows, (ushort)Math.Min(cols * renderer.Metrics.Width, ushort.MaxValue),
-                (ushort)Math.Min(rows * renderer.Metrics.Height, ushort.MaxValue));
-            Draw(force: true);
-        });
+            // Always sent: it is also what releases the output held since BeginResize.
+            Relayout(tab, force: true);
+        }
     }
 
     // KeyRoutedEventArgs carries no modifiers; the keyboard's state as of this event does.
     private static KeyModifiers Held() =>
         WindowsKeys.Held(static key => (int)InputKeyboardSource.GetKeyStateForCurrentThread((Windows.System.VirtualKey)key));
 
+    /// <summary>Hands input to the focused pane, then shows its effect at once: typing returns the view to the screen.</summary>
+    private void Input(Action<TerminalPane> send)
+    {
+        if (current is { } tab)
+        {
+            send(tab.Focused);
+            Redraw(force: false);
+        }
+    }
+
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
         int key = (int)e.Key;
         (uint scanCode, bool extended) = (e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey);
         KeyModifiers held = Held();
+        if (PaneCommands.Match(key, held) is { } command)
+        {
+            e.Handled = true;
+            Run(command);
+            return;
+        }
         if (WindowsKeys.IsPaste(WindowsKeys.Map(key, scanCode, extended), held))
         {
             e.Handled = true;
@@ -280,7 +496,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             return;
         }
         // Handled once sent, so Tab and the arrows do not move XAML's focus.
-        e.Handled = pairing.KeyDown(key, scanCode, extended, e.KeyStatus.WasKeyDown, held);
+        Input(pane => e.Handled = pane.Pairing.KeyDown(key, scanCode, extended, e.KeyStatus.WasKeyDown, held));
     }
 
     private async void PasteClipboard()
@@ -300,121 +516,65 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             // Another program holds the clipboard open; the paste is dropped, as a text box does.
             return;
         }
-        Send(t => t.Paste(text));
+        Input(pane => pane.Send(t => t.Paste(text)));
+    }
+
+    // Positions come in DIPs; panes are laid out in the swap chain's physical pixels.
+    private TerminalPane? PaneUnder(PointerPoint point, out int id)
+    {
+        id = 0;
+        if (current is not { } tab || PaneTree.PaneAt(tab.Layout, point.Position.X * panel.CompositionScaleX, point.Position.Y * panel.CompositionScaleY) is not { } found)
+        {
+            return null;
+        }
+        id = found;
+        return tab.Views[found];
     }
 
     private void OnPointer(PointerRoutedEventArgs e)
     {
         e.Handled = true;
-        if (terminal is not Terminal t || renderer is null)
-        {
-            return;
-        }
         PointerPoint point = e.GetCurrentPoint(panel);
-        PointerPointProperties p = point.Properties;
-        if (pointer.Update((int)p.PointerUpdateKind, p.IsLeftButtonPressed, p.IsMiddleButtonPressed, p.IsRightButtonPressed,
-                Held(), CellAt(t, renderer, point.Position)) is MouseInput mouse)
-        {
-            // Not drawn here: what the program makes of it comes back as output.
-            Guard(() => t.Mouse(mouse));
-        }
+        // A drag stays with the pane it started in.
+        TerminalPane? pane = pressed ?? PaneUnder(point, out _);
+        pane?.Pointer(point, Held(), point.Position.X * panel.CompositionScaleX, point.Position.Y * panel.CompositionScaleY);
     }
 
     private void OnWheel(object sender, PointerRoutedEventArgs e)
     {
         e.Handled = true;
-        if (terminal is not Terminal t || renderer is null)
-        {
-            return;
-        }
         PointerPoint point = e.GetCurrentPoint(panel);
-        bool across = point.Properties.IsHorizontalMouseWheel;
-        int steps = (across ? wheelAcross : wheel).Add(point.Properties.MouseWheelDelta);
-        if (steps == 0)
+        if (PaneUnder(point, out _) is { } pane
+            && pane.Wheel(point, Held(), point.Position.X * panel.CompositionScaleX, point.Position.Y * panel.CompositionScaleY))
         {
-            return;
+            Redraw(force: false);
         }
-        MouseInput step = pointer.Wheel(steps, across, Held(), CellAt(t, renderer, point.Position));
-        Guard(() =>
+    }
+
+    // The program hears of focus only in the focused pane of the selected tab, with the keyboard in the active window.
+    private void UpdateFocus()
+    {
+        bool window = active && keyboard;
+        foreach (Tab tab in tabs)
         {
-            if (t.Mouse(step))
+            foreach ((int id, TerminalPane pane) in tab.Views)
             {
-                for (int i = 1; i < Math.Abs(steps); i++)
-                {
-                    t.Mouse(step);
-                }
+                pane.SetFocus(window && tab == current && id == tab.Panes.Tree.Focused);
             }
-            else if (!across)
-            {
-                // History scrolling sends no wakeup, so the view refreshes here.
-                t.ScrollDisplay(steps);
-                Draw(force: false);
-            }
-        });
-    }
-
-    // Positions come in DIPs; cells are measured in the swap chain's physical pixels.
-    private (uint Col, uint Row, uint XPx, uint YPx) CellAt(Terminal t, Renderer r, Windows.Foundation.Point position)
-    {
-        FrameView view = t.View;
-        return PointerCells.At(position.X * panel.CompositionScaleX, position.Y * panel.CompositionScaleY,
-            r.Metrics.Width, r.Metrics.Height, view.Cols, view.Rows);
-    }
-
-    // The program hears of focus only when this control has the keyboard in the active window.
-    private void FocusChanged()
-    {
-        bool now = active && keyboard;
-        if (now == focused)
-        {
-            return;
         }
-        focused = now;
-        if (terminal is Terminal t)
-        {
-            Guard(() => t.Focus(now));
-        }
+        Redraw(force: true);
     }
-
-    /// <summary>Sends input, then shows its effect at once: typing returns the view to the screen.</summary>
-    private void Send(Action<Terminal> send)
-    {
-        if (terminal is not Terminal t)
-        {
-            return;
-        }
-        Guard(() =>
-        {
-            send(t);
-            Draw(force: false);
-        });
-    }
-
-    /// <summary>A poisoned terminal shows a notice in place of its stale grid; nothing else is left to do with it.</summary>
-    private void Guard(Action action)
-    {
-        try
-        {
-            action();
-        }
-        catch (TerminalPoisonedException)
-        {
-            ShowNotice("This terminal crashed. Close the window to dismiss it.");
-        }
-    }
-
-    private void ShowNotice(string text) =>
-        Content = new TextBlock { Text = text, Margin = new Thickness(FontSize), TextWrapping = TextWrapping.Wrap };
 
     public void Dispose()
     {
         resizeTimer.Stop();
-        // Freeing the terminal joins its threads, so no wakeup follows; one
-        // already queued finds it null.
-        Terminal? t = terminal;
-        terminal = null;
-        t?.Dispose();
-        renderer?.Dispose();
+        foreach (Tab tab in tabs)
+        {
+            tab.Closed = true;
+            Free(tab);
+        }
+        tabs.Clear();
+        current = null;
         target?.Dispose();
         device.Dispose();
     }

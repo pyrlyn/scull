@@ -17,7 +17,11 @@ public enum SplitAxis
 }
 
 /// <summary>A pane's share of the surface, in pixels from its top-left corner.</summary>
-public readonly record struct PaneViewport(int Pane, int X, int Y, int Width, int Height);
+public readonly record struct PaneViewport(int Pane, int X, int Y, int Width, int Height)
+{
+    /// <summary>Whether the pixel (<paramref name="x"/>, <paramref name="y"/>) is inside; the right and bottom edges are not.</summary>
+    public bool Contains(double x, double y) => x >= X && x < X + Width && y >= Y && y < Y + Height;
+}
 
 /// <summary>A leaf (a pane) or a split of two subtrees.</summary>
 public abstract record PaneNode
@@ -184,6 +188,20 @@ public sealed class PaneTree
         var viewports = new List<PaneViewport>();
         Root.Place(0, 0, width, height, divider, viewports);
         return viewports;
+    }
+
+    /// <summary>The pane under a pixel of a <see cref="Layout"/>, or null over a divider or outside.</summary>
+    public static int? PaneAt(IEnumerable<PaneViewport> viewports, double x, double y)
+    {
+        foreach (PaneViewport viewport in viewports)
+        {
+            if (viewport.Contains(x, y))
+            {
+                return viewport.Pane;
+            }
+        }
+
+        return null;
     }
 
     private static int IndexOf(IReadOnlyList<int> order, int id)

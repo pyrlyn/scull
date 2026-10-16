@@ -58,6 +58,7 @@ public sealed unsafe class Renderer : IDisposable
     private HashSet<ushort>[] shelvesOf = [];
     private ulong frame;
     private bool needsRebuild = true;
+    private int areaWidth, areaHeight;
 
     public Renderer(RenderDevice device, string fontFamily, float fontSizePixels, Palette? palette = null)
     {
@@ -200,7 +201,14 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>Draws <paramref name="view"/> into <paramref name="target"/>, the grid from its top-left pixel.</summary>
-    public void Render(FrameView view, RenderTarget target)
+    public void Render(FrameView view, RenderTarget target) => Render(view, target, null);
+
+    /// <summary>
+    /// Draws <paramref name="view"/> into <paramref name="region"/> of <paramref name="target"/>, the grid from the
+    /// region's top-left pixel: a pane of a window whose panes share one swap chain. The region is filled with the
+    /// background and nothing outside it is touched; null is the whole target, cleared.
+    /// </summary>
+    public void Render(FrameView view, RenderTarget target, Region? region)
     {
         if (view.Cols != cols || view.Rows != rows)
         {
@@ -248,7 +256,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             sources[row] = row;
         }
-        Draw(view, target);
+        Draw(view, target, region);
     }
 
     private void Allocate(int newCols, int newRows)
@@ -449,15 +457,21 @@ public sealed unsafe class Renderer : IDisposable
         return placed;
     }
 
-    private void Draw(FrameView view, RenderTarget target)
+    private void Draw(FrameView view, RenderTarget target, Region? region)
     {
         ID3D11DeviceContext* c = Context;
         ID3D11RenderTargetView* rtv = target.View;
         uint bg = palette.Background;
         float* clear = stackalloc float[] { (bg >> 16 & 0xFF) / 255f, (bg >> 8 & 0xFF) / 255f, (bg & 0xFF) / 255f, 1 };
-        c->ClearRenderTargetView(rtv, clear);
+        Region area = region ?? new Region(0, 0, target.Width, target.Height);
+        (areaWidth, areaHeight) = (area.Width, area.Height);
+        if (region is null)
+        {
+            c->ClearRenderTargetView(rtv, clear);
+        }
         c->OMSetRenderTargets(1, &rtv, null);
-        var viewport = new D3D11_VIEWPORT { Width = target.Width, Height = target.Height, MaxDepth = 1 };
+        // The viewport also clips, so a pane can never draw over its neighbour.
+        var viewport = new D3D11_VIEWPORT { TopLeftX = area.X, TopLeftY = area.Y, Width = area.Width, Height = area.Height, MaxDepth = 1 };
         c->RSSetViewports(1, &viewport);
         c->RSSetState(raster);
         // A null blend factor: the span overload would demand four floats.
@@ -470,6 +484,19 @@ public sealed unsafe class Renderer : IDisposable
         c->VSSetConstantBuffers(0, 1, &u);
         ID3D11ShaderResourceView* a = atlasView;
         c->PSSetShaderResources(0, 1, &a);
+        if (region is not null)
+        {
+            // A region cannot be cleared by ClearRenderTargetView, so one background quad does it.
+            cursor[0] = Rect(0, 0, area.Width, area.Height, Rgba(palette.Background));
+            var fill = new D3D11_BOX { right = (uint)sizeof(Quad), bottom = 1, back = 1 };
+            fixed (Quad* q = cursor)
+            {
+                c->UpdateSubresource((ID3D11Resource*)overlay, 0, &fill, q, 0, 0);
+            }
+            Bind(overlay);
+            Origin(0);
+            c->DrawInstanced(4, 1, 0, 0);
+        }
         (int under, int over) = Cursor(view);
         if (under + over > 0)
         {
@@ -489,7 +516,7 @@ public sealed unsafe class Renderer : IDisposable
                 int count = layer == 0 ? bgCount[slot] : fgCount[slot];
                 if (count > 0)
                 {
-                    Origin(target, row * height);
+                    Origin(row * height);
                     c->DrawInstanced(4, (uint)count, 0, (uint)(slot * stride + (layer == 0 ? 0 : capBg)));
                 }
             }
@@ -499,7 +526,7 @@ public sealed unsafe class Renderer : IDisposable
             if (n > 0)
             {
                 Bind(overlay);
-                Origin(target, 0);
+                Origin(0);
                 c->DrawInstanced(4, (uint)n, 0, layer == 0 ? 0u : (uint)under);
             }
         }
@@ -511,9 +538,9 @@ public sealed unsafe class Renderer : IDisposable
         Context->IASetVertexBuffers(0, 1, &buffer, &quadStride, &offset);
     }
 
-    private void Origin(RenderTarget target, int y)
+    private void Origin(int y)
     {
-        float* values = stackalloc float[] { target.Width, target.Height, 0, y };
+        float* values = stackalloc float[] { areaWidth, areaHeight, 0, y };
         Context->UpdateSubresource((ID3D11Resource*)uniforms, 0, null, values, 0, 0);
     }
 

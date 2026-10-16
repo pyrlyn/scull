@@ -93,6 +93,13 @@ public sealed unsafe class SwapChainTarget : RenderTarget
         CreateView();
     }
 
+    /// <summary>Fills the whole buffer with a 0xRRGGBB colour: what shows between panes drawn into regions.</summary>
+    public void Clear(uint rgb)
+    {
+        float* color = stackalloc float[] { (rgb >> 16 & 0xFF) / 255f, (rgb >> 8 & 0xFF) / 255f, (rgb & 0xFF) / 255f, 1 };
+        device.Context->ClearRenderTargetView(view, color);
+    }
+
     /// <summary>Shows what was drawn at the next vertical blank.</summary>
     public void Present() => swapChain->Present(1, 0).ThrowOnFailure();
 

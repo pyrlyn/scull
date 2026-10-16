@@ -235,6 +235,7 @@ public sealed class PaneTests
     [DataRow(0x44, PaneCommand.SplitRight)]
     [DataRow(0x45, PaneCommand.SplitDown)]
     [DataRow(0x57, PaneCommand.ClosePane)]
+    [DataRow(0x43, PaneCommand.Copy)]
     [DataRow(0xDD, PaneCommand.NextPane)]
     [DataRow(0xDB, PaneCommand.PreviousPane)]
     public void CtrlShiftChordsRunPaneCommands(int key, PaneCommand command)

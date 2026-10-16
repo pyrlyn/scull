@@ -329,6 +329,9 @@ internal sealed partial class TerminalWindow : Window, IDisposable
                 case PaneCommand.OpenSettings:
                     ((App)Application.Current).OpenSettings();
                     break;
+                case PaneCommand.Copy:
+                    Copy(tab.Focused);
+                    break;
                 case PaneCommand.SplitRight:
                 case PaneCommand.SplitDown:
                     tab.Panes.Split(command == PaneCommand.SplitRight ? SplitAxis.SideBySide : SplitAxis.Stacked);
@@ -349,6 +352,26 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         {
             // A shell that would not start; the tab strip has no room for a message.
             Title = $"Scull: {e.Message}";
+        }
+    }
+
+    private static void Copy(TerminalPane pane)
+    {
+        if (pane.SelectionText() is not { Length: > 0 } text)
+        {
+            return;
+        }
+        var package = new DataPackage();
+        package.SetText(text);
+        try
+        {
+            Clipboard.SetContent(package);
+            // So the text outlives the window, as a text box's copy does.
+            Clipboard.Flush();
+        }
+        catch (COMException)
+        {
+            // Another program holds the clipboard open; the copy is dropped, as the paste is.
         }
     }
 
@@ -632,7 +655,11 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         PointerPoint point = e.GetCurrentPoint(panel);
         // A drag stays with the pane it started in.
         TerminalPane? pane = pressed ?? PaneUnder(point, out _);
-        pane?.Pointer(point, Held(), point.Position.X * panel.CompositionScaleX, point.Position.Y * panel.CompositionScaleY);
+        // A selection changes the frame at once; what a program makes of a mouse event comes back as output.
+        if (pane?.Pointer(point, Held(), point.Position.X * panel.CompositionScaleX, point.Position.Y * panel.CompositionScaleY) == true)
+        {
+            Redraw(force: false);
+        }
     }
 
     private void LosePointer()

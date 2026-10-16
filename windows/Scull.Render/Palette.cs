@@ -5,8 +5,8 @@ namespace Scull.Render;
 
 /// <summary>
 /// Colours as the core hands them out (default, palette index or RGB)
-/// resolved to 0xRRGGBB. xterm's palette, as Palette.swift uses, so indexed
-/// colours look as they do on macOS until themes arrive (T20.7).
+/// resolved to 0xRRGGBB. xterm's palette, as Palette.swift uses, with the
+/// configured colours over it.
 /// </summary>
 public sealed class Palette
 {
@@ -30,6 +30,19 @@ public sealed class Palette
         {
             uint level = 8 + 10 * i;
             indexed[232 + i] = level << 16 | level << 8 | level;
+        }
+    }
+
+    /// <summary>The configured colours, as Palette+Config.swift lays them over xterm's.</summary>
+    public Palette(ConfigSettings settings)
+        : this()
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        (Foreground, Background, Cursor) = (settings.Foreground, settings.Background, settings.Cursor);
+        // The core sends the sixteen it resolved; the 6x6x6 cube and the greys stay xterm's.
+        for (int i = 0; i < Math.Min(16, settings.Ansi.Count); i++)
+        {
+            indexed[i] = settings.Ansi[i] & 0xFF_FFFF;
         }
     }
 

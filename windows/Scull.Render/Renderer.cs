@@ -37,12 +37,12 @@ public sealed unsafe class Renderer : IDisposable
     private const int CursorQuads = 24;
 
     private readonly RenderDevice device;
-    private readonly FontFaces fonts;
-    private readonly AtlasPacker packer = new();
+    private FontFaces fonts;
+    private AtlasPacker packer = new();
     private readonly SpriteCanvas sprites = new();
-    private readonly RunShaper shaper;
+    private RunShaper shaper;
     private readonly ImageLayer images;
-    private readonly Palette palette;
+    private Palette palette;
     private readonly Quad[] cursor = new Quad[CursorQuads];
     private ID3D11VertexShader* vertexShader;
     private ID3D11PixelShader* pixelShader;
@@ -86,6 +86,42 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     public CellMetrics Metrics => fonts.Metrics;
+
+    /// <summary>The colours rows are drawn in; a new palette rebuilds every row.</summary>
+    public Palette Palette
+    {
+        get => palette;
+        set
+        {
+            palette = value ?? throw new ArgumentNullException(nameof(value));
+            needsRebuild = true;
+        }
+    }
+
+    /// <summary>
+    /// Draws with another font from the next frame: new faces, shaped runs and
+    /// atlas, the pipeline kept. A missing family throws
+    /// <see cref="ArgumentException"/> and leaves the current font in place.
+    /// The cell size may change, so the caller sends the terminal its new grid.
+    /// </summary>
+    public void SetFont(string fontFamily, float fontSizePixels)
+    {
+        var next = new FontFaces(fontFamily, fontSizePixels);
+        shaper.Dispose();
+        fonts.Dispose();
+        fonts = next;
+        shaper = new RunShaper(fonts);
+        // Glyphs and sprites were drawn at the old size; rows name the old shelves.
+        packer = new AtlasPacker();
+        foreach (HashSet<ushort> shelves in shelvesOf)
+        {
+            shelves.Clear();
+        }
+        Com.Release(ref atlasView);
+        Com.Release(ref atlas);
+        atlasSize = 0;
+        needsRebuild = true;
+    }
 
     /// <summary>A focused view draws a block cursor, an unfocused one a hollow box.</summary>
     public bool Focused { get; set; } = true;

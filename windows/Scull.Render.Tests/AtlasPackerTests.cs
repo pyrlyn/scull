@@ -105,6 +105,26 @@ public sealed class AtlasPackerTests
         Assert.AreEqual((palette.Background, palette.Foreground), palette.Colors(InverseStyle()));
     }
 
+    [TestMethod]
+    public void AConfiguredPaletteReplacesTheSixteenAndTheDefaults()
+    {
+        uint[] ansi = [.. Enumerable.Range(0, 16).Select(i => 0xFF00_0000u | (uint)i)];
+        var palette = new Palette(new ConfigSettings { Foreground = 0x839496, Background = 0x002B36, Cursor = 0x93A1A1, Ansi = ansi });
+
+        Assert.AreEqual((0x839496u, 0x002B36u, 0x93A1A1u), (palette.Foreground, palette.Background, palette.Cursor));
+        Assert.AreEqual(0x000001u, palette.Rgb(0x0100_0001, 7), "indexed 1 from the config, alpha dropped");
+        Assert.AreEqual(0x00000Fu, palette.Rgb(0x0100_000F, 7));
+        Assert.AreEqual(0xFF0000u, palette.Rgb(0x0100_00C4, 7), "the cube stays xterm's");
+    }
+
+    [TestMethod]
+    public void AShortAnsiListKeepsXtermsColoursBeyondIt()
+    {
+        var palette = new Palette(new ConfigSettings { Ansi = [0x111111] });
+        Assert.AreEqual(0x111111u, palette.Rgb(0x0100_0000, 7));
+        Assert.AreEqual(0xCD0000u, palette.Rgb(0x0100_0001, 7));
+    }
+
     private static Style InverseStyle()
     {
         using var terminal = new Terminal(4, 1);

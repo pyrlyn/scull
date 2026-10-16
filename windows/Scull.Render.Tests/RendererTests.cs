@@ -20,10 +20,12 @@ public sealed class RendererTests
         public readonly RenderDevice Device = new(warp: true);
         public readonly Terminal Terminal;
         public readonly Renderer Renderer;
-        public readonly OffscreenTarget Target;
+        public OffscreenTarget Target;
+        private readonly ushort cols, rows;
 
         public Scene(ushort cols = 12, ushort rows = 3)
         {
+            (this.cols, this.rows) = (cols, rows);
             Terminal = new Terminal(cols, rows);
             // Consolas ships with every Windows, Server included.
             Renderer = new Renderer(Device, "Consolas", 16);
@@ -31,6 +33,14 @@ public sealed class RendererTests
         }
 
         public CellMetrics Metrics => Renderer.Metrics;
+
+        /// <summary>Another font, and a target sized for its cells.</summary>
+        public void SetFont(string family, float size)
+        {
+            Renderer.SetFont(family, size);
+            Target.Dispose();
+            Target = new OffscreenTarget(Device, cols * Metrics.Width, rows * Metrics.Height);
+        }
 
         public byte[] Draw(ReadOnlySpan<byte> bytes)
         {
@@ -273,6 +283,50 @@ public sealed class RendererTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
         Assert.AreEqual(0, allocated);
+    }
+
+    [TestMethod]
+    public void ANewPaletteRedrawsEveryRow()
+    {
+        using var scene = new Scene();
+        scene.Draw("\e[?25l\u2588"u8);
+        scene.Renderer.Palette = new Palette { Foreground = 0x839496, Background = 0x002B36 };
+        byte[] pixels = scene.Draw([]);
+
+        Assert.IsTrue(scene.Cell(pixels, 0, 0).All(p => p == 0x839496), "the block in the new foreground");
+        Assert.IsTrue(scene.Cell(pixels, 0, 1).All(p => p == 0x002B36), "a blank in the new background");
+        Assert.IsTrue(scene.Cell(pixels, 2, 11).All(p => p == 0x002B36), "rows the frame did not touch too");
+    }
+
+    [TestMethod]
+    public void ALargerFontGrowsTheCellsAndRedrawsItsGlyphs()
+    {
+        using var scene = new Scene(4, 2);
+        byte[] before = scene.Draw("\e[?25l\u2588M"u8);
+        CellMetrics small = scene.Metrics;
+        int smallM = scene.Cell(before, 0, 1).Count(p => p != Background);
+
+        scene.SetFont("Consolas", 32);
+        Assert.AreEqual(0, scene.Renderer.AtlasEntries, "the old size's glyphs are gone");
+        Assert.IsGreaterThan(small.Height, scene.Metrics.Height);
+        Assert.IsGreaterThan(small.Width, scene.Metrics.Width);
+        byte[] pixels = scene.Draw([]);
+
+        Assert.IsTrue(scene.Cell(pixels, 0, 0).All(p => p == Foreground), "the block fills the bigger cell");
+        Assert.IsGreaterThan(smallM, scene.Cell(pixels, 0, 1).Count(p => p != Background), "M drawn at the new size");
+    }
+
+    [TestMethod]
+    public void AMissingFamilyKeepsTheFontInUse()
+    {
+        using var scene = new Scene();
+        scene.Draw("\e[?25lM"u8);
+        CellMetrics before = scene.Metrics;
+
+        Assert.ThrowsExactly<ArgumentException>(() => scene.Renderer.SetFont("No Such Scull Font", 32));
+        Assert.AreEqual(before, scene.Metrics);
+        byte[] pixels = scene.Draw([]);
+        Assert.IsGreaterThan(10, scene.Cell(pixels, 0, 0).Count(p => p != Background));
     }
 
     [TestMethod]

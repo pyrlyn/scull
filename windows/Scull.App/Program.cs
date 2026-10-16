@@ -40,8 +40,12 @@ internal sealed partial class App : Application
     /// <summary>Raised on the UI thread when a poll found the settings changed.</summary>
     public event Action<ConfigSettings>? ConfigChanged;
 
+    /// <summary>Posts programs' notifications; set in <see cref="OnLaunched"/>.</summary>
+    public DesktopNotifier Notifier { get; private set; } = null!;
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        Notifier = new DesktopNotifier();
         OpenConfig();
         OpenWindow();
     }
@@ -106,7 +110,14 @@ internal sealed partial class App : Application
     {
         var window = new TerminalWindow();
         windows.Add(window);
-        window.Closed += (_, _) => windows.Remove(window);
+        window.Closed += (_, _) =>
+        {
+            windows.Remove(window);
+            if (windows.Count == 0)
+            {
+                Notifier.Dispose();
+            }
+        };
         window.Activate();
     }
 }

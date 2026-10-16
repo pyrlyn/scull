@@ -452,6 +452,14 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         {
             ShowTitles();
         }
+        // The window the user is in needs no pop-up; any other state of it does.
+        if (!active)
+        {
+            foreach (Notice notice in drained.Notices)
+            {
+                app.Notifier.Show(notice.TitleOr(TitleOf(tab)), notice.Body, Activate);
+            }
+        }
         if (drained.Exited)
         {
             ClosePane(tab, id);

@@ -134,6 +134,24 @@ private func renderer() throws -> MetalRenderer {
 }
 
 @MainActor
+@Test func rendererUnderlinesTheHoveredLink() throws {
+    let session = try TerminalSession(cols: 6, rows: 1)
+    let renderer = try renderer()
+    // Spaces leave only the underline in the cells it marks.
+    _ = session.feed(Array("\u{1b}]8;;https://example.com\u{1b}\\  \u{1b}]8;;\u{1b}\\  ".utf8))
+    let id = try #require(session.linkAt(row: 0, col: 0))
+    let inked = { (pixels: [UInt8], col: Int) in
+        (16..<32).contains { rgb(pixels, cols: 6, row: 0, col: col, dx: 8, dy: $0) == 0xE5E5E5 }
+    }
+    let plain = try render(session, renderer)
+    #expect(!inked(plain, 0))
+    session.hoverLink(id)
+    let hovered = try render(session, renderer)
+    #expect(inked(hovered, 0) && inked(hovered, 1))
+    #expect(!inked(hovered, 2))
+}
+
+@MainActor
 @Test func rendererRemakesGlyphsForANewFont() throws {
     let session = try TerminalSession(cols: 2, rows: 1)
     let renderer = try renderer()

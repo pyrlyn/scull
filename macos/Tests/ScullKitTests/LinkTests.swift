@@ -1,3 +1,4 @@
+import AppKit
 import CScull
 import Testing
 @testable import ScullKit
@@ -22,4 +23,85 @@ import Testing
     session.hoverLink(nil)
     session.update()
     #expect(session.cell(row: 0, col: 1)!.flags & UInt8(TT_CELL_LINK) == 0)
+}
+
+@Test func onlyLinksAUserExpectsToOpenAreOpenable() {
+    let open = { (uri: String) in LinkPolicy.openable(uri, localNames: ["mymac", "mymac.local"]) }
+    #expect(open("https://example.com/a?b=1")?.absoluteString == "https://example.com/a?b=1")
+    #expect(open("HTTP://example.com") != nil)
+    #expect(open("mailto:someone@example.com") != nil)
+    #expect(open("file:///tmp/a%20b")?.path == "/tmp/a b")
+    #expect(open("file://localhost/tmp/x")?.path == "/tmp/x")
+    #expect(open("file://MyMac.local/tmp/x") == URL(fileURLWithPath: "/tmp/x"))
+    #expect(open("file://other/tmp/x") == nil, "another machine's path")
+    #expect(open("https://") == nil)
+    #expect(open("mailto:") == nil)
+    for refused in ["javascript:alert(1)", "ftp://example.com", "data:text/html,x", "ssh://host",
+                    "x-apple.systempreferences:", "/etc/passwd", "not a url", ""] {
+        #expect(open(refused) == nil, "\(refused)")
+    }
+}
+
+/// A view over a terminal with no child showing `text`, in a window of its
+/// own, with opened links caught in `opened`.
+@MainActor
+private final class LinkScreen {
+    let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
+    let window: NSWindow
+    var opened: [URL] = []
+
+    init(_ text: String) throws {
+        let session = try TerminalSession(cols: 12, rows: 2)
+        _ = session.feed(Array(text.utf8))
+        session.update()
+        view.session = session
+        view.setFrameSize(NSSize(width: 12.5 * view.cellWidth, height: 2.5 * view.cellHeight))
+        window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view
+        view.openURL = { [unowned self] in opened.append($0) }
+    }
+
+    func event(_ type: NSEvent.EventType, col: Int, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        let point = view.convert(NSPoint(x: (Double(col) + 0.5) * view.cellWidth, y: 0.5 * view.cellHeight), to: nil)
+        return NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: 0,
+                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                  clickCount: 1, pressure: 1)!
+    }
+
+    func click(col: Int, _ flags: NSEvent.ModifierFlags = []) {
+        view.mouseDown(with: event(.leftMouseDown, col: col, flags))
+        view.mouseUp(with: event(.leftMouseUp, col: col, flags))
+    }
+
+    func linked(col: Int) -> Bool { view.session!.cell(row: 0, col: col)!.flags & UInt8(TT_CELL_LINK) != 0 }
+}
+
+private func link(_ uri: String, _ text: String) -> String { "\u{1b}]8;;\(uri)\u{1b}\\\(text)\u{1b}]8;;\u{1b}\\" }
+
+@MainActor
+@Test func cmdUnderlinesTheLinkUnderThePointer() throws {
+    let screen = try LinkScreen("a" + link("https://example.com", "bc") + " d")
+    screen.view.mouseMoved(with: screen.event(.mouseMoved, col: 1))
+    #expect(!screen.linked(col: 1), "not without Cmd")
+    screen.view.mouseMoved(with: screen.event(.mouseMoved, col: 2, .command))
+    #expect(screen.linked(col: 1) && screen.linked(col: 2) && !screen.linked(col: 0) && !screen.linked(col: 4))
+    screen.view.mouseMoved(with: screen.event(.mouseMoved, col: 4, .command))
+    #expect(!screen.linked(col: 1), "off the link")
+    screen.view.mouseMoved(with: screen.event(.mouseMoved, col: 1, .command))
+    screen.view.hoverLink(at: nil, flags: [])
+    #expect(!screen.linked(col: 1), "Cmd let go")
+}
+
+@MainActor
+@Test func cmdClickOpensAllowedLinksAndOnlyThose() throws {
+    let screen = try LinkScreen(link("https://example.com/x", "ab") + link("javascript:alert(1)", "cd") + "ef")
+    screen.click(col: 1)
+    #expect(screen.opened.isEmpty, "a plain click selects")
+    screen.click(col: 1, .command)
+    #expect(screen.opened == [URL(string: "https://example.com/x")!])
+    screen.click(col: 2, .command)
+    #expect(screen.opened.count == 1, "a refused scheme opens nothing")
+    #expect(screen.view.session?.hasSelection == false, "and the click is not a selection")
+    screen.click(col: 5, .command)
+    #expect(screen.opened.count == 1, "no link there")
 }

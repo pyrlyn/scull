@@ -40,6 +40,10 @@ public final class TerminalView: NSView {
     var findBar: FindBar?
     var find = FindState()
     var findSettle: Timer?
+    /// The link underlined while Cmd is held.
+    var hoveredLink: UInt32?
+    /// Opens a link the user Cmd+clicked; tests catch it instead.
+    var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
     #if DEBUG
     private var initialInput = UserDefaults.standard.string(forKey: "ScullInitialInput")
     private var probe: LatencyProbe?
@@ -426,6 +430,7 @@ public final class TerminalView: NSView {
     }
 
     public override func mouseDown(with e: NSEvent) {
+        if openLink(e) { return }
         // The program sees the press first, as before selection existed.
         if !SelectionGesture.forcesSelection(e.modifierFlags), mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_LEFT) {
             selectionDrag = nil
@@ -443,7 +448,10 @@ public final class TerminalView: NSView {
         if selectionDrag != nil { return selectionDragged(e) }
         mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_LEFT)
     }
-    public override func mouseMoved(with e: NSEvent) { mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_NONE) }
+    public override func mouseMoved(with e: NSEvent) {
+        hoverLink(at: convert(e.locationInWindow, from: nil), flags: e.modifierFlags)
+        mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_NONE)
+    }
     public override func rightMouseDown(with e: NSEvent) { mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_RIGHT) }
     public override func rightMouseUp(with e: NSEvent) { mouse(e, action: TT_MOUSE_RELEASE, button: TT_MOUSE_RIGHT) }
     public override func rightMouseDragged(with e: NSEvent) { mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_RIGHT) }

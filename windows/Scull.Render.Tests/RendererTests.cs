@@ -286,6 +286,32 @@ public sealed class RendererTests
     }
 
     [TestMethod]
+    public void NerdFontIconsDrawFromTheBundledSymbolsFont()
+    {
+        using var scene = new Scene();
+        byte[] pixels = scene.Draw("\e[?25l\uF015 \uE0A0 \U000F0001"u8);
+
+        Assert.IsGreaterThan(10, scene.Cell(pixels, 0, 0).Count(p => p != Background), "a Font Awesome house");
+        Assert.IsGreaterThan(10, scene.Cell(pixels, 0, 2).Count(p => p != Background), "the Powerline branch symbol");
+        Assert.IsGreaterThan(10, scene.Cell(pixels, 0, 4).Count(p => p != Background), "a Material Design icon past the BMP");
+    }
+
+    [TestMethod]
+    public void AFrameOfCachedIconsAllocatesNothing()
+    {
+        using var scene = new Scene();
+        scene.Draw("\uF015\uE0A0\uE0B0\r\n\uF015\uE0A0\uE0B0"u8);
+        scene.Terminal.Feed("\r\uF015\uE0A0\uE0B0\e[1;1H\uF015\uE0A0\uE0B0"u8);
+        scene.Terminal.Update();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        scene.Renderer.Absorb(scene.Terminal.View);
+        scene.Renderer.Render(scene.Terminal.View, scene.Target);
+        scene.Renderer.Render(scene.Terminal.View, scene.Target);
+        Assert.AreEqual(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [TestMethod]
     public void ANewPaletteRedrawsEveryRow()
     {
         using var scene = new Scene();

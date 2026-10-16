@@ -89,6 +89,9 @@ public static class WindowsKeys
         _ => extended ? null : MainBlockKey(scanCode),
     };
 
+    /// <summary>VK_PROCESSKEY: an input method took the key, so the key says nothing and its text arrives through the method.</summary>
+    public static bool IsProcessKey(int virtualKey) => virtualKey == 0xE5;
+
     /// <summary>Whether a key with these modifiers held is a paste shortcut: Ctrl+Shift+V or Shift+Insert.</summary>
     public static bool IsPaste(uint? key, KeyModifiers held) => (key, held & Shortcut) switch
     {

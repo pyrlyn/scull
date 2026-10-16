@@ -126,6 +126,57 @@ public sealed class RendererTests
     }
 
     [TestMethod]
+    public void BoxDrawingJoinsAcrossCellsAndRows()
+    {
+        using var scene = new Scene();
+        byte[] pixels = scene.Draw("\e[?25l\u2500\u2500\r\n\u2502\r\n\u2502"u8);
+        CellMetrics m = scene.Metrics;
+        // Where Sprites.cs puts a light bar: centred on the cell's middle pixel.
+        int lineY = (int)MathF.Floor(m.Height / 2 - m.Thickness / 2f), lineX = (int)MathF.Floor(m.Width / 2 - m.Thickness / 2f);
+
+        for (int x = 0; x < 2 * m.Width; x++)
+        {
+            Assert.AreEqual(Foreground, scene.Pixel(pixels, x, lineY), $"horizontal line at x {x}");
+        }
+        Assert.AreEqual(Foreground, scene.Pixel(pixels, lineX, 2 * m.Height - 1), "the bottom of row 1");
+        Assert.AreEqual(Foreground, scene.Pixel(pixels, lineX, 2 * m.Height), "meets the top of row 2");
+        Assert.AreEqual(2, scene.Renderer.AtlasEntries, "one entry per sprite");
+    }
+
+    [TestMethod]
+    public void AFullBlockFillsItsCell()
+    {
+        using var scene = new Scene();
+        byte[] pixels = scene.Draw("\e[?25l\u2588"u8);
+        Assert.IsTrue(scene.Cell(pixels, 0, 0).All(p => p == Foreground));
+    }
+
+    [TestMethod]
+    public void ACurlyUnderlineIsNotAStraightLine()
+    {
+        using var scene = new Scene();
+        byte[] pixels = scene.Draw("\e[?25l\e[4:3m  "u8);
+        CellMetrics m = scene.Metrics;
+
+        int[] rows = [.. Enumerable.Range(0, 2 * m.Width).Select(x => Enumerable.Range(0, m.Height).First(y => scene.Pixel(pixels, x, y) != Background))];
+        Assert.IsGreaterThan(0, rows.Max() - rows.Min(), "the wave's top moves with x");
+        Assert.AreEqual(rows[m.Width / 4], rows[m.Width + m.Width / 4], "one period per cell");
+    }
+
+    [TestMethod]
+    public void ACombiningMarkDrawsOverItsBase()
+    {
+        using var plain = new Scene();
+        byte[] e = plain.Draw("\e[?25le"u8);
+        using var scene = new Scene();
+        byte[] marked = scene.Draw("\e[?25l\e[?2027he\u0301"u8);
+
+        int Ink(Scene s, byte[] pixels, int col) => s.Cell(pixels, 0, col).Count(p => p != Background);
+        Assert.IsGreaterThan(Ink(plain, e, 0), Ink(scene, marked, 0), "the accent adds ink to the base cell");
+        Assert.AreEqual(0, Ink(scene, marked, 1), "and none to the next cell");
+    }
+
+    [TestMethod]
     public void ARepeatedGlyphIsOneAtlasEntry()
     {
         using var scene = new Scene();

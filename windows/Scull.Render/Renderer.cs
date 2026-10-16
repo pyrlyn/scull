@@ -36,6 +36,8 @@ public sealed unsafe class Renderer : IDisposable
     private readonly RenderDevice device;
     private readonly FontFaces fonts;
     private readonly AtlasPacker packer = new();
+    private readonly SpriteCanvas sprites = new();
+    private readonly CellClusters clusters = new();
     private readonly Palette palette;
     private readonly Quad[] cursor = new Quad[CursorQuads];
     private ID3D11VertexShader* vertexShader;
@@ -318,6 +320,7 @@ public sealed unsafe class Renderer : IDisposable
         ReadOnlySpan<Cell> cells = view.Cells.Slice(row * cols, cols);
         int start = 0;
         uint current = palette.Background;
+        bool clustersLoaded = false;
         for (int col = 0; col <= cols; col++)
         {
             Cell cell = col < cols ? cells[col] : default;
@@ -341,23 +344,42 @@ public sealed unsafe class Renderer : IDisposable
             uint alpha = (attrs & StyleAttributes.Dim) != 0 ? 128u : 255u;
             uint color = Rgba(fg, alpha);
             int x = col * m.Width, w = cell.Width * m.Width;
+            bool bold = (attrs & StyleAttributes.Bold) != 0, italic = (attrs & StyleAttributes.Italic) != 0;
             if (cell.CodePoint > ' ' && nf < capFg)
             {
-                AtlasEntry e = Entry(fonts.Lookup(cell.CodePoint, (attrs & StyleAttributes.Bold) != 0, (attrs & StyleAttributes.Italic) != 0));
-                if (!e.IsEmpty)
+                // A sprite starts on the cell's pixel edge, as backgrounds do;
+                // a cluster's base stays the font's, so its marks match it.
+                bool sprite = !cell.IsCluster && Sprites.Covers(cell.CodePoint);
+                Glyph(Entry(sprite ? Sprites.Key(cell.CodePoint) : fonts.Lookup(cell.CodePoint, bold, italic)), x, color, alpha);
+            }
+            if (cell.IsCluster && row < view.Lines.Length)
+            {
+                if (!clustersLoaded)
                 {
-                    quads[fgBase + nf++] = new Quad
+                    clusters.Load(view.Lines[row], cells);
+                    clustersLoaded = true;
+                }
+                foreach (int mark in clusters.At(col))
+                {
+                    if (!CellClusters.IsMark(mark) || nf >= capFg)
                     {
-                        X = x + e.Left, Y = m.Baseline - e.Top, W = e.Width, H = e.Height, U = e.X, V = e.Y,
-                        Color = e.IsColor ? Rgba(0xFFFFFF, alpha) : color, Kind = e.IsColor ? ColorGlyph : Coverage,
-                    };
-                    shelves.Add(e.Shelf);
+                        continue;
+                    }
+                    GlyphKey key = fonts.Lookup((uint)mark, bold, italic);
+                    // Glyph 0 is the face's missing box, which would hide the base.
+                    AtlasEntry e = key.Glyph == 0 ? default : Entry(key);
+                    Glyph(e, CellClusters.Pen(x, w, e.Left, e.Width), color, alpha);
                 }
             }
-            // Every underline kind is a straight line until sprites arrive (T17.5).
+            // One sprite per column, so a curly line keeps one period per cell.
             if (style.Underline != Underline.None && nf < capFg)
             {
-                quads[fgBase + nf++] = Rect(x, m.Underline, w, m.Thickness, Rgba(palette.Rgb(style.UnderlineColor, fg), alpha));
+                AtlasEntry e = Entry(Sprites.UnderlineKey(style.Underline));
+                uint tint = Rgba(palette.Rgb(style.UnderlineColor, fg), alpha);
+                for (int c = 0; c < cell.Width; c++)
+                {
+                    Glyph(e, x + c * m.Width, tint, alpha);
+                }
             }
             if ((attrs & StyleAttributes.Strike) != 0 && nf < capFg)
             {
@@ -375,6 +397,20 @@ public sealed unsafe class Renderer : IDisposable
         {
             Context->UpdateSubresource((ID3D11Resource*)instances, 0, &box, q, 0, 0);
         }
+
+        void Glyph(AtlasEntry e, int pen, uint color, uint alpha)
+        {
+            if (e.IsEmpty || nf >= capFg)
+            {
+                return;
+            }
+            quads[fgBase + nf++] = new Quad
+            {
+                X = pen + e.Left, Y = m.Baseline - e.Top, W = e.Width, H = e.Height, U = e.X, V = e.Y,
+                Color = e.IsColor ? Rgba(0xFFFFFF, alpha) : color, Kind = e.IsColor ? ColorGlyph : Coverage,
+            };
+            shelves.Add(e.Shelf);
+        }
     }
 
     private AtlasEntry Entry(GlyphKey key)
@@ -383,7 +419,8 @@ public sealed unsafe class Renderer : IDisposable
         {
             return entry;
         }
-        if (!fonts.Rasterize(key, out GlyphBitmap bitmap))
+        bool drawn = key.Face == Sprites.Face ? sprites.Draw(key, fonts.Metrics, out GlyphBitmap bitmap) : fonts.Rasterize(key, out bitmap);
+        if (!drawn)
         {
             return packer.AddEmpty(key);
         }

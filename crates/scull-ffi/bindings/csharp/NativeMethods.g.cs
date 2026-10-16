@@ -65,6 +65,14 @@ namespace Scull.Native
         /// </summary>
         internal const byte TT_ACTION_SCROLL_TO_BOTTOM = 8;
         /// <summary>
+        ///  Scroll to the previous shell prompt: `tt_term_scroll_to_prompt` backwards.
+        /// </summary>
+        internal const byte TT_ACTION_PREVIOUS_PROMPT = 9;
+        /// <summary>
+        ///  Scroll to the next shell prompt.
+        /// </summary>
+        internal const byte TT_ACTION_NEXT_PROMPT = 10;
+        /// <summary>
         ///  `tt_event.kind`: the program rang the bell, once or more since the last
         ///  poll.
         /// </summary>

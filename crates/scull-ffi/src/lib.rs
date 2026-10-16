@@ -43,10 +43,11 @@ mod test_hooks;
 mod text;
 
 pub use config::{
-    TT_ACTION_FONT_LARGER, TT_ACTION_FONT_RESET, TT_ACTION_FONT_SMALLER, TT_ACTION_PASTE,
-    TT_ACTION_SCROLL_PAGE_DOWN, TT_ACTION_SCROLL_PAGE_UP, TT_ACTION_SCROLL_TO_BOTTOM,
-    TT_ACTION_SCROLL_TO_TOP, tt_config, tt_config_free, tt_config_new, tt_config_options,
-    tt_config_poll, tt_config_set, tt_config_view, tt_keybind,
+    TT_ACTION_FONT_LARGER, TT_ACTION_FONT_RESET, TT_ACTION_FONT_SMALLER, TT_ACTION_NEXT_PROMPT,
+    TT_ACTION_PASTE, TT_ACTION_PREVIOUS_PROMPT, TT_ACTION_SCROLL_PAGE_DOWN,
+    TT_ACTION_SCROLL_PAGE_UP, TT_ACTION_SCROLL_TO_BOTTOM, TT_ACTION_SCROLL_TO_TOP, tt_config,
+    tt_config_free, tt_config_new, tt_config_options, tt_config_poll, tt_config_set,
+    tt_config_view, tt_keybind,
 };
 pub use event::{
     TT_EVENT_BELL, TT_EVENT_CHILD_EXITED, TT_EVENT_CLIPBOARD_READ, TT_EVENT_CLIPBOARD_WRITE,

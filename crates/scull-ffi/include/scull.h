@@ -51,6 +51,12 @@
 // Scroll back to the screen.
 #define TT_ACTION_SCROLL_TO_BOTTOM 8
 
+// Scroll to the previous shell prompt: `tt_term_scroll_to_prompt` backwards.
+#define TT_ACTION_PREVIOUS_PROMPT 9
+
+// Scroll to the next shell prompt.
+#define TT_ACTION_NEXT_PROMPT 10
+
 // `tt_event.kind`: the program rang the bell, once or more since the last
 // poll.
 #define TT_EVENT_BELL 1

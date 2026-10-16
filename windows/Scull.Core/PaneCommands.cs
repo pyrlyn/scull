@@ -19,6 +19,12 @@ public enum PaneCommand
 
     /// <summary>The focused pane's selected text to the clipboard.</summary>
     Copy,
+
+    /// <summary>The focused pane scrolls to the previous shell prompt.</summary>
+    PreviousPrompt,
+
+    /// <summary>The focused pane scrolls to the next shell prompt.</summary>
+    NextPrompt,
 }
 
 /// <summary>The keys that run a <see cref="PaneCommand"/>, so the program never sees them.</summary>
@@ -27,7 +33,7 @@ public static class PaneCommands
     private const KeyModifiers Chord = KeyModifiers.Shift | KeyModifiers.Alt | KeyModifiers.Control | KeyModifiers.Super;
 
     /// <summary>
-    /// The command for a virtual key with these modifiers held: Ctrl+Shift with T, F, N, D, E, W, C, ] or [, or Ctrl+, for settings.
+    /// The command for a virtual key with these modifiers held: Ctrl+Shift with T, F, N, D, E, W, C, ], [, Up or Down, or Ctrl+, for settings.
     /// Ctrl+Shift is the terminal-safe prefix (paste is Ctrl+Shift+V), and the letters follow Windows Terminal where it has one.
     /// </summary>
     public static PaneCommand? Match(int virtualKey, KeyModifiers held) => (held & Chord) switch
@@ -49,6 +55,8 @@ public static class PaneCommands
         0x43 => PaneCommand.Copy, // C, the twin of paste's Ctrl+Shift+V
         0xDD => PaneCommand.NextPane, // VK_OEM_6, ]
         0xDB => PaneCommand.PreviousPane, // VK_OEM_4, [
+        0x26 => PaneCommand.PreviousPrompt, // VK_UP; Ctrl+Up alone is the program's
+        0x28 => PaneCommand.NextPrompt, // VK_DOWN
         _ => null,
     };
 }

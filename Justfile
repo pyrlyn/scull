@@ -100,6 +100,13 @@ windows-app:
     mise exec -- cargo rustc -p scull-ffi --lib --crate-type cdylib --locked
     dotnet build windows/Scull.App/Scull.App.csproj
 
+# Renderer throughput on the T3 input (windows/Scull.Bench), with a release
+# core, on WARP and any hardware device; the table goes to
+# target/windows-renderer-bench.md. Windows only: Direct3D 11.
+windows-bench:
+    mise exec -- cargo rustc -p scull-ffi --lib --crate-type cdylib --locked --release
+    dotnet run -c Release --project windows/Scull.Bench -- target/windows-renderer-bench.md
+
 macos_app := "target/macos/Scull.app"
 
 # The core as a static library for the Swift package to link; arm64 only.

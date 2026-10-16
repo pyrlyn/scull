@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Scull.Render/Scull.Render.csproj" />
+    <ProjectReference Include="../Scull.Bench/Scull.Bench.csproj" />
     <!-- The same resolver that points scull_ffi at cargo's target/debug. -->
     <Compile Include="../Scull.Core.Tests/NativeLibrarySetup.cs" Link="NativeLibrarySetup.cs" />
   </ItemGroup>

@@ -81,7 +81,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
                 Select(tab);
             }
         };
-        host = new TerminalHost(FocusedSnapshot)
+        host = new TerminalHost(FocusedSnapshot, SelectCells)
         {
             // The panel is a Grid, which takes no focus; this control does, so keys come here.
             IsTabStop = true,
@@ -482,6 +482,12 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         current is { } tab && tab.Views.TryGetValue(tab.Panes.Tree.Focused, out TerminalPane? pane) ? pane : null;
 
     private TextSnapshot? FocusedSnapshot() => FocusedPane()?.Snapshot();
+
+    private void SelectCells(CellSpan? cells)
+    {
+        FocusedPane()?.SelectCells(cells);
+        Redraw(force: false);
+    }
 
     // A poisoned pane shows a notice in place of its stale grid; the other panes keep running.
     private void ShowNotices(Tab tab)

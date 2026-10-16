@@ -313,6 +313,18 @@ internal sealed class TerminalPane : IDisposable
         return false;
     }
 
+    /// <summary>Selects the cells from the first to the last (a client's request); null clears the selection.</summary>
+    public void SelectCells(CellSpan? cells) => Send(t =>
+    {
+        if (cells is not { } span)
+        {
+            t.ClearSelection();
+            return;
+        }
+        t.Select(SelectionKind.Cell, (ushort)span.StartRow, (ushort)span.StartCol);
+        t.ExtendSelection((ushort)span.EndRow, (ushort)span.EndCol);
+    });
+
     /// <summary>The selected text, or null when nothing is selected.</summary>
     public string? SelectionText()
     {

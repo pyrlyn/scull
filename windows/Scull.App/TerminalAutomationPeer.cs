@@ -16,10 +16,12 @@ internal sealed partial class TerminalAutomationPeer : FrameworkElementAutomatio
     private static readonly TextSnapshot Empty = new(new ScreenText(""), default, 0, [], 0, 0);
 
     private readonly Func<TextSnapshot?> snapshot;
+    private readonly Action<CellSpan?> select;
     private readonly TextChangeTracker tracker = new();
+    private readonly SelectionTracker selection = new();
 
-    public TerminalAutomationPeer(TerminalHost owner, Func<TextSnapshot?> snapshot)
-        : base(owner) => this.snapshot = snapshot;
+    public TerminalAutomationPeer(TerminalHost owner, Func<TextSnapshot?> snapshot, Action<CellSpan?> select)
+        : base(owner) => (this.snapshot, this.select) = (snapshot, select);
 
     protected override string GetClassNameCore() => nameof(TerminalHost);
 
@@ -30,12 +32,12 @@ internal sealed partial class TerminalAutomationPeer : FrameworkElementAutomatio
     protected override object GetPatternCore(PatternInterface patternInterface) =>
         patternInterface == PatternInterface.Text ? this : base.GetPatternCore(patternInterface);
 
-    // There is no selection to make yet, so none is supported; the caret is what a client reads as the selection.
-    public SupportedTextSelection SupportedTextSelection => SupportedTextSelection.None;
+    // The core has one selection; with none, the caret is what a client reads as the selection.
+    public SupportedTextSelection SupportedTextSelection => SupportedTextSelection.Single;
 
     public ITextRangeProvider DocumentRange => Range(s => s.Document);
 
-    public ITextRangeProvider[] GetSelection() => [Range(s => s.Caret)];
+    public ITextRangeProvider[] GetSelection() => [Range(s => s.Selection ?? s.Caret)];
 
     public ITextRangeProvider[] GetVisibleRanges() => [DocumentRange];
 
@@ -61,13 +63,25 @@ internal sealed partial class TerminalAutomationPeer : FrameworkElementAutomatio
 
     internal IRawElementProviderSimple Provider => ProviderFromPeer(this);
 
-    /// <summary>Raises <c>TextChanged</c> when a client listens and the text really changed.</summary>
+    /// <summary>Selects the cells through the core; null clears the selection.</summary>
+    internal void Select(CellSpan? cells) => select(cells);
+
+    /// <summary>
+    /// Raises <c>TextChanged</c> when a client listens and the text really changed, and
+    /// <c>TextSelectionChanged</c> when one listens and the selection (or the caret) moved.
+    /// </summary>
     internal void RaiseTextChanged()
     {
-        bool listening = AutomationPeer.ListenerExists(AutomationEvents.TextPatternOnTextChanged);
-        if (tracker.Observe(listening, () => Current().Text) is not null)
+        // One capture serves both, and none is taken while nobody listens.
+        TextSnapshot? now = null;
+        TextSnapshot Now() => now ??= Current();
+        if (tracker.Observe(AutomationPeer.ListenerExists(AutomationEvents.TextPatternOnTextChanged), () => Now().Text) is not null)
         {
             RaiseAutomationEvent(AutomationEvents.TextPatternOnTextChanged);
+        }
+        if (selection.Observe(AutomationPeer.ListenerExists(AutomationEvents.TextPatternOnTextSelectionChanged), () => Now().Selection ?? Now().Caret))
+        {
+            RaiseAutomationEvent(AutomationEvents.TextPatternOnTextSelectionChanged);
         }
     }
 

@@ -78,6 +78,7 @@ public readonly struct Cell
     /// <summary>The cell holds more code points than <see cref="CodePoint"/>; the cluster is in its row's text.</summary>
     public bool IsCluster => (raw.flags & NativeMethods.TT_CELL_CLUSTER) != 0;
 
+    /// <summary>The cell is inside the selection (and in the viewport: the frame marks nothing scrolled out of it).</summary>
     public bool IsSelected => (raw.flags & NativeMethods.TT_CELL_SELECTED) != 0;
 
     /// <summary>The cell is part of a search match; also set for the current one.</summary>

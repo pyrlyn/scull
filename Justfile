@@ -14,8 +14,9 @@ test:
 test-archive:
     mise exec -- cargo nextest archive --workspace --all-targets --locked --archive-file nextest-archive.tar.zst
 
-test-from-archive:
-    mise exec -- cargo nextest run --archive-file nextest-archive.tar.zst --workspace-remap . --no-tests=pass
+# Extra args go to nextest, e.g. `--partition count:1/2`.
+test-from-archive *args:
+    mise exec -- cargo nextest run --archive-file nextest-archive.tar.zst --workspace-remap . --no-tests=pass {{args}}
 
 # Regenerate scull-unicode's tables from the pinned Unicode data files,
 # downloading them once into the gitignored target/ucd/ cache.

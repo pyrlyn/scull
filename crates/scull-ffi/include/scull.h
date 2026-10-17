@@ -21,11 +21,11 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 9
+#define TT_ABI_VERSION_MINOR 10
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 9
+#define TT_ABI_VERSION 10
 
 // `tt_keybind.action`: paste the clipboard.
 #define TT_ACTION_PASTE 1
@@ -181,6 +181,15 @@
 
 // Dashed.
 #define TT_UNDERLINE_DASHED 5
+
+// Typed and not converted yet: the input method's raw text.
+#define TT_PREEDIT_INPUT 0
+
+// Converted, but not the clause being edited.
+#define TT_PREEDIT_CONVERTED 1
+
+// The clause being converted now: the one a candidate list belongs to.
+#define TT_PREEDIT_TARGET 2
 
 // Most bytes of composing text a frame shows.
 #define TT_MAX_PREEDIT_BYTES 1024
@@ -621,6 +630,17 @@ typedef struct tt_preedit {
   uint16_t cols;
 } tt_preedit;
 
+// A run of columns of the shown composing text with one clause kind, in
+// `tt_frame_view.preedit_spans`.
+typedef struct tt_preedit_span {
+  // First column, on the row of `tt_frame_view.preedit`.
+  uint16_t col;
+  // Columns covered.
+  uint16_t cols;
+  // A `TT_PREEDIT_*` kind.
+  uint8_t kind;
+} tt_preedit_span;
+
 // What `tt_frame_update` hands back. Set `struct_size` before the call.
 typedef struct tt_frame_view {
   // `sizeof(tt_frame_view)` as the host knows it; on return, the bytes
@@ -666,7 +686,24 @@ typedef struct tt_frame_view {
   // The composing text's span; its row is in `dirty` whenever it
   // changed.
   struct tt_preedit preedit;
+  // The composing text split by clause kind, in column order; empty
+  // when it was set without clauses, in which case `preedit` is all
+  // there is to mark.
+  const struct tt_preedit_span *preedit_spans;
+  // Number of spans.
+  size_t preedit_spans_len;
 } tt_frame_view;
+
+// One clause of the composing text, as the input method reports it, for
+// `tt_frame_preedit_clauses`: bytes `start` up to `end` of the text.
+typedef struct tt_preedit_clause {
+  // First byte.
+  size_t start;
+  // One past the last byte.
+  size_t end;
+  // A `TT_PREEDIT_*` kind; an unknown one counts as input.
+  uint8_t kind;
+} tt_preedit_clause;
 
 // One key event, as Ghostty's embedding API reports it: what was
 // pressed and what text it typed; the core picks the bytes.
@@ -907,6 +944,25 @@ tt_status tt_frame_update(struct tt_frame *frame,
 // `frame` is `NULL` or live and not used by another thread meanwhile;
 // `bytes` points to `len` readable bytes.
 tt_status tt_frame_preedit(struct tt_frame *frame, const uint8_t *bytes, size_t len, size_t caret);
+
+// `tt_frame_preedit` with the input method's clauses: `clauses_len`
+// entries of `clauses`, each a byte range of the text and a `TT_PREEDIT_*`
+// kind. They are cut to the text, so a sloppy list is harmless; text no
+// clause names counts as `TT_PREEDIT_INPUT`. The next `tt_frame_update`
+// reports them in columns as `tt_frame_view.preedit_spans`. At most
+// `TT_MAX_PREEDIT_BYTES` clauses are read. `TT_INVALID` for a `NULL` frame,
+// text that is not UTF-8, or `NULL` `clauses` with a length.
+//
+// # Safety
+//
+// As `tt_frame_preedit`; `clauses` points to `clauses_len` readable
+// entries.
+tt_status tt_frame_preedit_clauses(struct tt_frame *frame,
+                                   const uint8_t *bytes,
+                                   size_t len,
+                                   size_t caret,
+                                   const struct tt_preedit_clause *clauses,
+                                   size_t clauses_len);
 
 // Frees the frame and every buffer its views pointed to. `NULL` is a
 // no-op.

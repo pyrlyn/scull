@@ -65,7 +65,7 @@ internal sealed class TerminalInputMethod : ITsfClient, IDisposable
         return Screen(new PixelRect(0, 0, host.ActualWidth * scale, host.ActualHeight * scale));
     }
 
-    public void Preedit(string text, int caret) => input(pane => pane.SetPreedit(text, caret));
+    public void Preedit(string text, int caret, IReadOnlyList<PreeditClause> clauses) => input(pane => pane.SetPreedit(text, caret, clauses));
 
     public void Commit(string text) => input(pane => pane.Send(t => t.Text(text)));
 

@@ -41,6 +41,9 @@ public readonly unsafe ref struct FrameView
     /// <summary>Where the input method's composing text sits; <see cref="Preedit.Cols"/> is 0 when none is shown.</summary>
     public Preedit Preedit => new(raw.preedit.row, raw.preedit.col, raw.preedit.cols);
 
+    /// <summary>The composing text split by clause kind, in column order; empty when it was set without clauses.</summary>
+    public ReadOnlySpan<PreeditSpan> PreeditSpans => Span<PreeditSpan>(raw.preedit_spans, raw.preedit_spans_len);
+
     /// <summary>Rows to repaint, top to bottom.</summary>
     public ReadOnlySpan<ushort> Dirty => Span<ushort>(raw.dirty, raw.dirty_len);
 

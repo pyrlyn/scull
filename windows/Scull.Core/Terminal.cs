@@ -207,18 +207,22 @@ public sealed unsafe class Terminal : IDisposable
     /// <summary>
     /// Shows an input method's composing text at the cursor from the next <see cref="Update"/>;
     /// empty clears it. <paramref name="caret"/> is a UTF-16 index into <paramref name="text"/>.
+    /// <paramref name="clauses"/> (UTF-16 offsets too) say which stretches are still raw, converted or
+    /// being converted, and come back as <see cref="FrameView.PreeditSpans"/>; null or empty for none.
     /// It never reaches the child: commit text with <see cref="Text"/>.
     /// </summary>
-    public void SetPreedit(string text, int caret)
+    public void SetPreedit(string text, int caret, IReadOnlyList<PreeditClause>? clauses = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         // The core wants a byte offset; it moves one inside a character back onto its start.
-        nuint at = (nuint)Encoding.UTF8.GetByteCount(text.AsSpan(0, Math.Clamp(caret, 0, text.Length)));
+        nuint at = PreeditMarks.ByteOffset(text, caret);
         byte[] bytes = Encoding.UTF8.GetBytes(text);
+        tt_preedit_clause[] native = clauses is { Count: > 0 } ? PreeditMarks.ToNative(text, clauses) : [];
         using var f = new Lease(frame);
         fixed (byte* p = bytes)
+        fixed (tt_preedit_clause* c = native)
         {
-            Check(NativeMethods.tt_frame_preedit((tt_frame*)f.Pointer, p, (nuint)bytes.Length, at), "tt_frame_preedit");
+            Check(NativeMethods.tt_frame_preedit_clauses((tt_frame*)f.Pointer, p, (nuint)bytes.Length, at, c, (nuint)native.Length), "tt_frame_preedit_clauses");
         }
     }
 

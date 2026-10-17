@@ -239,6 +239,8 @@ public sealed class PaneTests
     [DataRow(0x43, PaneCommand.Copy)]
     [DataRow(0xDD, PaneCommand.NextPane)]
     [DataRow(0xDB, PaneCommand.PreviousPane)]
+    [DataRow(0x26, PaneCommand.PreviousPrompt)]
+    [DataRow(0x28, PaneCommand.NextPrompt)]
     public void CtrlShiftChordsRunPaneCommands(int key, PaneCommand command)
     {
         Assert.AreEqual(command, PaneCommands.Match(key, KeyModifiers.Control | KeyModifiers.Shift));
@@ -262,6 +264,9 @@ public sealed class PaneTests
     [DataRow(0x54, KeyModifiers.None)]
     [DataRow(0x54, KeyModifiers.Control | KeyModifiers.Shift | KeyModifiers.Alt)]
     [DataRow(0x56, KeyModifiers.Control | KeyModifiers.Shift)] // paste stays paste
+    [DataRow(0x26, KeyModifiers.Control)] // Ctrl+Up is the program's
+    [DataRow(0x26, KeyModifiers.None)]
+    [DataRow(0x28, KeyModifiers.Shift)]
     public void OtherKeysReachTheProgram(int key, KeyModifiers held) => Assert.IsNull(PaneCommands.Match(key, held));
 
     private static bool Overlap(PaneViewport a, PaneViewport b) =>

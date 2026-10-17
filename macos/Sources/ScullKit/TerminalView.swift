@@ -30,6 +30,8 @@ public final class TerminalView: NSView {
     /// Runs when this view becomes the first responder, so a host can track
     /// which pane has the keyboard.
     public var onFocus: (() -> Void)?
+    /// Where programs' notifications go; a test passes its own.
+    var notificationPoster: any NotificationPoster = UserNotificationPoster.shared
     /// A host with several panes picks the focused one itself.
     public var takesFocusOnAttach = true
     var textInput = TextInput()
@@ -38,6 +40,8 @@ public final class TerminalView: NSView {
     private var scrollRemainder: CGFloat = 0
     /// The left-button gesture the host owns; nil while the program has it.
     var selectionDrag: SelectionDrag?
+    /// The selection last posted to VoiceOver.
+    var postedSelection: [NSRange] = []
     var findBar: FindBar?
     var find = FindState()
     var findSettle: Timer?
@@ -88,7 +92,11 @@ public final class TerminalView: NSView {
     private func wake() {
         guard let session else { return }
         let title = session.title
-        if session.drainEvents(bell: { NSSound.beep() }) {
+        let exited = session.drainEvents(bell: { NSSound.beep() },
+                                         notify: NotificationPolicy.wanted(windowIsKey: window?.isKeyWindow ?? false))
+        // Before the exit below: a program's last word can be a notification.
+        NotificationPolicy.post(session.takeNotices(), fallbackTitle: session.title, to: notificationPoster)
+        if exited {
             if let onChildExit { onChildExit() } else { window?.close() }
             return
         }
@@ -206,8 +214,17 @@ public final class TerminalView: NSView {
         case .scrollPageDown: scroll(-Int32(grid.rows))
         case .scrollToTop: scroll(Int32.max)
         case .scrollToBottom: scroll(-Int32.max)
+        case .previousPrompt: scrollToPrompt(forward: false)
+        case .nextPrompt: scrollToPrompt(forward: true)
         }
         return true
+    }
+
+    func scrollToPrompt(forward: Bool) {
+        guard let session else { return }
+        // Nothing to jump to is not an error; the viewport stays.
+        _ = session.scrollToPrompt(forward: forward)
+        if session.update() { needsDisplay = true }
     }
 
     private func scroll(_ rows: Int32) {

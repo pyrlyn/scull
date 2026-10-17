@@ -23,6 +23,10 @@ internal sealed class TerminalPane : IDisposable
     private readonly WindowsPointer pointer = new();
     private readonly WheelSteps wheel = new();
     private readonly WheelSteps wheelAcross = new();
+    private readonly WheelRows wheelRows = new();
+
+    // Whether the program took the last whole notch; a part of a notch cannot ask it, so it follows that answer.
+    private bool programTakesWheel;
     private readonly ClickCounter clicks = new();
     private SelectionDrag? drag;
     private readonly LinkHover linkHover = new();
@@ -209,11 +213,16 @@ internal sealed class TerminalPane : IDisposable
     /// <summary>The directory the program last reported; kept only, as the macOS shell does.</summary>
     public string? WorkingDirectory => events.WorkingDirectory;
 
-    /// <summary>Takes the terminal's waiting events: the child's exit, a new title, text for the clipboard.</summary>
-    public DrainedEvents Drain()
+    /// <summary>Takes the terminal's waiting events: the child's exit, a new title, text for the clipboard, notifications (unless <paramref name="notify"/> is false).</summary>
+    public DrainedEvents Drain(bool notify = true)
     {
         DrainedEvents drained = default;
-        Send(t => drained = events.Drain(t));
+        Send(t => drained = events.Drain(t, notify));
+        if (drained.Bell)
+        {
+            // As macOS rings the program's BEL, through the beep a full input queue uses.
+            SystemInput.Beep();
+        }
         return drained;
     }
 
@@ -471,26 +480,35 @@ internal sealed class TerminalPane : IDisposable
     public bool Wheel(PointerPoint point, KeyModifiers held, double x, double y)
     {
         bool across = point.Properties.IsHorizontalMouseWheel;
-        int steps = (across ? wheelAcross : wheel).Add(point.Properties.MouseWheelDelta);
-        if (steps == 0)
+        int delta = point.Properties.MouseWheelDelta;
+        int steps = (across ? wheelAcross : wheel).Add(delta);
+        // A touchpad's part of a notch scrolls its part of the lines; a program only ever gets whole notches.
+        int rows = across ? 0 : wheelRows.Add(delta, SystemInput.WheelLines(), Cells.Rows);
+        if (steps == 0 && (rows == 0 || programTakesWheel))
         {
             return false;
         }
-        MouseInput step = pointer.Wheel(steps, across, held, CellAt(x, y));
         bool scrolled = false;
         Send(t =>
         {
-            if (t.Mouse(step))
+            if (steps != 0)
             {
-                for (int i = 1; i < Math.Abs(steps); i++)
+                MouseInput step = pointer.Wheel(steps, across, held, CellAt(x, y));
+                programTakesWheel = t.Mouse(step);
+                if (programTakesWheel)
                 {
-                    t.Mouse(step);
+                    for (int i = 1; i < Math.Abs(steps); i++)
+                    {
+                        t.Mouse(step);
+                    }
+                    wheelRows.Reset();
+                    return;
                 }
             }
-            else if (!across)
+            if (rows != 0)
             {
                 // History scrolling sends no wakeup, so the view refreshes here.
-                t.ScrollDisplay(WheelScroll.Rows(steps, SystemInput.WheelLines(), Cells.Rows));
+                t.ScrollDisplay(rows);
                 scrolled = true;
             }
         });

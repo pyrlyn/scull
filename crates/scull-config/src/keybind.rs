@@ -42,6 +42,10 @@ pub enum Action {
     ScrollToTop = 7,
     /// Scroll back to the screen.
     ScrollToBottom = 8,
+    /// Scroll to the previous shell prompt (OSC 133 `A`).
+    PreviousPrompt = 9,
+    /// Scroll to the next shell prompt.
+    NextPrompt = 10,
 }
 
 /// A key with the modifiers held, such as Command and `=`.
@@ -62,7 +66,7 @@ pub struct Binding {
     pub action: Action,
 }
 
-const DEFAULTS: [(Key, Modifiers, Action); 9] = [
+const DEFAULTS: [(Key, Modifiers, Action); 11] = [
     (Key::Char('v'), Modifiers::SUPER, Action::Paste),
     (Key::Char('='), Modifiers::SUPER, Action::FontLarger),
     (
@@ -76,6 +80,8 @@ const DEFAULTS: [(Key, Modifiers, Action); 9] = [
     (Key::PageDown, Modifiers::SHIFT, Action::ScrollPageDown),
     (Key::Home, Modifiers::SUPER, Action::ScrollToTop),
     (Key::End, Modifiers::SUPER, Action::ScrollToBottom),
+    (Key::Up, Modifiers::SUPER, Action::PreviousPrompt),
+    (Key::Down, Modifiers::SUPER, Action::NextPrompt),
 ];
 
 const KEY_NAMES: [(&str, Key); 15] = [

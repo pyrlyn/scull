@@ -165,6 +165,14 @@ public sealed class PaneEventsTests
     }
 
     [TestMethod]
+    public void TheProgramsBellIsReportedOnceHoweverOftenItRang()
+    {
+        var events = new PaneEvents();
+        Assert.IsTrue(Drain(events, "ding\a\a\a").Bell);
+        Assert.IsFalse(Drain(events, "quiet").Bell, "a drain starts afresh");
+    }
+
+    [TestMethod]
     public void ARepeatedTitleIsNoChange()
     {
         var events = new PaneEvents();

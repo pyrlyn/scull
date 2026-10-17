@@ -348,8 +348,38 @@ public sealed class WindowsInputTests
     [DataRow(3, WheelScroll.Page, 24, 72)]
     [DataRow(-1, WheelScroll.Page, 24, -24)]
     [DataRow(1, WheelScroll.Page, 0, 0)]
-    [DataRow(int.MaxValue, 100u, 24, int.MaxValue)]
-    [DataRow(int.MinValue, 100u, 24, -int.MaxValue)]
-    public void ANotchScrollsTheSystemsLinesOrAPage(int steps, uint lines, int pageRows, int rows) =>
-        Assert.AreEqual(rows, WheelScroll.Rows(steps, lines, pageRows));
+    public void ANotchScrollsTheSystemsLinesOrAPage(int notches, uint lines, int pageRows, int rows) =>
+        Assert.AreEqual(rows, new WheelRows().Add(notches * WheelSteps.Notch, lines, pageRows));
+
+    [TestMethod]
+    public void ATouchpadsPartsOfANotchScrollProportionallyAndCarryTheRest()
+    {
+        var wheel = new WheelRows();
+        // Three lines a notch: 40 units is one line.
+        Assert.AreEqual(1, wheel.Add(40, 3, 24));
+        Assert.AreEqual(0, wheel.Add(20, 3, 24));
+        Assert.AreEqual(1, wheel.Add(20, 3, 24), "60 carried and 60 more fill a line");
+        Assert.AreEqual(0, wheel.Add(-30, 3, 24));
+        Assert.AreEqual(-1, wheel.Add(-30, 3, 24));
+        // A page a notch, 24 rows: 5 units is a row.
+        Assert.AreEqual(1, new WheelRows().Add(5, WheelScroll.Page, 24));
+    }
+
+    [TestMethod]
+    public void TurningWheelScrollingOffDropsWhatWasCarried()
+    {
+        var wheel = new WheelRows();
+        Assert.AreEqual(0, wheel.Add(10, 3, 24));
+        Assert.AreEqual(0, wheel.Add(120, 0, 24));
+        Assert.AreEqual(0, wheel.Add(10, 3, 24));
+        wheel.Reset();
+        Assert.AreEqual(0, wheel.Add(30, 3, 24), "nothing left from before");
+    }
+
+    [TestMethod]
+    public void AHugeDeltaIsClamped()
+    {
+        Assert.AreEqual(int.MaxValue, new WheelRows().Add(int.MaxValue, 100_000_000, 24));
+        Assert.AreEqual(-int.MaxValue, new WheelRows().Add(int.MinValue, 100_000_000, 24));
+    }
 }

@@ -10,6 +10,7 @@ import Observation
 public enum ScullAction: UInt8, Sendable {
     case paste = 1, fontLarger, fontSmaller, fontReset
     case scrollPageUp, scrollPageDown, scrollToTop, scrollToBottom
+    case previousPrompt, nextPrompt
 }
 
 public struct ScullKeybind: Equatable, Sendable {

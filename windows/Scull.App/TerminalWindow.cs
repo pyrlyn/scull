@@ -360,6 +360,10 @@ internal sealed partial class TerminalWindow : Window, IDisposable
                 case PaneCommand.Copy:
                     Copy(tab.Focused);
                     break;
+                case PaneCommand.PreviousPrompt:
+                case PaneCommand.NextPrompt:
+                    ScrollToPrompt(tab.Focused, forward: command == PaneCommand.NextPrompt);
+                    break;
                 case PaneCommand.SplitRight:
                 case PaneCommand.SplitDown:
                     tab.Panes.Split(command == PaneCommand.SplitRight ? SplitAxis.SideBySide : SplitAxis.Stacked);
@@ -381,6 +385,13 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             // A shell that would not start; the tab strip has no room for a message.
             Title = $"Scull: {e.Message}";
         }
+    }
+
+    private void ScrollToPrompt(TerminalPane pane, bool forward)
+    {
+        // Scrolling sends no wakeup, so the view refreshes here.
+        pane.Send(t => t.ScrollToPrompt(forward));
+        Redraw(force: false);
     }
 
     private static void Copy(TerminalPane pane)
@@ -430,6 +441,10 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             pane.Send(t => t.ScrollDisplay(rows));
             HoverLink();
             Redraw(force: false);
+        }
+        else if (action is ConfigAction.PreviousPrompt or ConfigAction.NextPrompt)
+        {
+            ScrollToPrompt(pane, forward: action == ConfigAction.NextPrompt);
         }
         else if (pane.Zoom(action))
         {

@@ -341,7 +341,7 @@ fn bad_chords_say_what_is_wrong() {
 #[test]
 fn the_defaults_are_bound_without_a_file() {
     let settings = Settings::default();
-    assert_eq!(settings.bindings.len(), 9);
+    assert_eq!(settings.bindings.len(), 11);
     assert_eq!(binding(&settings, "super+v"), Some(Action::Paste));
     assert_eq!(
         binding(&settings, "super+shift+="),
@@ -351,6 +351,8 @@ fn the_defaults_are_bound_without_a_file() {
         binding(&settings, "shift+page-up"),
         Some(Action::ScrollPageUp)
     );
+    assert_eq!(binding(&settings, "super+up"), Some(Action::PreviousPrompt));
+    assert_eq!(binding(&settings, "super+down"), Some(Action::NextPrompt));
     assert!(settings.bindings.iter().all(|b| b.action != Action::None));
 }
 
@@ -376,7 +378,7 @@ action = "font-larger"
     assert_eq!(binding(&settings, "super+0"), None);
     assert_eq!(binding(&settings, "ctrl+alt+f"), Some(Action::FontLarger));
     assert_eq!(binding(&settings, "super+-"), Some(Action::FontSmaller));
-    assert_eq!(settings.bindings.len(), 9);
+    assert_eq!(settings.bindings.len(), 11);
 }
 
 #[test]

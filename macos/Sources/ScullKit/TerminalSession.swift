@@ -355,6 +355,9 @@ public final class TerminalSession {
 
     public func scrollDisplay(_ delta: Int32) -> tt_status { track(tt_term_scroll_display(term, delta)) }
 
+    /// Scrolls the viewport to the previous or next shell prompt; TT_EMPTY when there is none.
+    public func scrollToPrompt(forward: Bool) -> tt_status { track(tt_term_scroll_to_prompt(term, forward ? 1 : 0)) }
+
     public func resizeBegin() -> tt_status { track(tt_term_resize_begin(term)) }
 
     public func resize(cols: UInt16, rows: UInt16, widthPx: UInt16, heightPx: UInt16) -> tt_status {

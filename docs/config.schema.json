@@ -78,6 +78,16 @@
           "description": "Scroll back to the screen.",
           "type": "string",
           "const": "scroll-to-bottom"
+        },
+        {
+          "description": "Scroll to the previous shell prompt (OSC 133 `A`).",
+          "type": "string",
+          "const": "previous-prompt"
+        },
+        {
+          "description": "Scroll to the next shell prompt.",
+          "type": "string",
+          "const": "next-prompt"
         }
       ]
     },

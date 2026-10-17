@@ -28,14 +28,22 @@ public sealed class TextSnapshot
 {
     private readonly int cols;
     private readonly byte[] widths;
+    private readonly ushort[] cellStyles;
+    private readonly Style[] styles;
 
     /// <param name="widths">The frame's cell widths, row-major, <paramref name="cols"/> to a row; a cell it lacks is one wide.</param>
     /// <param name="selected">The first to the last selected cell of the frame; null when none is.</param>
-    public TextSnapshot(ScreenText text, CellGeometry geometry, int cols, byte[] widths, int cursorRow, int cursorCol, CellSpan? selected = null)
+    /// <param name="cellStyles">The frame's style index of each cell, laid out like <paramref name="widths"/>; none when the cells have no styles to tell.</param>
+    /// <param name="styles">The style table <paramref name="cellStyles"/> index.</param>
+    /// <param name="look">What a client needs to read the styles as text attributes; null when the host gave none.</param>
+    public TextSnapshot(ScreenText text, CellGeometry geometry, int cols, byte[] widths, int cursorRow, int cursorCol, CellSpan? selected = null,
+        ushort[]? cellStyles = null, Style[]? styles = null, TextLook? look = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(widths);
         (Text, Geometry, this.cols, this.widths) = (text, geometry, cols, widths);
+        (this.cellStyles, this.styles) = (cellStyles ?? [], styles ?? []);
+        Attributes = look is null ? null : new TextAttributes(this, look);
         int caret = text.OffsetOf(cursorRow, cursorCol, WidthOf(cursorRow));
         Caret = new TextRange(caret, caret);
         Selection = selected is { } cells ? RangeOf(cells) : null;
@@ -47,6 +55,17 @@ public sealed class TextSnapshot
 
     /// <summary>The whole text.</summary>
     public TextRange Document => Text.Document;
+
+    /// <summary>The cells' style as UI Automation text attributes; null when the host gave no <see cref="TextLook"/>.</summary>
+    public TextAttributes? Attributes { get; }
+
+    /// <summary>The style of the cell at a row and column; the default one when the snapshot has none for it.</summary>
+    public Style StyleAt(int row, int col)
+    {
+        long at = ((long)row * cols) + col;
+        bool inside = row >= 0 && col >= 0 && col < cols && at < cellStyles.Length;
+        return inside && cellStyles[at] < styles.Length ? styles[cellStyles[at]] : default;
+    }
 
     /// <summary>An empty range at the cursor.</summary>
     public TextRange Caret { get; }
@@ -61,17 +80,19 @@ public sealed class TextSnapshot
     /// The pane as the last <see cref="Terminal.Update"/> left it. The frame is copied
     /// out because its cells are only valid until the next update.
     /// </summary>
-    public static TextSnapshot Capture(Terminal terminal, CellGeometry geometry)
+    public static TextSnapshot Capture(Terminal terminal, CellGeometry geometry, TextLook? look = null)
     {
         ArgumentNullException.ThrowIfNull(terminal);
         ScreenText text = ScreenText.Read(terminal);
         FrameView view = terminal.View;
         byte[] widths = new byte[view.Cells.Length];
+        ushort[] cellStyles = new ushort[widths.Length];
         for (int i = 0; i < widths.Length; i++)
         {
             widths[i] = view.Cells[i].Width;
+            cellStyles[i] = view.Cells[i].Style;
         }
-        return new TextSnapshot(text, geometry, view.Cols, widths, view.Cursor.Row, view.Cursor.Col, SelectedCells(view));
+        return new TextSnapshot(text, geometry, view.Cols, widths, view.Cursor.Row, view.Cursor.Col, SelectedCells(view), cellStyles, view.Styles.ToArray(), look);
     }
 
     private static CellSpan? SelectedCells(FrameView view)

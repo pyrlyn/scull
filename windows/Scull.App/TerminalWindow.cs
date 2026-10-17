@@ -73,6 +73,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private bool resizing;
     private bool active;
     private bool keyboard;
+    private bool disposed;
 
     public TerminalWindow()
     {
@@ -458,7 +459,9 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         {
             return;
         }
-        DrainedEvents drained = pane.Drain();
+        // A pane the user is looking at (shown, in the active window) needs no pop-up: the same rule as on macOS,
+        // where a background tab is a window that is not key.
+        DrainedEvents drained = pane.Drain(notify: !(active && tab == current));
         if (drained.Clipboard is { } text)
         {
             CopyToClipboard(text);
@@ -466,6 +469,17 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         if (drained.TitleChanged)
         {
             ShowTitles();
+        }
+        foreach (Notice notice in drained.Notices)
+        {
+            // A click on a toast of a window that has since closed finds nothing to bring forward.
+            app.Notifier.Show(notice.TitleOr(pane.Title), notice.Body, () =>
+            {
+                if (!disposed)
+                {
+                    Activate();
+                }
+            });
         }
         if (drained.Exited)
         {
@@ -838,6 +852,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
 
     public void Dispose()
     {
+        disposed = true;
         app.ConfigChanged -= OnConfig;
         resizeTimer.Stop();
         ime.Dispose();

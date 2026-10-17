@@ -138,3 +138,8 @@ macos-test:
 macos-bench: macos-lib
     cd macos && SCULL_RENDER_BENCH="$PWD/../target/macos-renderer-bench.md" swift test --arch arm64 -c release -Xswiftc -enable-testing --filter rendererThroughput
     cat target/macos-renderer-bench.md
+
+# Opt-in mold linker on Linux (see .cargo/mold.toml); default build unchanged. `just mold check` also works.
+[linux]
+mold *args='build':
+    cargo --config .cargo/mold.toml {{args}}

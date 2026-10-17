@@ -281,3 +281,11 @@ Execution plan:
 3. T13.2 (core selection and search), T13.3 (events over the C ABI) and T13.4 (macOS selection, copy and find UI) landed; see their entries.
 
 Left: a setting for OSC 52 reads (the macOS host denies them today), showing OSC 9/777 notifications on macOS, and per-cell link ids in the frame view.
+
+### T900. Update the vulnerable TLS dependency
+
+The creator authorized dependency updates across the audit. Update only vulnerable dependencies and the resolver-required graph without weakening existing guards or advisory policy.
+
+Execution plan: reproduce the advisory audit; apply compatible package-manager updates; review the lockfile diff; run advisory regression checks and the project test/lint/format gates; publish a PR and merge only after required checks pass. No custom dependency implementation is needed. Rollback is a revert of the dependency-update commit.
+
+Validation: 578 workspace tests pass; clippy with warnings denied and format check pass. The isolated RustSec audit reports zero vulnerabilities after rustls 0.23.46. No production logic was replaced; reused upstream security fixes.

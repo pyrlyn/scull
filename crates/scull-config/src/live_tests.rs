@@ -225,7 +225,7 @@ fn keybinds_survive_a_live_reload() {
     )
     .unwrap();
     let snapshot = wait_for(&live, "the unbound paste", |s| {
-        s.settings.bindings.len() == 8
+        s.settings.bindings.len() == 10
     });
     assert!(
         snapshot

@@ -40,6 +40,8 @@ public final class TerminalView: NSView {
     private var scrollRemainder: CGFloat = 0
     /// The left-button gesture the host owns; nil while the program has it.
     var selectionDrag: SelectionDrag?
+    /// The selection last posted to VoiceOver.
+    var postedSelection: [NSRange] = []
     var findBar: FindBar?
     var find = FindState()
     var findSettle: Timer?
@@ -212,8 +214,17 @@ public final class TerminalView: NSView {
         case .scrollPageDown: scroll(-Int32(grid.rows))
         case .scrollToTop: scroll(Int32.max)
         case .scrollToBottom: scroll(-Int32.max)
+        case .previousPrompt: scrollToPrompt(forward: false)
+        case .nextPrompt: scrollToPrompt(forward: true)
         }
         return true
+    }
+
+    func scrollToPrompt(forward: Bool) {
+        guard let session else { return }
+        // Nothing to jump to is not an error; the viewport stays.
+        _ = session.scrollToPrompt(forward: forward)
+        if session.update() { needsDisplay = true }
     }
 
     private func scroll(_ rows: Int32) {

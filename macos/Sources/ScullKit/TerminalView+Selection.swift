@@ -51,6 +51,7 @@ extension TerminalView: NSMenuItemValidation {
 
     private func refreshSelection() {
         if session?.update() == true { needsDisplay = true }
+        postSelectionChange()
     }
 
     @objc public func copy(_ sender: Any?) {

@@ -291,22 +291,42 @@ public sealed class SwallowedKeys
     public bool Release(int virtualKey) => keys.Remove(virtualKey);
 }
 
-/// <summary>Wheel steps to rows of history.</summary>
+/// <summary>
+/// Wheel deltas to rows of history, proportionally: a precision touchpad's fraction of a notch
+/// scrolls a fraction of the system's lines per notch, and the rows it does not yet fill carry on.
+/// </summary>
+public sealed class WheelRows
+{
+    // Delta times rows, in 1/Notch of a row.
+    private long remainder;
+
+    /// <summary>
+    /// The rows (positive: back into history) <paramref name="delta"/> adds, given the system's lines per
+    /// notch (<see cref="WheelScroll.Page"/> for a screenful of <paramref name="pageRows"/>). Zero lines drops the carry.
+    /// </summary>
+    public int Add(int delta, uint linesPerNotch, int pageRows)
+    {
+        long perNotch = linesPerNotch == WheelScroll.Page ? Math.Max(pageRows, 0) : linesPerNotch;
+        // Zero lines is the user turning wheel scrolling off.
+        if (perNotch == 0)
+        {
+            remainder = 0;
+            return 0;
+        }
+        long total = remainder + delta * perNotch;
+        remainder = total % WheelSteps.Notch;
+        return (int)Math.Clamp(total / WheelSteps.Notch, -int.MaxValue, int.MaxValue);
+    }
+
+    /// <summary>Forgets what is carried, as when the wheel turns the other way for another purpose.</summary>
+    public void Reset() => remainder = 0;
+}
+
+/// <summary>The system's wheel setting.</summary>
 public static class WheelScroll
 {
     /// <summary><c>WHEEL_PAGESCROLL</c>: the system's lines per notch when the user chose a screenful.</summary>
     public const uint Page = uint.MaxValue;
-
-    /// <summary>
-    /// The rows <paramref name="steps"/> notches scroll (positive: back into history), given the
-    /// system's lines per notch (<c>SPI_GETWHEELSCROLLLINES</c>; <see cref="Page"/> for a screenful
-    /// of <paramref name="pageRows"/>). Zero lines is the user turning wheel scrolling off.
-    /// </summary>
-    public static int Rows(int steps, uint linesPerNotch, int pageRows)
-    {
-        long perNotch = linesPerNotch == Page ? Math.Max(pageRows, 0) : linesPerNotch;
-        return (int)Math.Clamp(steps * perNotch, -int.MaxValue, int.MaxValue);
-    }
 }
 
 /// <summary>

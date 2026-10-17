@@ -202,6 +202,9 @@ impl State {
         let Some(extra) = owned_text(extra) else {
             return;
         };
+        if mark == b'A' {
+            self.record_prompt();
+        }
         let _ = self.events.push(Event::Shell {
             mark: char::from(mark),
             extra,

@@ -4,8 +4,9 @@ namespace Scull.Core;
 /// <param name="Exited">The child has ended.</param>
 /// <param name="TitleChanged">The window title or the working directory differs from before.</param>
 /// <param name="Clipboard">The text an OSC 52 write wants on the clipboard (the last, if several); null for none.</param>
+/// <param name="Bell">The program rang the bell (once, however many times it did in this drain).</param>
 /// <param name="Notifications">The notifications to show, cleaned and within the pane's rate limit; null for none.</param>
-public readonly record struct DrainedEvents(bool Exited, bool TitleChanged, string? Clipboard, IReadOnlyList<Notice>? Notifications = null)
+public readonly record struct DrainedEvents(bool Exited, bool TitleChanged, string? Clipboard, bool Bell = false, IReadOnlyList<Notice>? Notifications = null)
 {
     public IReadOnlyList<Notice> Notices => Notifications ?? [];
 }
@@ -39,6 +40,7 @@ public sealed class PaneEvents
     {
         bool exited = false;
         bool changed = false;
+        bool bell = false;
         string? clipboard = null;
         List<Notice>? notices = null;
         while (terminal.TryPollEvent(out TerminalEvent next))
@@ -66,11 +68,14 @@ public sealed class PaneEvents
                         (notices ??= []).Add(notice);
                     }
                     break;
+                case EventKind.Bell:
+                    bell = true;
+                    break;
                 case EventKind.ClipboardRead:
                     terminal.ClipboardDeny(next.Id);
                     break;
             }
         }
-        return new DrainedEvents(exited, changed, clipboard, notices);
+        return new DrainedEvents(exited, changed, clipboard, bell, notices);
     }
 }

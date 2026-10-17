@@ -255,6 +255,17 @@ public final class TerminalSession {
         return tt_term_selection_text(term, nil, 0, &len) != TT_EMPTY
     }
 
+    /// The selected cells the frame marks, one span per row that has any: where the selection is on
+    /// screen, which is what a screen reader sees. The core gives no bounds of its own.
+    func selectedSpans() -> [SelectedSpan] {
+        let cols = Int(view.cols)
+        return (0..<Int(view.rows)).compactMap { row in
+            let marked = (0..<cols).filter { Int32(cell(row: row, col: $0)?.flags ?? 0) & TT_CELL_SELECTED != 0 }
+            guard let first = marked.first, let last = marked.last else { return nil }
+            return SelectedSpan(line: row, col: first, endCol: last + max(1, Int(cell(row: row, col: last)?.width ?? 1)))
+        }
+    }
+
     /// Replaces the search; an empty pattern ends it.
     public func search(_ pattern: String, ignoreCase: Bool) -> tt_status {
         var pattern = pattern
@@ -375,6 +386,9 @@ public final class TerminalSession {
     }
 
     public func scrollDisplay(_ delta: Int32) -> tt_status { track(tt_term_scroll_display(term, delta)) }
+
+    /// Scrolls the viewport to the previous or next shell prompt; TT_EMPTY when there is none.
+    public func scrollToPrompt(forward: Bool) -> tt_status { track(tt_term_scroll_to_prompt(term, forward ? 1 : 0)) }
 
     public func resizeBegin() -> tt_status { track(tt_term_resize_begin(term)) }
 

@@ -260,6 +260,23 @@ public sealed unsafe class Terminal : IDisposable
         Check(NativeMethods.tt_term_scroll_display((tt_term*)t.Pointer, rows), "tt_term_scroll_display");
     }
 
+    /// <summary>
+    /// Scrolls the viewport so the previous (or, with <paramref name="forward"/>, the next) prompt the shell marked
+    /// with OSC 133 <c>A</c> is its top row; the live screen when that prompt is on it. False, and nothing moves,
+    /// when there is no such prompt.
+    /// </summary>
+    public bool ScrollToPrompt(bool forward)
+    {
+        using var t = new Lease(term);
+        tt_status status = NativeMethods.tt_term_scroll_to_prompt((tt_term*)t.Pointer, forward ? (byte)1 : (byte)0);
+        if (status != tt_status.TT_EMPTY)
+        {
+            Check(status, "tt_term_scroll_to_prompt");
+        }
+
+        return status != tt_status.TT_EMPTY;
+    }
+
     /// <summary>Starts a selection of <paramref name="kind"/> at a viewport cell (clamped), replacing any other; output that rewrites its rows, a resize and a screen switch drop it.</summary>
     public void Select(SelectionKind kind, ushort row, ushort col)
     {

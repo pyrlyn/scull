@@ -43,7 +43,10 @@ internal sealed partial class TerminalTextRange(TextSnapshot snapshot, TextRange
         }
         : throw NotSupported();
 
+    // The exact HRESULT is the contract: a client reads it as "not supported", and no other exception type carries it.
+#pragma warning disable CA2201
     private static COMException NotSupported() => new("the terminal does not report this text attribute", unchecked((int)0x80070032));
+#pragma warning restore CA2201
 
     /// <summary>Left, top, width and height of each row's rectangle in turn, in screen pixels.</summary>
     public void GetBoundingRectangles(out double[] returnValue)

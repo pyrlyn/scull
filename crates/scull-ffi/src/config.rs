@@ -31,6 +31,10 @@ pub const TT_ACTION_SCROLL_PAGE_DOWN: u8 = 6;
 pub const TT_ACTION_SCROLL_TO_TOP: u8 = 7;
 /// Scroll back to the screen.
 pub const TT_ACTION_SCROLL_TO_BOTTOM: u8 = 8;
+/// Scroll to the previous shell prompt: `tt_term_scroll_to_prompt` backwards.
+pub const TT_ACTION_PREVIOUS_PROMPT: u8 = 9;
+/// Scroll to the next shell prompt.
+pub const TT_ACTION_NEXT_PROMPT: u8 = 10;
 
 const _: () = assert!(
     TT_ACTION_PASTE == Action::Paste as u8
@@ -41,6 +45,8 @@ const _: () = assert!(
         && TT_ACTION_SCROLL_PAGE_DOWN == Action::ScrollPageDown as u8
         && TT_ACTION_SCROLL_TO_TOP == Action::ScrollToTop as u8
         && TT_ACTION_SCROLL_TO_BOTTOM == Action::ScrollToBottom as u8
+        && TT_ACTION_PREVIOUS_PROMPT == Action::PreviousPrompt as u8
+        && TT_ACTION_NEXT_PROMPT == Action::NextPrompt as u8
 );
 
 /// How to open the configuration.

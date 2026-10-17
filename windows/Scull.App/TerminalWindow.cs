@@ -73,6 +73,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private bool resizing;
     private bool active;
     private bool keyboard;
+    private bool disposed;
 
     public TerminalWindow()
     {
@@ -360,6 +361,10 @@ internal sealed partial class TerminalWindow : Window, IDisposable
                 case PaneCommand.Copy:
                     Copy(tab.Focused);
                     break;
+                case PaneCommand.PreviousPrompt:
+                case PaneCommand.NextPrompt:
+                    ScrollToPrompt(tab.Focused, forward: command == PaneCommand.NextPrompt);
+                    break;
                 case PaneCommand.SplitRight:
                 case PaneCommand.SplitDown:
                     tab.Panes.Split(command == PaneCommand.SplitRight ? SplitAxis.SideBySide : SplitAxis.Stacked);
@@ -381,6 +386,13 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             // A shell that would not start; the tab strip has no room for a message.
             Title = $"Scull: {e.Message}";
         }
+    }
+
+    private void ScrollToPrompt(TerminalPane pane, bool forward)
+    {
+        // Scrolling sends no wakeup, so the view refreshes here.
+        pane.Send(t => t.ScrollToPrompt(forward));
+        Redraw(force: false);
     }
 
     private static void Copy(TerminalPane pane)
@@ -431,6 +443,10 @@ internal sealed partial class TerminalWindow : Window, IDisposable
             HoverLink();
             Redraw(force: false);
         }
+        else if (action is ConfigAction.PreviousPrompt or ConfigAction.NextPrompt)
+        {
+            ScrollToPrompt(pane, forward: action == ConfigAction.NextPrompt);
+        }
         else if (pane.Zoom(action))
         {
             Relayout(tab, force: true);
@@ -443,7 +459,9 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         {
             return;
         }
-        DrainedEvents drained = pane.Drain();
+        // A pane the user is looking at (shown, in the active window) needs no pop-up: the same rule as on macOS,
+        // where a background tab is a window that is not key.
+        DrainedEvents drained = pane.Drain(notify: !(active && tab == current));
         if (drained.Clipboard is { } text)
         {
             CopyToClipboard(text);
@@ -451,6 +469,17 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         if (drained.TitleChanged)
         {
             ShowTitles();
+        }
+        foreach (Notice notice in drained.Notices)
+        {
+            // A click on a toast of a window that has since closed finds nothing to bring forward.
+            app.Notifier.Show(notice.TitleOr(pane.Title), notice.Body, () =>
+            {
+                if (!disposed)
+                {
+                    Activate();
+                }
+            });
         }
         if (drained.Exited)
         {
@@ -841,6 +870,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
 
     public void Dispose()
     {
+        disposed = true;
         app.ConfigChanged -= OnConfig;
         resizeTimer.Stop();
         ime.Dispose();

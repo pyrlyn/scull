@@ -16,6 +16,8 @@ public enum ConfigAction : byte
     ScrollPageDown = NativeMethods.TT_ACTION_SCROLL_PAGE_DOWN,
     ScrollToTop = NativeMethods.TT_ACTION_SCROLL_TO_TOP,
     ScrollToBottom = NativeMethods.TT_ACTION_SCROLL_TO_BOTTOM,
+    PreviousPrompt = NativeMethods.TT_ACTION_PREVIOUS_PROMPT,
+    NextPrompt = NativeMethods.TT_ACTION_NEXT_PROMPT,
 }
 
 /// <summary>Do <paramref name="Action"/> when <paramref name="Key"/> is pressed with exactly <paramref name="Mods"/> held.</summary>

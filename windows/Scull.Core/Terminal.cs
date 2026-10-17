@@ -260,6 +260,23 @@ public sealed unsafe class Terminal : IDisposable
         Check(NativeMethods.tt_term_scroll_display((tt_term*)t.Pointer, rows), "tt_term_scroll_display");
     }
 
+    /// <summary>
+    /// Scrolls the viewport so the previous (or, with <paramref name="forward"/>, the next) prompt the shell marked
+    /// with OSC 133 <c>A</c> is its top row; the live screen when that prompt is on it. False, and nothing moves,
+    /// when there is no such prompt.
+    /// </summary>
+    public bool ScrollToPrompt(bool forward)
+    {
+        using var t = new Lease(term);
+        tt_status status = NativeMethods.tt_term_scroll_to_prompt((tt_term*)t.Pointer, forward ? (byte)1 : (byte)0);
+        if (status != tt_status.TT_EMPTY)
+        {
+            Check(status, "tt_term_scroll_to_prompt");
+        }
+
+        return status != tt_status.TT_EMPTY;
+    }
+
     /// <summary>Starts a selection of <paramref name="kind"/> at a viewport cell (clamped), replacing any other; output that rewrites its rows, a resize and a screen switch drop it.</summary>
     public void Select(SelectionKind kind, ushort row, ushort col)
     {
@@ -370,12 +387,13 @@ public sealed unsafe class Terminal : IDisposable
         Check(status, "tt_term_poll_event");
         uint? exitCode = raw.exit_code == NativeMethods.TT_EXIT_CODE_UNKNOWN ? null : raw.exit_code;
         // Only the event polled last has its text, so it is read before anything else polls.
-        byte[] body = raw.text_len == 0 ? [] : ReadEventText(raw.serial);
-        next = new TerminalEvent((EventKind)raw.kind, exitCode, raw.signaled != 0, raw.id, raw.detail, body);
+        byte[] body = raw.text_len == 0 ? [] : ReadEventText(raw.serial, NativeMethods.TT_EVENT_TEXT_BODY);
+        byte[] heading = raw.title_len == 0 ? [] : ReadEventText(raw.serial, NativeMethods.TT_EVENT_TEXT_TITLE);
+        next = new TerminalEvent((EventKind)raw.kind, exitCode, raw.signaled != 0, raw.id, raw.detail, body, heading);
         return true;
     }
 
-    private byte[] ReadEventText(ulong serial)
+    private byte[] ReadEventText(ulong serial, uint part)
     {
         byte[] buffer = [];
         // The text is fixed once polled, so one retry with the length it reported is enough.
@@ -386,7 +404,7 @@ public sealed unsafe class Terminal : IDisposable
             using (var t = new Lease(term))
             fixed (byte* p = buffer)
             {
-                status = NativeMethods.tt_term_event_text((tt_term*)t.Pointer, serial, NativeMethods.TT_EVENT_TEXT_BODY, p, (nuint)buffer.Length, &length);
+                status = NativeMethods.tt_term_event_text((tt_term*)t.Pointer, serial, part, p, (nuint)buffer.Length, &length);
             }
             if (status == tt_status.TT_OK)
             {
@@ -630,11 +648,15 @@ public enum EventKind : uint
 /// (null when the system did not say) and whether a signal ended the child.
 /// <paramref name="Id"/> is the clipboard request or the link, <paramref name="Detail"/> the title
 /// kind, shell marker or clipboard selection, and <paramref name="Body"/> the event's raw bytes
-/// (empty when it has none): not necessarily UTF-8 for a clipboard write.
+/// (empty when it has none): not necessarily UTF-8 for a clipboard write. <paramref name="Heading"/> is a
+/// notification's title bytes.
 /// </summary>
 public readonly record struct TerminalEvent(
-    EventKind Kind, uint? ExitCode, bool Signaled, ulong Id = 0, uint Detail = 0, byte[]? Body = null)
+    EventKind Kind, uint? ExitCode, bool Signaled, ulong Id = 0, uint Detail = 0, byte[]? Body = null, byte[]? Heading = null)
 {
+    /// <summary>A notification's title as text; empty for OSC 9, which has none.</summary>
+    public string HeadingText => Encoding.UTF8.GetString(Heading ?? []);
+
     /// <summary>The body as text, bad bytes shown as U+FFFD; for kinds that are names, such as titles.</summary>
     public string Text => Encoding.UTF8.GetString(Body ?? []);
 }

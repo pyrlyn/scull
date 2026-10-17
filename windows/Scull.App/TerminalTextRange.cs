@@ -11,7 +11,7 @@ namespace Scull.App;
 /// fresh range to see the new text. The unit and endpoint enums of UI Automation have the
 /// same values as <see cref="TextUnit"/> and <see cref="TextEndpoint"/>, so they are cast.
 /// </summary>
-internal sealed partial class TerminalTextRange(TextSnapshot snapshot, TextRange range, TerminalAutomationPeer owner) : ITextRangeProvider
+internal sealed partial class TerminalTextRange(TextSnapshot snapshot, TextRange range, TerminalPanePeer owner) : ITextRangeProvider
 {
     private TextRange range = range;
 

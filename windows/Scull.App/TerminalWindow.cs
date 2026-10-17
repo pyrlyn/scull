@@ -87,7 +87,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
                 Select(tab);
             }
         };
-        host = new TerminalHost(FocusedSnapshot, SelectCells)
+        host = new TerminalHost(PaneElementsOfTab, SnapshotOf, SelectCells, FocusPane)
         {
             // The panel is a Grid, which takes no focus; this control does, so keys come here.
             IsTabStop = true,
@@ -502,12 +502,30 @@ internal sealed partial class TerminalWindow : Window, IDisposable
     private TerminalPane? FocusedPane() =>
         current is { } tab && tab.Views.TryGetValue(tab.Panes.Tree.Focused, out TerminalPane? pane) ? pane : null;
 
-    private TextSnapshot? FocusedSnapshot() => FocusedPane()?.Snapshot();
+    private IReadOnlyList<PaneElement> PaneElementsOfTab() =>
+        current is { } tab ? PaneElements.Describe(tab.Panes.Tree, tab.Layout) : [];
 
-    private void SelectCells(CellSpan? cells)
+    private TextSnapshot? SnapshotOf(int pane) =>
+        current is { } tab && tab.Views.TryGetValue(pane, out TerminalPane? view) ? view.Snapshot() : null;
+
+    private void SelectCells(int pane, CellSpan? cells)
     {
-        FocusedPane()?.SelectCells(cells);
-        Redraw(force: false);
+        if (current is { } tab && tab.Views.TryGetValue(pane, out TerminalPane? view))
+        {
+            view.SelectCells(cells);
+            Redraw(force: false);
+        }
+    }
+
+    // A client asked for a pane's focus: the keyboard stays on the host, the typing moves to the pane.
+    private void FocusPane(int pane)
+    {
+        if (current is { } tab && tab.Views.ContainsKey(pane))
+        {
+            tab.Panes.Tree.Focus(pane);
+            host.Focus(FocusState.Programmatic);
+            UpdateFocus();
+        }
     }
 
     // A poisoned pane shows a notice in place of its stale grid; the other panes keep running.

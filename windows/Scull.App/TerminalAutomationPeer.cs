@@ -1,55 +1,44 @@
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
-using Microsoft.UI.Xaml.Automation.Provider;
 using Scull.Core;
 using Windows.Foundation;
 
 namespace Scull.App;
 
 /// <summary>
-/// The terminal as a UI Automation text document. All the text logic lives in
-/// <see cref="TextSnapshot"/> and <see cref="ScreenText"/>, which are tested on every runner;
-/// this and <see cref="TerminalTextRange"/> only adapt them to the WinUI interfaces.
+/// The terminal in the automation tree: a group whose children are the panes of the selected tab,
+/// one <see cref="TerminalPanePeer"/> each, in reading order. Which panes there are, what they
+/// are called and where they sit comes from <see cref="PaneElements"/>; a pane keeps its peer
+/// through splits and closes of its neighbours, so a client's reference to it stays valid.
 /// </summary>
-internal sealed partial class TerminalAutomationPeer : FrameworkElementAutomationPeer, ITextProvider
+internal sealed partial class TerminalAutomationPeer : FrameworkElementAutomationPeer
 {
-    private static readonly TextSnapshot Empty = new(new ScreenText(""), default, 0, [], 0, 0);
+    private readonly TerminalHost owner;
+    private readonly Func<IReadOnlyList<PaneElement>> panes;
+    private readonly Func<int, TextSnapshot?> snapshot;
+    private readonly Action<int, CellSpan?> select;
+    private readonly Action<int> focusPane;
+    private readonly PaneFocusTracker focus = new();
+    private readonly Dictionary<int, TerminalPanePeer> peers = [];
+    private int[] ids = [];
 
-    private readonly Func<TextSnapshot?> snapshot;
-    private readonly Action<CellSpan?> select;
-    private readonly TextChangeTracker tracker = new();
-    private readonly SelectionTracker selection = new();
-
-    public TerminalAutomationPeer(TerminalHost owner, Func<TextSnapshot?> snapshot, Action<CellSpan?> select)
-        : base(owner) => (this.snapshot, this.select) = (snapshot, select);
+    public TerminalAutomationPeer(
+        TerminalHost owner,
+        Func<IReadOnlyList<PaneElement>> panes,
+        Func<int, TextSnapshot?> snapshot,
+        Action<int, CellSpan?> select,
+        Action<int> focusPane)
+        : base(owner) => (this.owner, this.panes, this.snapshot, this.select, this.focusPane) = (owner, panes, snapshot, select, focusPane);
 
     protected override string GetClassNameCore() => nameof(TerminalHost);
 
     protected override string GetNameCore() => "Terminal";
 
-    protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Document;
+    protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Group;
 
-    protected override object GetPatternCore(PatternInterface patternInterface) =>
-        patternInterface == PatternInterface.Text ? this : base.GetPatternCore(patternInterface);
-
-    // The core has one selection; with none, the caret is what a client reads as the selection.
-    public SupportedTextSelection SupportedTextSelection => SupportedTextSelection.Single;
-
-    public ITextRangeProvider DocumentRange => Range(s => s.Document);
-
-    public ITextRangeProvider[] GetSelection() => [Range(s => s.Selection ?? s.Caret)];
-
-    public ITextRangeProvider[] GetVisibleRanges() => [DocumentRange];
-
-    // The terminal has no child elements.
-    public ITextRangeProvider RangeFromChild(IRawElementProviderSimple childElement) => null!;
-
-    public ITextRangeProvider RangeFromPoint(Point screenLocation)
-    {
-        TextSnapshot now = Current();
-        Rect origin = GetBoundingRectangle();
-        return new TerminalTextRange(now, now.RangeAt(screenLocation.X - origin.X, screenLocation.Y - origin.Y), this);
-    }
+    // The panes are the children; the XAML inside the host (a swap chain and notices) is not content.
+    protected override IList<AutomationPeer> GetChildrenCore() => [.. Sync()];
 
     /// <summary>The host's top left in screen pixels, which is where the swap chain's pixel (0, 0) is.</summary>
     internal Point ScreenOrigin
@@ -61,35 +50,62 @@ internal sealed partial class TerminalAutomationPeer : FrameworkElementAutomatio
         }
     }
 
-    internal IRawElementProviderSimple Provider => ProviderFromPeer(this);
+    internal bool HostHasFocus => owner.FocusState != FocusState.Unfocused;
 
-    /// <summary>Selects the cells through the core; null clears the selection.</summary>
-    internal void Select(CellSpan? cells) => select(cells);
+    internal void FocusPane(int pane) => focusPane(pane);
 
     /// <summary>
-    /// Raises <c>TextChanged</c> when a client listens and the text really changed, and
-    /// <c>TextSelectionChanged</c> when one listens and the selection (or the caret) moved.
+    /// A redraw happened: the panes may have changed their text, their selection, their number or
+    /// place. Raises what a client listens for.
     /// </summary>
-    internal void RaiseTextChanged()
+    internal void Refresh()
     {
-        // One capture serves both, and none is taken while nobody listens.
-        TextSnapshot? now = null;
-        TextSnapshot Now() => now ??= Current();
-        if (tracker.Observe(AutomationPeer.ListenerExists(AutomationEvents.TextPatternOnTextChanged), () => Now().Text) is not null)
+        List<TerminalPanePeer> now = Sync();
+        foreach (TerminalPanePeer pane in now)
         {
-            RaiseAutomationEvent(AutomationEvents.TextPatternOnTextChanged);
+            pane.RaiseTextChanged();
         }
-        if (selection.Observe(AutomationPeer.ListenerExists(AutomationEvents.TextPatternOnTextSelectionChanged), () => Now().Selection ?? Now().Caret))
+        AnnounceFocus(now);
+    }
+
+    // The window's keyboard focus came or went, or the focused pane moved: every such change redraws.
+    private void AnnounceFocus(List<TerminalPanePeer> now)
+    {
+        int? focused = now.FirstOrDefault(p => p.Element.Focused)?.Element.Pane;
+        if (focus.Observe(HostHasFocus, focused) is { } pane && ListenerExists(AutomationEvents.AutomationFocusChanged))
         {
-            RaiseAutomationEvent(AutomationEvents.TextPatternOnTextSelectionChanged);
+            peers[pane].RaiseAutomationEvent(AutomationEvents.AutomationFocusChanged);
         }
     }
 
-    private TextSnapshot Current() => snapshot() ?? Empty;
-
-    private TerminalTextRange Range(Func<TextSnapshot, TextRange> pick)
+    // Brings the child peers in line with the tab's panes: a pane keeps its peer, a new one gets one.
+    private List<TerminalPanePeer> Sync()
     {
-        TextSnapshot now = Current();
-        return new TerminalTextRange(now, pick(now), this);
+        IReadOnlyList<PaneElement> elements = panes();
+        HashSet<int> present = [.. elements.Select(e => e.Pane)];
+        foreach (int gone in peers.Keys.Where(p => !present.Contains(p)).ToArray())
+        {
+            peers.Remove(gone);
+        }
+        List<TerminalPanePeer> ordered = [];
+        foreach (PaneElement element in elements)
+        {
+            if (!peers.TryGetValue(element.Pane, out TerminalPanePeer? peer))
+            {
+                peers[element.Pane] = peer = new TerminalPanePeer(this, element, snapshot, select);
+            }
+            peer.Element = element;
+            ordered.Add(peer);
+        }
+        int[] now = [.. elements.Select(e => e.Pane)];
+        if (!now.SequenceEqual(ids))
+        {
+            ids = now;
+            if (ListenerExists(AutomationEvents.StructureChanged))
+            {
+                RaiseAutomationEvent(AutomationEvents.StructureChanged);
+            }
+        }
+        return ordered;
     }
 }

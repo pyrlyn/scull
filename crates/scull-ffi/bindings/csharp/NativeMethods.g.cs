@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 7;
+        internal const uint TT_ABI_VERSION_MINOR = 8;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 7;
+        internal const uint TT_ABI_VERSION = 8;
         /// <summary>
         ///  `tt_keybind.action`: paste the clipboard.
         /// </summary>
@@ -388,6 +388,32 @@ namespace Scull.Native
         ///  Most bytes `tt_term_selection_text` hands out; longer text is cut.
         /// </summary>
         internal const nuint TT_MAX_SELECTION_BYTES = 16777216;
+        /// <summary>
+        ///  `tt_cell.flags`: the cell carries the link `tt_term_link_hover` set.
+        /// </summary>
+        internal const byte TT_CELL_LINK = 16;
+        /// <summary>
+        ///  `tt_link_target` kind: nothing to open.
+        /// </summary>
+        internal const uint TT_LINK_REFUSED = 0;
+        /// <summary>
+        ///  An http or https page; the target is the URI.
+        /// </summary>
+        internal const uint TT_LINK_WEB = 1;
+        /// <summary>
+        ///  A mailto address; the target is the URI.
+        /// </summary>
+        internal const uint TT_LINK_MAIL = 2;
+        /// <summary>
+        ///  A directory on this machine, to open in the file manager; the target is
+        ///  its path.
+        /// </summary>
+        internal const uint TT_LINK_DIRECTORY = 3;
+        /// <summary>
+        ///  Any other existing file on this machine, to reveal in the file manager
+        ///  and never open; the target is its path.
+        /// </summary>
+        internal const uint TT_LINK_FILE = 4;
 
 
 
@@ -884,6 +910,48 @@ namespace Scull.Native
         [DllImport(__DllName, EntryPoint = "tt_term_search_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_term_search_count(tt_term* term, nuint* count);
 
+        /// <summary>
+        ///  Writes the link id of viewport cell `row`, `col` to `*id`, for
+        ///  `tt_term_link_uri`. `TT_EMPTY` (and 0) where no link covers the cell
+        ///  or the cell is off the viewport; `TT_INVALID` for a `NULL` `id`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `id` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_at", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_at(tt_term* term, ushort row, ushort col, uint* id);
+
+        /// <summary>
+        ///  Underlines link `id`: from the next `tt_frame_update` every viewport
+        ///  cell carrying it has `TT_CELL_LINK`, across rows when it wraps. 0
+        ///  clears it; so does an id no live link has, and the core dropping the
+        ///  link later.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_hover", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_hover(tt_term* term, uint id);
+
+        /// <summary>
+        ///  Sorts the OSC 8 `uri` a click landed on: writes a `TT_LINK_*` to
+        ///  `*kind` and copies the target (the URI, or a local path in this
+        ///  platform's style) into `buf` as `tt_term_link_uri` does. `machine` is
+        ///  this computer's name, which a file URL may give as its host. A refused
+        ///  link is `TT_OK` with `TT_LINK_REFUSED` and an empty target; so is a file
+        ///  URL whose path does not exist. `TT_INVALID` for text that is not UTF-8
+        ///  or a `NULL` `kind` or `len`.
+        ///
+        ///  # Safety
+        ///
+        ///  `uri` and `machine` are valid as `tt_str`; `kind` is `NULL` or
+        ///  writable; `buf`, `cap` and `len` as for `tt_term_link_uri`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_link_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_link_target(tt_str uri, tt_str machine, uint* kind, byte* buf, nuint cap, nuint* len);
+
 
     }
 
@@ -1178,8 +1246,8 @@ namespace Scull.Native
         /// </summary>
         public byte width;
         /// <summary>
-        ///  `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH` and
-        ///  `TT_CELL_CURRENT_MATCH` bits.
+        ///  `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH`,
+        ///  `TT_CELL_CURRENT_MATCH` and `TT_CELL_LINK` bits.
         /// </summary>
         public byte flags;
     }

@@ -165,6 +165,13 @@ public sealed unsafe class Terminal : IDisposable
     }
 
     /// <summary>
+    /// Whether the last send (<see cref="Key"/>, <see cref="Text"/>, <see cref="Paste"/>, <see cref="Focus"/>
+    /// or <see cref="Mouse"/>) was refused because the child is not reading and its input queue is full,
+    /// which a host answers with a beep; false when it went through or the child is gone.
+    /// </summary>
+    public bool InputFull { get; private set; }
+
+    /// <summary>
     /// Sends a key, encoded for the program's key modes. False when nothing could
     /// be sent: there is no child, or it is not reading and its input queue is full.
     /// </summary>
@@ -196,6 +203,24 @@ public sealed unsafe class Terminal : IDisposable
     /// or not at all, so one larger than the child's input queue is false, as for <see cref="Key"/>.
     /// </summary>
     public bool Paste(string text) => SendText(text, &NativeMethods.tt_term_paste, "tt_term_paste");
+
+    /// <summary>
+    /// Shows an input method's composing text at the cursor from the next <see cref="Update"/>;
+    /// empty clears it. <paramref name="caret"/> is a UTF-16 index into <paramref name="text"/>.
+    /// It never reaches the child: commit text with <see cref="Text"/>.
+    /// </summary>
+    public void SetPreedit(string text, int caret)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        // The core wants a byte offset; it moves one inside a character back onto its start.
+        nuint at = (nuint)Encoding.UTF8.GetByteCount(text.AsSpan(0, Math.Clamp(caret, 0, text.Length)));
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
+        using var f = new Lease(frame);
+        fixed (byte* p = bytes)
+        {
+            Check(NativeMethods.tt_frame_preedit((tt_frame*)f.Pointer, p, (nuint)bytes.Length, at), "tt_frame_preedit");
+        }
+    }
 
     /// <summary>Tells the program the view gained or lost focus, if it asked to know. False as for <see cref="Key"/>.</summary>
     public bool Focus(bool focused)
@@ -235,6 +260,75 @@ public sealed unsafe class Terminal : IDisposable
         Check(NativeMethods.tt_term_scroll_display((tt_term*)t.Pointer, rows), "tt_term_scroll_display");
     }
 
+    /// <summary>Starts a selection of <paramref name="kind"/> at a viewport cell (clamped), replacing any other; output that rewrites its rows, a resize and a screen switch drop it.</summary>
+    public void Select(SelectionKind kind, ushort row, ushort col)
+    {
+        using var t = new Lease(term);
+        Check(NativeMethods.tt_term_select_start((tt_term*)t.Pointer, (uint)kind, row, col), "tt_term_select_start");
+    }
+
+    /// <summary>Moves the selection's free end to a viewport cell (clamped); nothing without a selection.</summary>
+    public void ExtendSelection(ushort row, ushort col)
+    {
+        using var t = new Lease(term);
+        Check(NativeMethods.tt_term_select_extend((tt_term*)t.Pointer, row, col), "tt_term_select_extend");
+    }
+
+    /// <summary>Drops the selection.</summary>
+    public void ClearSelection()
+    {
+        using var t = new Lease(term);
+        Check(NativeMethods.tt_term_select_clear((tt_term*)t.Pointer), "tt_term_select_clear");
+    }
+
+    /// <summary>Whether there is a selection; the core is asked because output can drop it.</summary>
+    public bool HasSelection
+    {
+        get
+        {
+            nuint length = 0;
+            using var t = new Lease(term);
+            tt_status status = NativeMethods.tt_term_selection_text((tt_term*)t.Pointer, null, 0, &length);
+            if (status != tt_status.TT_EMPTY)
+            {
+                Check(status is tt_status.TT_FULL ? tt_status.TT_OK : status, "tt_term_selection_text");
+            }
+            return status != tt_status.TT_EMPTY;
+        }
+    }
+
+    /// <summary>The selected text as the core copies it (soft-wrapped rows joined, hard line ends as <c>\n</c>, trailing spaces trimmed); null when nothing is selected.</summary>
+    public string? SelectionText()
+    {
+        byte[] buffer = [];
+        // The selection can change between asking for the length and reading, so a few tries with some room.
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            nuint length = 0;
+            tt_status status;
+            using (var t = new Lease(term))
+            fixed (byte* p = buffer)
+            {
+                status = NativeMethods.tt_term_selection_text((tt_term*)t.Pointer, p, (nuint)buffer.Length, &length);
+            }
+            int needed = checked((int)length);
+            if (status == tt_status.TT_EMPTY)
+            {
+                return null;
+            }
+            if (status == tt_status.TT_OK)
+            {
+                return Encoding.UTF8.GetString(buffer, 0, needed);
+            }
+            if (status != tt_status.TT_FULL)
+            {
+                Check(status, "tt_term_selection_text");
+            }
+            buffer = new byte[checked(needed + needed / 8)];
+        }
+        throw new ScullException(Status.Full, "tt_term_selection_text: the text kept outgrowing the buffer");
+    }
+
     private bool SendText(string text, delegate*<tt_term*, byte*, nuint, tt_status> send, string call)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -250,6 +344,7 @@ public sealed unsafe class Terminal : IDisposable
     // The child not reading or gone is an everyday answer to input, not an error.
     private bool Sent(tt_status status, string call)
     {
+        InputFull = status == tt_status.TT_FULL;
         if (status is tt_status.TT_FULL or tt_status.TT_CLOSED)
         {
             return false;
@@ -274,8 +369,46 @@ public sealed unsafe class Terminal : IDisposable
         }
         Check(status, "tt_term_poll_event");
         uint? exitCode = raw.exit_code == NativeMethods.TT_EXIT_CODE_UNKNOWN ? null : raw.exit_code;
-        next = new TerminalEvent((EventKind)raw.kind, exitCode, raw.signaled != 0);
+        // Only the event polled last has its text, so it is read before anything else polls.
+        byte[] body = raw.text_len == 0 ? [] : ReadEventText(raw.serial);
+        next = new TerminalEvent((EventKind)raw.kind, exitCode, raw.signaled != 0, raw.id, raw.detail, body);
         return true;
+    }
+
+    private byte[] ReadEventText(ulong serial)
+    {
+        byte[] buffer = [];
+        // The text is fixed once polled, so one retry with the length it reported is enough.
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            nuint length = 0;
+            tt_status status;
+            using (var t = new Lease(term))
+            fixed (byte* p = buffer)
+            {
+                status = NativeMethods.tt_term_event_text((tt_term*)t.Pointer, serial, NativeMethods.TT_EVENT_TEXT_BODY, p, (nuint)buffer.Length, &length);
+            }
+            if (status == tt_status.TT_OK)
+            {
+                return buffer[..checked((int)length)];
+            }
+            if (status != tt_status.TT_FULL)
+            {
+                Check(status, "tt_term_event_text");
+            }
+            buffer = new byte[checked((int)length)];
+        }
+        throw new ScullException(Status.Full, "tt_term_event_text: the text outgrew its reported length");
+    }
+
+    /// <summary>
+    /// Refuses the clipboard read <paramref name="id"/> (<see cref="TerminalEvent.Id"/>), so the program
+    /// is not left waiting. False when the child is gone.
+    /// </summary>
+    public bool ClipboardDeny(ulong id)
+    {
+        using var t = new Lease(term);
+        return Sent(NativeMethods.tt_term_clipboard_deny((tt_term*)t.Pointer, id), "tt_term_clipboard_deny");
     }
 
     /// <summary>
@@ -327,6 +460,129 @@ public sealed unsafe class Terminal : IDisposable
         throw new ScullException(Status.Full, "tt_term_read_text: the text kept outgrowing the buffer");
     }
 
+    /// <summary>
+    /// Searches the history and the screen for <paramref name="pattern"/>, literal text,
+    /// replacing any earlier search; the frame marks the matches in view. Empty ends the
+    /// search. False when the core refuses the pattern (over <see cref="MaxSearchPattern"/>
+    /// UTF-8 bytes), which ends the search too.
+    /// </summary>
+    public bool SearchSet(string pattern, bool ignoreCase)
+    {
+        ArgumentNullException.ThrowIfNull(pattern);
+        byte[] bytes = Encoding.UTF8.GetBytes(pattern);
+        uint flags = ignoreCase ? NativeMethods.TT_SEARCH_IGNORE_CASE : 0;
+        tt_status status;
+        using (var t = new Lease(term))
+        fixed (byte* p = bytes)
+        {
+            status = NativeMethods.tt_term_search_set((tt_term*)t.Pointer, new tt_str { ptr = p, len = (nuint)bytes.Length }, flags);
+        }
+        if (status == tt_status.TT_INVALID)
+        {
+            return false;
+        }
+        Check(status, "tt_term_search_set");
+        return true;
+    }
+
+    /// <summary>
+    /// Steps to the next match (or the previous one) from the current match, or from the
+    /// viewport's edge, wrapping at the ends; the viewport scrolls to show it. False with
+    /// no search or no match.
+    /// </summary>
+    public bool SearchStep(bool forward, out SearchMatch found)
+    {
+        var raw = new tt_match { struct_size = (uint)sizeof(tt_match) };
+        tt_status status;
+        using (var t = new Lease(term))
+        {
+            status = NativeMethods.tt_term_search_step((tt_term*)t.Pointer, forward ? (byte)1 : (byte)0, &raw);
+        }
+        if (status == tt_status.TT_EMPTY)
+        {
+            found = default;
+            return false;
+        }
+        Check(status, "tt_term_search_step");
+        found = new SearchMatch(raw.start_col, raw.end_col, raw.start_line, raw.end_line);
+        return true;
+    }
+
+    /// <summary>Matches in the whole history, up to <see cref="MaxSearchMatches"/>; 0 without a search. It rescans everything.</summary>
+    public int SearchCount()
+    {
+        nuint count = 0;
+        using (var t = new Lease(term))
+        {
+            Check(NativeMethods.tt_term_search_count((tt_term*)t.Pointer, &count), "tt_term_search_count");
+        }
+        return (int)count;
+    }
+
+    /// <summary>The longest pattern <see cref="SearchSet"/> takes, in UTF-8 bytes.</summary>
+    public const int MaxSearchPattern = (int)NativeMethods.TT_MAX_SEARCH_PATTERN;
+
+    /// <summary>The most matches <see cref="SearchCount"/> counts.</summary>
+    public const int MaxSearchMatches = (int)NativeMethods.TT_MAX_SEARCH_MATCHES;
+
+    /// <summary>The OSC 8 link id of viewport cell (<paramref name="row"/>, <paramref name="col"/>); null where no link covers it.</summary>
+    public uint? LinkAt(ushort row, ushort col)
+    {
+        uint id = 0;
+        tt_status status;
+        using (var t = new Lease(term))
+        {
+            status = NativeMethods.tt_term_link_at((tt_term*)t.Pointer, row, col, &id);
+        }
+        if (status == tt_status.TT_EMPTY)
+        {
+            return null;
+        }
+        Check(status, "tt_term_link_at");
+        return id;
+    }
+
+    /// <summary>
+    /// The URI of link <paramref name="id"/> as the program wrote it: untrusted, so the caller
+    /// decides whether it may be opened. Null once the link is gone.
+    /// </summary>
+    public string? LinkUri(uint id)
+    {
+        byte[] buffer = new byte[256];
+        // The URI is fixed while its id lives, so one retry with the length it reported is enough.
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            nuint length = 0;
+            tt_status status;
+            using (var t = new Lease(term))
+            fixed (byte* p = buffer)
+            {
+                status = NativeMethods.tt_term_link_uri((tt_term*)t.Pointer, id, p, (nuint)buffer.Length, &length);
+            }
+            switch (status)
+            {
+                case tt_status.TT_OK:
+                    return Encoding.UTF8.GetString(buffer, 0, checked((int)length));
+                case tt_status.TT_EMPTY:
+                    return null;
+                case tt_status.TT_FULL:
+                    buffer = new byte[checked((int)length)];
+                    break;
+                default:
+                    Check(status, "tt_term_link_uri");
+                    break;
+            }
+        }
+        throw new ScullException(Status.Full, "tt_term_link_uri: the URI outgrew its reported length");
+    }
+
+    /// <summary>Underlines link <paramref name="id"/> (<see cref="Cell.IsLink"/>) from the next update; null clears it.</summary>
+    public void HoverLink(uint? id)
+    {
+        using var t = new Lease(term);
+        Check(NativeMethods.tt_term_link_hover((tt_term*)t.Pointer, id ?? 0), "tt_term_link_hover");
+    }
+
     /// <summary>Frees the frame, then the terminal. A second call does nothing.</summary>
     public void Dispose()
     {
@@ -360,13 +616,34 @@ public enum EventKind : uint
 {
     Bell = NativeMethods.TT_EVENT_BELL,
     ChildExited = NativeMethods.TT_EVENT_CHILD_EXITED,
+    Title = NativeMethods.TT_EVENT_TITLE,
+    WorkingDirectory = NativeMethods.TT_EVENT_WORKING_DIRECTORY,
+    ShellMark = NativeMethods.TT_EVENT_SHELL_MARK,
+    ClipboardRead = NativeMethods.TT_EVENT_CLIPBOARD_READ,
+    ClipboardWrite = NativeMethods.TT_EVENT_CLIPBOARD_WRITE,
+    Link = NativeMethods.TT_EVENT_LINK,
+    Notification = NativeMethods.TT_EVENT_NOTIFICATION,
 }
 
 /// <summary>
 /// One polled event. For <see cref="EventKind.ChildExited"/>, the exit code
 /// (null when the system did not say) and whether a signal ended the child.
+/// <paramref name="Id"/> is the clipboard request or the link, <paramref name="Detail"/> the title
+/// kind, shell marker or clipboard selection, and <paramref name="Body"/> the event's raw bytes
+/// (empty when it has none): not necessarily UTF-8 for a clipboard write.
 /// </summary>
-public readonly record struct TerminalEvent(EventKind Kind, uint? ExitCode, bool Signaled);
+public readonly record struct TerminalEvent(
+    EventKind Kind, uint? ExitCode, bool Signaled, ulong Id = 0, uint Detail = 0, byte[]? Body = null)
+{
+    /// <summary>The body as text, bad bytes shown as U+FFFD; for kinds that are names, such as titles.</summary>
+    public string Text => Encoding.UTF8.GetString(Body ?? []);
+}
+
+/// <summary>
+/// A search match, first and last cell inclusive (a wide character's right half
+/// included). Lines count from the first line ever output, so they hold while the text scrolls.
+/// </summary>
+public readonly record struct SearchMatch(ushort StartCol, ushort EndCol, ulong StartLine, ulong EndLine);
 
 /// <summary>What <see cref="Terminal.Spawn"/> runs, and where.</summary>
 public sealed record SpawnOptions

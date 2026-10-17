@@ -4,6 +4,7 @@
 
 | Program | How to install | Why here | Source |
 | --- | --- | --- | --- |
+| sccache | mise (`sccache`, Linux and macOS; `mise.toml` `[env]` makes it the rustc wrapper where installed) | Compiler cache; CI uses a Cloudflare R2 bucket when the `R2_*` secrets exist | https://github.com/mozilla/sccache |
 | rustc, cargo, clippy, rustfmt | mise (`mise.toml`, 1.99.0) | Build, lint and format the core | https://github.com/rust-lang/rust |
 | mise | brew, then `mise install` | Pins every tool below for local work and CI | https://github.com/jdx/mise |
 | just | mise | Task runner: `just check` is the merge gate | https://github.com/casey/just |
@@ -18,7 +19,7 @@
 
 | Package | Where | Source | Why here |
 | --- | --- | --- | --- |
-| Symbols Nerd Font Mono 3.5.1 (MIT, `NerdFontsSymbolsOnly.tar.xz`) | local (`macos/Resources/`) | https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1 | Powerline separators and Nerd Font icons in shell prompts when the face lacks them |
+| Symbols Nerd Font Mono 3.5.1 (MIT, `NerdFontsSymbolsOnly.tar.xz`) | local (`macos/Resources/`, also shipped by `windows/Scull.Render` under `Fonts/`) | https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1 | Powerline separators and Nerd Font icons in shell prompts when the face lacks them, on macOS and Windows |
 
 ## cargo
 
@@ -27,11 +28,13 @@
 | thiserror | local | https://github.com/dtolnay/thiserror | Error enum per library crate |
 | cargo_metadata | local | https://github.com/oli-obk/cargo_metadata | Crate-graph test (`crates/scull-ffi/tests/deps.rs`) |
 | libfuzzer-sys | local | https://github.com/rust-fuzz/libfuzzer | libFuzzer targets in `fuzz/`; CI smokes them on nightly, outside `just check` |
+| cargo-hakari | project (mise, `cargo:cargo-hakari`) | https://github.com/guppy-rs/guppy | Keeps the `workspace-hack` crate unified so shared dependencies build once; CI runs `cargo hakari verify` |
 | cargo-nextest | global (mise) | https://github.com/nextest-rs/nextest | Test runner |
 | proptest | local | https://github.com/proptest-rs/proptest | Property tests |
 | anyhow | local | https://github.com/dtolnay/anyhow | Error type of the `scull-ucd-gen` binary |
 | sha2 | local | https://github.com/RustCrypto/hashes | Verifies the pinned Unicode data files |
 | ureq | local | https://github.com/algesten/ureq | Downloads the Unicode data files in `scull-ucd-gen` |
+| percent-encoding | local | https://github.com/servo/rust-url | Decodes the path of a `file:` OSC 8 link in `scull-ffi` (`tt_link_target`) |
 | memchr | local | https://github.com/BurntSushi/memchr | Bulk search for the end of DCS/APC payloads in scull-parser |
 | divan | local | https://github.com/nvzqz/divan | Parser throughput bench and the stub baseline (`crates/scull-bench`) |
 | vte | local | https://github.com/alacritty/vte | Baseline parser in the throughput bench (dev-dependency) |
@@ -57,7 +60,7 @@
 | Package | Where | Source | Why here |
 | --- | --- | --- | --- |
 | MSTest | local (`windows/Scull.Core.Tests`, `windows/Scull.Render.Tests`) | https://github.com/microsoft/testfx | Test framework of the C# core; the default of `dotnet new mstest` (the `xunit` template pins the deprecated xunit 2.9.3) |
-| Microsoft.Windows.CsWin32 | local (`windows/Scull.Render`, exactly 0.3.358; build-time source generator, nothing ships) | https://github.com/microsoft/CsWin32 | Direct3D 11, DXGI, DirectWrite, TSF and UIA from C# as blittable structs (`allowMarshaling: false`); only the APIs in `NativeMethods.txt` are generated; the comparison is in `research.md` §6.1 |
+| Microsoft.Windows.CsWin32 | local (`windows/Scull.Render` and `windows/Scull.App`, exactly 0.3.358; build-time source generator, nothing ships) | https://github.com/microsoft/CsWin32 | Direct3D 11, DXGI, DirectWrite, TSF and UIA from C# as blittable structs (`allowMarshaling: false`); only the APIs in `NativeMethods.txt` are generated; the comparison is in `research.md` §6.1 |
 | Microsoft.WindowsAppSDK | local (`windows/Scull.App`, 2.5.1, self-contained: the runtime ships beside the executable) | https://github.com/microsoft/WindowsAppSDK | WinUI 3 for the Windows shell: the window and the `SwapChainPanel` the renderer's swap chain is shown in |
 
 ## Linkers

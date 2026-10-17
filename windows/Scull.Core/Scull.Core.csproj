@@ -17,6 +17,8 @@
     <InternalsVisibleTo Include="Scull.Core.Tests" />
     <!-- The renderer resolves colours with the binding's TT_COLOR_* constants. -->
     <InternalsVisibleTo Include="Scull.Render" />
+    <!-- Its highlight tests reach the core's selection through the raw handle. -->
+    <InternalsVisibleTo Include="Scull.Render.Tests" />
   </ItemGroup>
 
 </Project>

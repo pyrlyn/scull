@@ -14,6 +14,7 @@ mod edit;
 mod error;
 mod events;
 mod frame;
+mod hyperlink;
 mod images;
 mod input;
 mod modes;
@@ -37,7 +38,7 @@ mod text;
 
 pub use damage::{Damage, RowStamp, Scroll};
 pub use error::TermError;
-pub use events::{Clipboard, Event, TitleWhich};
+pub use events::{Clipboard, Event, MAX_URI, TitleWhich};
 pub use frame::{Frame, FrameCell, FrameCursor, FramePlacement, FrameRow, TextRun};
 pub use images::DEFAULT_CELL_PX;
 pub use modes::Modes;

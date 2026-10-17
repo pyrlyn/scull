@@ -10,6 +10,14 @@ lint:
 test:
     mise exec -- cargo nextest run --workspace --all-targets --locked --no-tests=pass
 
+# CI flow: build every test binary once into an archive, then run from it.
+test-archive:
+    mise exec -- cargo nextest archive --workspace --all-targets --locked --archive-file nextest-archive.tar.zst
+
+# Extra args go to nextest, e.g. `--partition count:1/2`.
+test-from-archive *args:
+    mise exec -- cargo nextest run --archive-file nextest-archive.tar.zst --workspace-remap . --no-tests=pass {{args}}
+
 # Regenerate scull-unicode's tables from the pinned Unicode data files,
 # downloading them once into the gitignored target/ucd/ cache.
 ucd:
@@ -91,6 +99,13 @@ windows-core-test:
 windows-app:
     mise exec -- cargo rustc -p scull-ffi --lib --crate-type cdylib --locked
     dotnet build windows/Scull.App/Scull.App.csproj
+
+# Renderer throughput on the T3 input (windows/Scull.Bench), with a release
+# core, on WARP and any hardware device; the table goes to
+# target/windows-renderer-bench.md. Windows only: Direct3D 11.
+windows-bench:
+    mise exec -- cargo rustc -p scull-ffi --lib --crate-type cdylib --locked --release
+    dotnet run -c Release --project windows/Scull.Bench -- target/windows-renderer-bench.md
 
 macos_app := "target/macos/Scull.app"
 

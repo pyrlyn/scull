@@ -89,6 +89,9 @@ public static class WindowsKeys
         _ => extended ? null : MainBlockKey(scanCode),
     };
 
+    /// <summary>VK_PROCESSKEY: an input method took the key, so the key says nothing and its text arrives through the method.</summary>
+    public static bool IsProcessKey(int virtualKey) => virtualKey == 0xE5;
+
     /// <summary>Whether a key with these modifiers held is a paste shortcut: Ctrl+Shift+V or Shift+Insert.</summary>
     public static bool IsPaste(uint? key, KeyModifiers held) => (key, held & Shortcut) switch
     {
@@ -263,6 +266,50 @@ public sealed class WheelSteps
 }
 
 /// <summary>
+/// Which key presses the host ran as its own command (paste, a pane or settings command,
+/// a configured binding) instead of sending them, so the release that follows is not
+/// sent either: a program must not see the release of a key it never saw go down.
+/// </summary>
+public sealed class SwallowedKeys
+{
+    private readonly HashSet<int> keys = [];
+
+    /// <summary>A key went down; <paramref name="swallowed"/> when the host ran it as a command. A press that is sent forgets a release owed from before.</summary>
+    public void Press(int virtualKey, bool swallowed)
+    {
+        if (swallowed)
+        {
+            keys.Add(virtualKey);
+        }
+        else
+        {
+            keys.Remove(virtualKey);
+        }
+    }
+
+    /// <summary>A key went up; true when its press was swallowed, so the release is too.</summary>
+    public bool Release(int virtualKey) => keys.Remove(virtualKey);
+}
+
+/// <summary>Wheel steps to rows of history.</summary>
+public static class WheelScroll
+{
+    /// <summary><c>WHEEL_PAGESCROLL</c>: the system's lines per notch when the user chose a screenful.</summary>
+    public const uint Page = uint.MaxValue;
+
+    /// <summary>
+    /// The rows <paramref name="steps"/> notches scroll (positive: back into history), given the
+    /// system's lines per notch (<c>SPI_GETWHEELSCROLLLINES</c>; <see cref="Page"/> for a screenful
+    /// of <paramref name="pageRows"/>). Zero lines is the user turning wheel scrolling off.
+    /// </summary>
+    public static int Rows(int steps, uint linesPerNotch, int pageRows)
+    {
+        long perNotch = linesPerNotch == Page ? Math.Max(pageRows, 0) : linesPerNotch;
+        return (int)Math.Clamp(steps * perNotch, -int.MaxValue, int.MaxValue);
+    }
+}
+
+/// <summary>
 /// WinUI pointer updates to mouse events. Windows raises <c>PointerPressed</c>
 /// for the first button only and reports the others through <c>PointerMoved</c>,
 /// so every update goes through <see cref="Update"/>, whichever event carried it.
@@ -273,6 +320,8 @@ public sealed class WindowsPointer
     private static readonly MouseButton[] Buttons = [MouseButton.Left, MouseButton.Right, MouseButton.Middle, MouseButton.Back, MouseButton.Forward];
 
     private (uint Col, uint Row)? last;
+    private (uint Col, uint Row, uint XPx, uint YPx) lastAt;
+    private int held;
 
     /// <summary>
     /// The event for <c>PointerUpdateKind</c> <paramref name="updateKind"/> at
@@ -287,7 +336,9 @@ public sealed class WindowsPointer
         if (updateKind is >= 1 and <= 10)
         {
             action = (updateKind & 1) == 1 ? MouseAction.Press : MouseAction.Release;
-            button = Buttons[(updateKind - 1) / 2];
+            int index = (updateKind - 1) / 2;
+            button = Buttons[index];
+            held = action == MouseAction.Press ? held | (1 << index) : held & ~(1 << index);
         }
         else if (last == (at.Col, at.Row))
         {
@@ -299,7 +350,27 @@ public sealed class WindowsPointer
             button = left ? MouseButton.Left : middle ? MouseButton.Middle : right ? MouseButton.Right : MouseButton.None;
         }
         last = (at.Col, at.Row);
+        lastAt = at;
         return new MouseInput(action, button, modifiers, at.Col, at.Row, at.XPx, at.YPx);
+    }
+
+    /// <summary>
+    /// The pointer capture was lost or the gesture cancelled, so the release of the
+    /// buttons still held will never arrive: one release for each, at the last position,
+    /// so no program sees a button stuck. Empty when none is held.
+    /// </summary>
+    public IReadOnlyList<MouseInput> Lose(KeyModifiers modifiers)
+    {
+        var releases = new List<MouseInput>();
+        for (int i = 0; i < Buttons.Length; i++)
+        {
+            if ((held & (1 << i)) != 0)
+            {
+                releases.Add(new MouseInput(MouseAction.Release, Buttons[i], modifiers, lastAt.Col, lastAt.Row, lastAt.XPx, lastAt.YPx));
+            }
+        }
+        held = 0;
+        return releases;
     }
 
     /// <summary>One wheel step in the direction of <paramref name="steps"/> (from <see cref="WheelSteps"/>): a press of a wheel button.</summary>
@@ -313,6 +384,7 @@ public sealed class WindowsPointer
             (false, true) => MouseButton.WheelLeft,
         };
         last = (at.Col, at.Row);
+        lastAt = at;
         return new MouseInput(MouseAction.Press, button, modifiers, at.Col, at.Row, at.XPx, at.YPx);
     }
 }

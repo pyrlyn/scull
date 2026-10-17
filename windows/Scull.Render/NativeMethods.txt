@@ -30,3 +30,13 @@ IDXGIAdapter
 IDXGIFactory2
 IDXGISwapChain2
 DXGI_SWAP_CHAIN_DESC1
+IDWriteTextAnalyzer
+IDWriteTextAnalysisSource
+IDWriteTextAnalysisSink
+IDWriteFontFallback
+IDWriteFontFile
+ID3D11SamplerState
+IDWriteFactory3
+IDWriteFontSetBuilder
+IDWriteFontFallbackBuilder
+DWRITE_UNICODE_RANGE

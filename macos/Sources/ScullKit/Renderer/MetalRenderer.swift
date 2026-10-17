@@ -268,6 +268,7 @@ public final class MetalRenderer {
         for (run, text) in session.runs(row: row) {
             addRun(run, text: text, style: session.style(run.style), current: isCurrent, to: &content)
         }
+        addLinkUnderline(row: row, session, to: &content)
         version += 1
         content.version = version
         rows[slotOfRow[row]] = content
@@ -316,6 +317,21 @@ public final class MetalRenderer {
             content.fg.append(line(metrics.baseline - CTFontGetXHeight(font) * scale / 2))
         }
         if attrs & UInt16(TT_ATTR_OVERLINE) != 0, content.fg.count < capacity.fg { content.fg.append(line(0)) }
+    }
+
+    /// The hovered link's cells (`TT_CELL_LINK`), underlined in the colour
+    /// of each span's first cell, whatever style the program gave them.
+    private func addLinkUnderline(row: Int, _ session: TerminalSession, to content: inout RowContent) {
+        let y = Float((metrics.underline - metrics.thickness / 2).rounded())
+        var start: Int?
+        for col in 0...grid.cols {
+            let linked = col < grid.cols && session.cell(row: row, col: col).map { Int32($0.flags) & TT_CELL_LINK != 0 } == true
+            if linked, start == nil { start = col }
+            guard !linked, let first = start, content.fg.count < capacity.fg else { continue }
+            start = nil
+            let fg = session.cell(row: row, col: first).map { palette.colors(of: session.style($0.style)).fg } ?? palette.foreground
+            content.fg.append(Quad(x: x(first), y: y, w: x(col) - x(first), h: Float(metrics.thickness), color: Self.rgba(fg)))
+        }
     }
 
     // MARK: Encoding

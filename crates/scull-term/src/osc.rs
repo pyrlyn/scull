@@ -53,6 +53,8 @@ pub(crate) struct Links {
     slots: Vec<Option<Hyperlink>>,
     free: Vec<u32>,
     pub(crate) current: Option<LinkId>,
+    /// The link the host's pointer is over, underlined in the frame.
+    pub(crate) hovered: Option<LinkId>,
     /// New ids asked for since the last sweep, granted or not.
     opens_since_sweep: usize,
 }
@@ -66,7 +68,7 @@ impl Links {
         self.current = None;
     }
 
-    fn uri(&self, id: u32) -> Option<&str> {
+    pub(crate) fn uri(&self, id: u32) -> Option<&str> {
         let link = self.slots.get(slot_of(id)?)?.as_ref()?;
         Some(link.uri.as_str())
     }
@@ -132,6 +134,11 @@ impl Links {
             if slot.is_some() && !live.is_marked(id as usize) {
                 *slot = None;
                 self.free.push(id);
+                // A freed id goes to the next new link, which the host
+                // never pointed at.
+                if self.hovered == Some(LinkId(id)) {
+                    self.hovered = None;
+                }
             }
         }
         self.opens_since_sweep = 0;
@@ -490,6 +497,30 @@ mod tests {
         term.feed(b"\x1b[?47h");
         let id = term.grid().screen_row(0).unwrap().link_at(0).unwrap();
         assert_eq!(term.link_uri(id.0), Some("alt"));
+    }
+
+    #[test]
+    fn a_sweep_that_frees_the_hovered_link_drops_the_hover() {
+        let mut links = super::Links::default();
+        let id = links
+            .open("", "https://example.com")
+            .ok()
+            .flatten()
+            .unwrap();
+        let kept = links
+            .open("", "https://other.example")
+            .ok()
+            .flatten()
+            .unwrap();
+        links.close();
+        links.hovered = Some(kept);
+        let mut live = links.marks();
+        live.mark(kept.0);
+        links.sweep(&live);
+        assert_eq!(links.hovered, Some(kept), "a live link stays hovered");
+        assert_eq!(links.uri(id.0), None);
+        links.sweep(&links.marks());
+        assert_eq!(links.hovered, None);
     }
 
     #[test]

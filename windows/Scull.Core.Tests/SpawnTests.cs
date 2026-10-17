@@ -80,6 +80,27 @@ public sealed class SpawnTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Linux | OperatingSystems.OSX)]
+    public void AChildThatDoesNotReadFillsTheQueueButOneThatIsGoneDoesNot()
+    {
+        // The child never reads, so a paste larger than the core's 256 KiB queue cannot go, and a host beeps.
+        var options = new SpawnOptions { Program = "/bin/sh", Arguments = ["-c", "echo ready; sleep 30"] };
+        using var host = new Host(options);
+        host.WaitFor("ready", () => host.Terminal.ReadText().Contains("ready", StringComparison.Ordinal));
+        Assert.IsFalse(host.Terminal.InputFull);
+
+        Assert.IsFalse(host.Terminal.Paste(new string('x', 1 << 20)));
+        Assert.IsTrue(host.Terminal.InputFull);
+
+        Assert.IsTrue(host.Terminal.Paste("x"));
+        Assert.IsFalse(host.Terminal.InputFull, "the next send that goes through clears it");
+
+        using var bare = new Terminal(20, 4);
+        Assert.IsFalse(bare.Text("a"));
+        Assert.IsFalse(bare.InputFull, "no child is not a full queue");
+    }
+
+    [TestMethod]
     public void WithoutAChildInputHasNowhereToGo()
     {
         using var terminal = new Terminal(20, 4);

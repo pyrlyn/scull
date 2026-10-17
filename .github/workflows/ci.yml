@@ -25,9 +25,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Rust, nextest and just come from mise.toml, so CI runs the pinned versions.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: ./.github/actions/sccache
+        with:
+          access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          bucket: ${{ vars.SCCACHE_BUCKET }}
+          endpoint: ${{ vars.SCCACHE_ENDPOINT }}
+          read-only: ${{ github.event_name == 'pull_request' }}
       # Includes the drift check of the committed C header and C# bindings
       # (scull-ffi/tests/bindings.rs, `just bindings-check`).
-      - run: just check
+      # `just check` is fmt-check + lint + test; the test part runs in `build-tests` + `test`.
+      - run: just fmt-check lint
       # The .NET SDK pinned in windows/global.json, for the C# core's tests.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -40,6 +48,12 @@ jobs:
       # The WinUI 3 shell builds only on Windows; nothing here runs it.
       - if: runner.os == 'Windows'
         run: just windows-app
+      # Numbers from a shared CI VM: the table says so, and they show up in the run's summary.
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          just windows-bench
+          cat target/windows-renderer-bench.md >> "$GITHUB_STEP_SUMMARY"
       # Ubuntu's kernel randomises mmap with more bits than the sanitizer
       # runtimes of the runner's compilers can map around.
       - if: runner.os == 'Linux'
@@ -48,6 +62,50 @@ jobs:
       # runner's cc has no sanitizer runtimes.
       - if: runner.os != 'Windows'
         run: just c-abi-test
+
+  # Test binaries are built once per OS and archived; the `test` shards only download the
+  # archive and run their partition. Archive and run share one runner OS and target.
+  build-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: ./.github/actions/sccache
+        with:
+          access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          bucket: ${{ vars.SCCACHE_BUCKET }}
+          endpoint: ${{ vars.SCCACHE_ENDPOINT }}
+          read-only: ${{ github.event_name == 'pull_request' }}
+      - run: just test-archive
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nextest-archive-${{ matrix.os }}
+          path: nextest-archive.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+
+  test:
+    needs: build-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+        partition: [1, 2]
+        partitions: [2]
+    name: test (${{ matrix.os }}, ${{ matrix.partition }}/${{ matrix.partitions }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nextest-archive-${{ matrix.os }}
+      - run: just test-from-archive --partition count:${{ matrix.partition }}/${{ matrix.partitions }}
 
   # The in-crate stale-table test returns early when target/ucd is empty, and
   # `just check` never calls this. The generator fills that cache from the
@@ -59,6 +117,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       - run: just ucd-check
+
+  # Fails when workspace-hack drifts from the dependency graph (cargo-hakari
+  # comes from mise.toml). Own job, so the required check names stay as they are.
+  hakari:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - run: cargo hakari generate --diff
+      - run: cargo hakari manage-deps --dry-run
+      - run: cargo hakari verify
 
   # libFuzzer needs nightly. mise stays on 1.99; nightly is installed beside
   # it and selected only by `cargo +nightly` inside `just fuzz-smoke`.

@@ -14,3 +14,4 @@ workspace = true
 anyhow = { workspace = true }
 sha2 = { workspace = true }
 ureq = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

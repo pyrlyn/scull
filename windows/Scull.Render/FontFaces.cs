@@ -17,24 +17,27 @@ internal ref struct GlyphBitmap
 }
 
 /// <summary>
-/// The font in its four styles plus a short fallback list, through
-/// DirectWrite: glyph lookup by code point and rasterisation as grayscale
-/// coverage or, for colour fonts, COLR layers composited here. Shaping and the
-/// system fallback chain come with T17.5.
+/// The font in its four styles plus the fallback faces the system's fallback
+/// picks while shaping (<see cref="RunShaper"/>), numbered as they turn up,
+/// through DirectWrite; rasterisation as grayscale coverage or, for colour
+/// fonts, COLR layers composited here.
 /// </summary>
 // IDWriteFactory2, for grayscale analysis and colour layers, is Windows 8.1's.
 [SupportedOSPlatform("windows8.1")]
 internal sealed unsafe class FontFaces : IDisposable
 {
-    // Fallback families tried, in order, when the face lacks a code point;
-    // a missing family is skipped.
-    private static readonly string[] Fallbacks = ["Segoe UI Emoji", "Segoe UI Symbol"];
+    // Fallback faces kept at most; text needing more draws in its own face's
+    // missing-glyph box rather than growing the list without end.
+    private const int MaxFaces = 68;
 
     // No glyph needs more; anything larger is a broken font.
     private const int MaxSide = 512;
 
     private IDWriteFactory2* factory;
-    private readonly nint[] faces;
+    private IDWriteFontCollection* collection;
+    private readonly List<nint> faces = new(8);
+    private readonly List<float> scales = new(8);
+    private readonly Dictionary<string, ushort> ids = [];
     private readonly float emSize;
     private byte[] coverage = new byte[64 * 64];
     private byte[] pixels = new byte[64 * 64 * 4];
@@ -45,11 +48,12 @@ internal sealed unsafe class FontFaces : IDisposable
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(emSizePixels, 1f);
         emSize = emSizePixels;
+        Family = family;
         PInvoke.DWriteCreateFactory(DWRITE_FACTORY_TYPE.DWRITE_FACTORY_TYPE_SHARED, out IDWriteFactory2* f).ThrowOnFailure();
         factory = f;
         IDWriteFontCollection* fonts;
         factory->GetSystemFontCollection(&fonts, false);
-        var found = new List<nint>(4 + Fallbacks.Length);
+        collection = fonts;
         try
         {
             foreach ((DWRITE_FONT_WEIGHT weight, DWRITE_FONT_STYLE style) in new[]
@@ -60,36 +64,85 @@ internal sealed unsafe class FontFaces : IDisposable
                 (DWRITE_FONT_WEIGHT.DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE.DWRITE_FONT_STYLE_ITALIC),
             })
             {
-                found.Add((nint)Face(fonts, family, weight, style) is var face and not 0 ? face
-                    : throw new ArgumentException($"no font family named {family}", nameof(family)));
-            }
-            foreach (string fallback in Fallbacks)
-            {
-                if (Face(fonts, fallback, DWRITE_FONT_WEIGHT.DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE.DWRITE_FONT_STYLE_NORMAL) is var face && face != null)
+                var face = Face(fonts, family, weight, style);
+                if (face == null)
                 {
-                    found.Add((nint)face);
+                    throw new ArgumentException($"no font family named {family}", nameof(family));
                 }
+                // A style the family lacks is the regular face again, and
+                // keeps its own number so the styles index 0 to 3.
+                ids.TryAdd(Identity(face), (ushort)faces.Count);
+                faces.Add((nint)face);
+                scales.Add(1);
             }
-            faces = [.. found];
         }
         catch
         {
             // A missing family throws out of the constructor, so Dispose never runs.
-            foreach (nint face in found)
-            {
-                ((IDWriteFontFace*)face)->Release();
-            }
-            factory->Release();
+            Dispose();
             throw;
-        }
-        finally
-        {
-            fonts->Release();
         }
         Metrics = MeasureCell();
     }
 
     public CellMetrics Metrics { get; }
+
+    /// <summary>The family asked for, which the system fallback starts from.</summary>
+    public string Family { get; }
+
+    public IDWriteFactory2* Factory => factory;
+
+    public IDWriteFontCollection* Collection => collection;
+
+    public int Count => faces.Count;
+
+    public IDWriteFontFace* this[int face] => (IDWriteFontFace*)faces[face];
+
+    /// <summary>The em size of <paramref name="face"/>: a fallback may be scaled to match the font.</summary>
+    public float EmSize(int face) => emSize * scales[face];
+
+    /// <summary>
+    /// The number of <paramref name="font"/>'s face, added on first sight;
+    /// -1 when the list is full. Faces are told apart by file, index and
+    /// simulations, since DirectWrite may hand out a new object for the same face.
+    /// </summary>
+    public int Register(IDWriteFont* font, float scale)
+    {
+        IDWriteFontFace* face;
+        font->CreateFontFace(&face);
+        string identity = Identity(face);
+        if (ids.TryGetValue(identity, out ushort known) || faces.Count >= MaxFaces)
+        {
+            face->Release();
+            return faces.Count >= MaxFaces && !ids.ContainsKey(identity) ? -1 : known;
+        }
+        ids[identity] = (ushort)faces.Count;
+        faces.Add((nint)face);
+        scales.Add(scale > 0 && float.IsFinite(scale) ? scale : 1);
+        return faces.Count - 1;
+    }
+
+    private static string Identity(IDWriteFontFace* face)
+    {
+        uint count = 0;
+        face->GetFiles(&count, null);
+        var files = new nint[count];
+        var identity = new System.Text.StringBuilder();
+        fixed (nint* f = files)
+        {
+            face->GetFiles(&count, (IDWriteFontFile**)f);
+        }
+        foreach (nint f in files)
+        {
+            var file = (IDWriteFontFile*)f;
+            void* key;
+            uint size;
+            file->GetReferenceKey(&key, &size);
+            identity.Append(Convert.ToHexString(new ReadOnlySpan<byte>(key, (int)size))).Append('/');
+            file->Release();
+        }
+        return identity.Append(face->GetIndex()).Append('/').Append((int)face->GetSimulations()).ToString();
+    }
 
     private static IDWriteFontFace* Face(IDWriteFontCollection* fonts, string name, DWRITE_FONT_WEIGHT weight, DWRITE_FONT_STYLE style)
     {
@@ -136,33 +189,20 @@ internal sealed unsafe class FontFaces : IDisposable
             Math.Max(1, (int)MathF.Round(m.underlineThickness * scale)));
     }
 
-    /// <summary>The glyph for <paramref name="codePoint"/> in the styled face, else in the first fallback that has it.</summary>
-    public GlyphKey Lookup(uint codePoint, bool bold, bool italic)
-    {
-        int styled = (bold ? 1 : 0) | (italic ? 2 : 0);
-        ushort glyph;
-        ((IDWriteFontFace*)faces[styled])->GetGlyphIndices(&codePoint, 1, &glyph);
-        for (int i = 4; glyph == 0 && i < faces.Length; i++)
-        {
-            ((IDWriteFontFace*)faces[i])->GetGlyphIndices(&codePoint, 1, &glyph);
-            if (glyph != 0)
-            {
-                return new GlyphKey((ushort)i, glyph);
-            }
-        }
-        // Glyph 0 of the face is its "missing" box, which is what should show.
-        return new GlyphKey((ushort)styled, glyph);
-    }
-
     /// <summary>Rasterises <paramref name="key"/>; false when it draws nothing.</summary>
     public bool Rasterize(GlyphKey key, out GlyphBitmap bitmap)
     {
+        if (key.Face >= faces.Count)
+        {
+            bitmap = default;
+            return false;
+        }
         ushort glyph = key.Glyph;
         float advance = 0;
         var run = new DWRITE_GLYPH_RUN
         {
             fontFace = (IDWriteFontFace*)faces[key.Face],
-            fontEmSize = emSize,
+            fontEmSize = EmSize(key.Face),
             glyphCount = 1,
             glyphIndices = &glyph,
             glyphAdvances = &advance,
@@ -274,12 +314,12 @@ internal sealed unsafe class FontFaces : IDisposable
 
     public void Dispose()
     {
-        for (int i = 0; i < faces.Length; i++)
+        foreach (nint f in faces)
         {
-            var face = (IDWriteFontFace*)faces[i];
-            Com.Release(ref face);
-            faces[i] = 0;
+            ((IDWriteFontFace*)f)->Release();
         }
+        faces.Clear();
+        Com.Release(ref collection);
         Com.Release(ref factory);
     }
 }

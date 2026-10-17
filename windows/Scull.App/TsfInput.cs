@@ -301,20 +301,23 @@ internal sealed unsafe class TsfInput : IDisposable
     }
 
     // Where the input method marked the text as input, converted or being converted, as (start, end,
-    // TF_ATTR_*) in characters from the document's start. A lookup that fails marks nothing: the text is
-    // then shown as one plain clause, which is also what an input method that marks nothing gets.
+    // TF_ATTR_*) in characters from the document's start. The calls throw on failure, and a failed lookup
+    // marks nothing: the text is then shown as one plain clause, which is also what an input method that
+    // marks nothing gets.
     private List<(int Start, int End, int Attribute)> ReadAttributes(uint ec, ITfRange* whole)
     {
         List<(int, int, int)> found = [];
-        Guid attributeId = PInvoke.GUID_PROP_ATTRIBUTE;
-        ITfProperty* property;
-        if (context->GetProperty(&attributeId, &property).Failed)
+        ITfProperty* property = null;
+        IEnumTfRanges* ranges = null;
+        try
         {
-            return found;
-        }
-        IEnumTfRanges* ranges;
-        if (property->EnumRanges(ec, &ranges, whole).Succeeded)
-        {
+            Guid attributeId = PInvoke.GUID_PROP_ATTRIBUTE;
+            ITfProperty* made;
+            context->GetProperty(&attributeId, &made);
+            property = made;
+            IEnumTfRanges* enumerated;
+            property->EnumRanges(ec, &enumerated, whole);
+            ranges = enumerated;
             var batch = stackalloc ITfRange*[8];
             uint fetched;
             do
@@ -322,17 +325,31 @@ internal sealed unsafe class TsfInput : IDisposable
                 ranges->Next(8, batch, &fetched);
                 for (uint i = 0; i < fetched; i++)
                 {
-                    VARIANT value;
-                    if (property->GetValue(ec, batch[i], &value).Succeeded && value.vt == VARENUM.VT_I4 && DisplayAttribute((uint)value.lVal) is int attribute)
+                    try
                     {
-                        found.Add((Position(ec, batch[i], TfAnchor.TF_ANCHOR_START), Position(ec, batch[i], TfAnchor.TF_ANCHOR_END), attribute));
+                        VARIANT value;
+                        property->GetValue(ec, batch[i], &value);
+                        if (value.vt == VARENUM.VT_I4 && DisplayAttribute((uint)value.lVal) is int attribute)
+                        {
+                            found.Add((Position(ec, batch[i], TfAnchor.TF_ANCHOR_START), Position(ec, batch[i], TfAnchor.TF_ANCHOR_END), attribute));
+                        }
                     }
-                    Release(batch[i]);
+                    catch (COMException)
+                    {
+                        // One range whose attribute TSF cannot name is left plain; the others still count.
+                    }
+                    finally
+                    {
+                        Release(batch[i]);
+                    }
                 }
             }
             while (fetched == 8);
-            Release(ranges);
         }
+        catch (COMException)
+        {
+        }
+        Release(ranges);
         Release(property);
         return found;
     }
@@ -359,20 +376,24 @@ internal sealed unsafe class TsfInput : IDisposable
             displays = made;
         }
         Guid id;
-        if (categories->GetGUID(atom, &id).Failed)
-        {
-            return null;
-        }
+        categories->GetGUID(atom, &id);
         ITfDisplayAttributeInfo* info;
         Guid owner;
-        if (displays->GetDisplayAttributeInfo(&id, &info, &owner).Failed || info is null)
+        displays->GetDisplayAttributeInfo(&id, &info, &owner);
+        if (info is null)
         {
             return null;
         }
         TF_DISPLAYATTRIBUTE attribute;
-        int? kind = info->GetAttributeInfo(&attribute).Succeeded ? (int)attribute.bAttr : null;
-        Release(info);
-        return kind;
+        try
+        {
+            info->GetAttributeInfo(&attribute);
+            return (int)attribute.bAttr;
+        }
+        finally
+        {
+            Release(info);
+        }
     }
 
     // The characters from the start of the document to one end of a range.

@@ -1,7 +1,8 @@
 // The view as an NSAccessibility text area over the core's screen text, so
 // VoiceOver reads the screen by character, word and line. Line N is screen
-// row N; the insertion point is the cursor. There is no selection yet, so
-// the selected text is always empty.
+// row N; the insertion point is the cursor. The selection is read from the
+// cells the frame marks, one range per row, so a block selection is exact;
+// with none selected the selection is the empty range at the cursor.
 
 import AppKit
 import CScull
@@ -27,6 +28,26 @@ extension TerminalView {
     func screenChanged() {
         guard NSWorkspace.shared.isVoiceOverEnabled else { return }
         NSAccessibility.post(element: self, notification: .valueChanged)
+        // Output that rewrites the selected rows drops the selection.
+        postSelectionChange()
+    }
+
+    /// Tells VoiceOver the selection changed, when it did: the ranges differ from those last posted.
+    func postSelectionChange() {
+        guard NSWorkspace.shared.isVoiceOverEnabled else { return }
+        let now = selectedRanges
+        guard now != postedSelection else { return }
+        postedSelection = now
+        NSAccessibility.post(element: self, notification: .selectedTextChanged)
+    }
+
+    /// The selection in the value's coordinates, a range per row; empty when nothing is selected.
+    private var selectedRanges: [NSRange] { screen.ranges(of: session?.selectedSpans() ?? [], width: width(row:)) }
+
+    private var cursorRange: NSRange {
+        guard let cursor = session?.view.cursor else { return NSRange(location: 0, length: 0) }
+        let row = Int(cursor.row)
+        return NSRange(location: screen.index(line: row, col: Int(cursor.col), width: width(row: row)), length: 0)
     }
 
     public override func isAccessibilityElement() -> Bool { true }
@@ -43,12 +64,34 @@ extension TerminalView {
         NSRange(location: 0, length: screen.length)
     }
 
-    public override func accessibilitySelectedText() -> String? { "" }
+    public override func accessibilitySelectedText() -> String? {
+        let text = screen
+        return selectedRanges.compactMap(text.substring).joined(separator: "\n")
+    }
 
     public override func accessibilitySelectedTextRange() -> NSRange {
-        guard let cursor = session?.view.cursor else { return NSRange(location: 0, length: 0) }
-        let row = Int(cursor.row)
-        return NSRange(location: screen.index(line: row, col: Int(cursor.col), width: width(row: row)), length: 0)
+        let ranges = selectedRanges
+        guard let first = ranges.first, let last = ranges.last else { return cursorRange }
+        return NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+    }
+
+    public override func accessibilitySelectedTextRanges() -> [NSValue]? {
+        let ranges = selectedRanges
+        return (ranges.isEmpty ? [cursorRange] : ranges).map { NSValue(range: $0) }
+    }
+
+    /// VoiceOver selecting text: the cells from the range's first character to its last. An empty
+    /// range, which would only move the insertion point, clears the selection instead.
+    public override func setAccessibilitySelectedTextRange(_ range: NSRange) {
+        guard let session else { return }
+        if let cells = screen.selection(for: range, width: width(row:)) {
+            _ = session.select(TT_SELECT_CELL, row: cells.start.row, col: cells.start.col)
+            _ = session.extendSelection(row: cells.end.row, col: cells.end.col)
+        } else {
+            _ = session.clearSelection()
+        }
+        if session.update() { needsDisplay = true }
+        postSelectionChange()
     }
 
     public override func accessibilityInsertionPointLineNumber() -> Int {

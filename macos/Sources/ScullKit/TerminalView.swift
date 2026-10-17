@@ -38,6 +38,8 @@ public final class TerminalView: NSView {
     private var scrollRemainder: CGFloat = 0
     /// The left-button gesture the host owns; nil while the program has it.
     var selectionDrag: SelectionDrag?
+    /// The selection last posted to VoiceOver.
+    var postedSelection: [NSRange] = []
     var findBar: FindBar?
     var find = FindState()
     var findSettle: Timer?

@@ -273,4 +273,36 @@ public sealed class PaneTests
         a.Width > 0 && a.Height > 0 && b.Width > 0 && b.Height > 0
         && a.X < b.X + b.Width && b.X < a.X + a.Width
         && a.Y < b.Y + b.Height && b.Y < a.Y + a.Height;
+
+    [TestMethod]
+    public void CtrlInsertCopiesLikeCtrlShiftCOnlyWithASelection()
+    {
+        const int Insert = 0x2D;
+        Assert.AreEqual(PaneCommand.Copy, PaneCommands.Match(Insert, KeyModifiers.Control, extended: true, () => true));
+        Assert.AreEqual(
+            PaneCommand.Copy,
+            PaneCommands.Match(Insert, KeyModifiers.Control | KeyModifiers.NumLock | KeyModifiers.CapsLock, extended: true, () => true),
+            "the locks do not count");
+        Assert.IsNull(PaneCommands.Match(Insert, KeyModifiers.Control, extended: true, () => false), "with no selection the program gets it");
+        Assert.IsNull(PaneCommands.Match(Insert, KeyModifiers.Control, extended: false, () => true), "the keypad's 0 is not Insert");
+        Assert.IsNull(PaneCommands.Match(Insert, KeyModifiers.Shift, extended: true, () => true), "Shift+Insert is paste");
+        Assert.IsNull(PaneCommands.Match(Insert, KeyModifiers.Control | KeyModifiers.Alt, extended: true, () => true));
+    }
+
+    [TestMethod]
+    public void TheSelectionIsAskedOnlyForCtrlInsert()
+    {
+        bool asked = false;
+        bool Ask()
+        {
+            asked = true;
+            return true;
+        }
+
+        Assert.AreEqual(PaneCommand.Copy, PaneCommands.Match(0x43, KeyModifiers.Control | KeyModifiers.Shift, extended: false, Ask));
+        Assert.IsNull(PaneCommands.Match(0x56, KeyModifiers.Control, extended: false, Ask));
+        Assert.IsFalse(asked);
+        Assert.AreEqual(PaneCommand.Copy, PaneCommands.Match(0x2D, KeyModifiers.Control, extended: true, Ask));
+        Assert.IsTrue(asked);
+    }
 }

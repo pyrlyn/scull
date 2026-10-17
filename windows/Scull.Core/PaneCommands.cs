@@ -32,14 +32,25 @@ public static class PaneCommands
 {
     private const KeyModifiers Chord = KeyModifiers.Shift | KeyModifiers.Alt | KeyModifiers.Control | KeyModifiers.Super;
 
+    /// <summary>The command for a key where the editing block's Insert is the dedicated key and a selection exists.</summary>
+    public static PaneCommand? Match(int virtualKey, KeyModifiers held) => Match(virtualKey, held, extended: true, static () => true);
+
     /// <summary>
     /// The command for a virtual key with these modifiers held: Ctrl+Shift with T, F, N, D, E, W, C, ], [, Up or Down, or Ctrl+, for settings.
     /// Ctrl+Shift is the terminal-safe prefix (paste is Ctrl+Shift+V), and the letters follow Windows Terminal where it has one.
+    /// Ctrl+Insert is a second copy, the twin of paste's Shift+Insert: only the dedicated Insert key (<paramref name="extended"/>,
+    /// the keypad's 0 is not) and only with a selection, since Ctrl+Insert is the program's otherwise.
     /// </summary>
-    public static PaneCommand? Match(int virtualKey, KeyModifiers held) => (held & Chord) switch
+    /// <param name="hasSelection">Asked only for Ctrl+Insert, so nothing is read for other keys.</param>
+    public static PaneCommand? Match(int virtualKey, KeyModifiers held, bool extended, Func<bool> hasSelection) => (held & Chord) switch
     {
         // Ctrl+, opens settings, as Cmd+, does on macOS; the comma has no control character to lose.
-        KeyModifiers.Control => virtualKey == 0xBC ? PaneCommand.OpenSettings : null, // VK_OEM_COMMA
+        KeyModifiers.Control => virtualKey switch
+        {
+            0xBC => PaneCommand.OpenSettings, // VK_OEM_COMMA
+            0x2D when extended && hasSelection() => PaneCommand.Copy, // VK_INSERT
+            _ => null,
+        },
         KeyModifiers.Control | KeyModifiers.Shift => ShiftChord(virtualKey),
         _ => null,
     };

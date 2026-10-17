@@ -4,7 +4,8 @@ namespace Scull.Core;
 /// <param name="Exited">The child has ended.</param>
 /// <param name="TitleChanged">The window title or the working directory differs from before.</param>
 /// <param name="Clipboard">The text an OSC 52 write wants on the clipboard (the last, if several); null for none.</param>
-public readonly record struct DrainedEvents(bool Exited, bool TitleChanged, string? Clipboard);
+/// <param name="Bell">The program rang the bell (once, however many times it did in this drain).</param>
+public readonly record struct DrainedEvents(bool Exited, bool TitleChanged, string? Clipboard, bool Bell = false);
 
 /// <summary>
 /// What a host keeps from a terminal's events, as <c>TerminalSession.swift</c> does on macOS:
@@ -25,6 +26,7 @@ public sealed class PaneEvents
     {
         bool exited = false;
         bool changed = false;
+        bool bell = false;
         string? clipboard = null;
         while (terminal.TryPollEvent(out TerminalEvent next))
         {
@@ -45,11 +47,14 @@ public sealed class PaneEvents
                 case EventKind.ClipboardWrite:
                     clipboard = EventPolicy.ClipboardText(next) ?? clipboard;
                     break;
+                case EventKind.Bell:
+                    bell = true;
+                    break;
                 case EventKind.ClipboardRead:
                     terminal.ClipboardDeny(next.Id);
                     break;
             }
         }
-        return new DrainedEvents(exited, changed, clipboard);
+        return new DrainedEvents(exited, changed, clipboard, bell);
     }
 }

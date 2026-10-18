@@ -361,10 +361,17 @@ public final class TerminalSession {
 
     /// Shows an input method's composing text at the cursor from the next
     /// update, the caret at UTF-8 offset `caret`; empty text clears it.
+    /// `clauses` mark stretches of it as input, converted or being
+    /// converted (the frame reports them as `view.preedit_spans`).
     /// It never reaches the child.
-    public func preedit(_ text: String, caret: Int) -> tt_status {
+    func preedit(_ text: String, caret: Int, clauses: [PreeditClause] = []) -> tt_status {
         var text = text
-        return text.withUTF8 { tt_frame_preedit(frame, $0.baseAddress, $0.count, max(0, caret)) }
+        let native = clauses.map { tt_preedit_clause(start: $0.start, end: $0.end, kind: $0.kind) }
+        return text.withUTF8 { bytes in
+            native.withUnsafeBufferPointer { list in
+                tt_frame_preedit_clauses(frame, bytes.baseAddress, bytes.count, max(0, caret), list.baseAddress, list.count)
+            }
+        }
     }
 
     public func paste(_ text: String) -> tt_status {

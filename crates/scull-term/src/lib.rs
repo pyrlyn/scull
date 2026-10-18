@@ -43,7 +43,7 @@ pub use events::{Clipboard, Event, MAX_URI, TitleWhich};
 pub use frame::{Frame, FrameCell, FrameCursor, FramePlacement, FrameRow, TextRun};
 pub use images::DEFAULT_CELL_PX;
 pub use modes::Modes;
-pub use preedit::{FramePreedit, MAX_PREEDIT_BYTES};
+pub use preedit::{ClauseKind, FramePreedit, MAX_PREEDIT_BYTES, PreeditClause, PreeditSpan};
 pub use scull_image::{Crop, Image, ImageId, ImageStore, Placement};
 pub use search::{MAX_SEARCH_MATCHES, MAX_SEARCH_PATTERN, Match};
 pub use selection::{MAX_SELECTION_BYTES, MAX_WORD_CELLS, Point, SelectionKind, WORD_SEPARATORS};

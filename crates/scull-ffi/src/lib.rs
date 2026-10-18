@@ -61,11 +61,12 @@ pub use frame::{
     TT_ATTR_BLINK, TT_ATTR_BOLD, TT_ATTR_DIM, TT_ATTR_HIDDEN, TT_ATTR_INVERSE, TT_ATTR_ITALIC,
     TT_ATTR_OVERLINE, TT_ATTR_STRIKE, TT_CELL_CLUSTER, TT_CELL_CURRENT_MATCH, TT_CELL_MATCH,
     TT_CELL_SELECTED, TT_COLOR_DEFAULT, TT_COLOR_INDEXED, TT_COLOR_KIND_MASK, TT_COLOR_RGB,
-    TT_MAX_PREEDIT_BYTES, TT_UNDERLINE_CURLY, TT_UNDERLINE_DASHED, TT_UNDERLINE_DOTTED,
-    TT_UNDERLINE_DOUBLE, TT_UNDERLINE_NONE, TT_UNDERLINE_SINGLE, tt_cell, tt_cursor, tt_frame,
-    tt_frame_free, tt_frame_new, tt_frame_preedit, tt_frame_update, tt_frame_view, tt_image,
-    tt_image_pixels, tt_image_release, tt_image_retain, tt_placement, tt_preedit, tt_row, tt_run,
-    tt_scroll, tt_style,
+    TT_MAX_PREEDIT_BYTES, TT_PREEDIT_CONVERTED, TT_PREEDIT_INPUT, TT_PREEDIT_TARGET,
+    TT_UNDERLINE_CURLY, TT_UNDERLINE_DASHED, TT_UNDERLINE_DOTTED, TT_UNDERLINE_DOUBLE,
+    TT_UNDERLINE_NONE, TT_UNDERLINE_SINGLE, tt_cell, tt_cursor, tt_frame, tt_frame_free,
+    tt_frame_new, tt_frame_preedit, tt_frame_preedit_clauses, tt_frame_update, tt_frame_view,
+    tt_image, tt_image_pixels, tt_image_release, tt_image_retain, tt_placement, tt_preedit,
+    tt_preedit_clause, tt_preedit_span, tt_row, tt_run, tt_scroll, tt_style,
 };
 pub use guard::tt_status;
 pub use input::{
@@ -98,11 +99,11 @@ pub const TT_ABI_VERSION_MAJOR: u32 = 0;
 
 /// Additions (new functions, fields appended to a struct) bump the minor.
 /// While the major is 0 every minor may break, so the minor must match too.
-pub const TT_ABI_VERSION_MINOR: u32 = 9;
+pub const TT_ABI_VERSION_MINOR: u32 = 10;
 
 /// The version a host was built against, `major << 16 | minor`; pass it
 /// in `tt_term_options.abi_version`.
-pub const TT_ABI_VERSION: u32 = 0x0000_0009;
+pub const TT_ABI_VERSION: u32 = 0x0000_000A;
 
 const _: () = assert!(TT_ABI_VERSION == TT_ABI_VERSION_MAJOR << MINOR_BITS | TT_ABI_VERSION_MINOR);
 

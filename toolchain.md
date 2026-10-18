@@ -8,6 +8,9 @@
 | rustc, cargo, clippy, rustfmt | mise (`mise.toml`, 1.99.0) | Build, lint and format the core | https://github.com/rust-lang/rust |
 | mise | brew, then `mise install` | Pins every tool below for local work and CI | https://github.com/jdx/mise |
 | just | mise | Task runner: `just check` is the merge gate | https://github.com/casey/just |
+| jactionlint | mise (`mise.toml` pins `github:jdx/jactionlint` 2.0.2) | Lint the workflows (`ci.yml`'s `jactionlint` job, the pre-push hook and `mise x -- jactionlint`) | https://github.com/jdx/jactionlint |
+| hk | mise (`mise.toml` pins 2.5.0) | Runs jactionlint as a pre-push hook (`hk.pkl`) | https://github.com/jdx/hk |
+| shellcheck | mise (`mise.toml` pins 0.11.0; CI uses the runner image's copy) | Checks `run:` scripts inside jactionlint | https://github.com/koalaman/shellcheck |
 | cargo-fuzz | `cargo install cargo-fuzz --version 0.13.2 --locked`, runs on nightly | `just fuzz-smoke` (`cargo +nightly fuzz`, a few seconds per target) | https://github.com/rust-fuzz/cargo-fuzz |
 | cc (clang or gcc) | system (Xcode Command Line Tools, distro package) | `just c-abi-test`: the C ABI test under ASan, UBSan and TSan (Unix only) | https://github.com/llvm/llvm-project |
 | Xcode (Swift 6.4, SwiftPM, AppKit/SwiftUI SDK) | Mac App Store or developer.apple.com (27.0) | `just macos`, `just macos-test`: build and test the macOS app in `macos/` (arm64 only) | https://developer.apple.com/xcode/ |

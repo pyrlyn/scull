@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         # macOS is Apple Silicon only; Windows is the second host the core ships on.
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: ${{ fromJSON(vars.MACOS_CI_DISABLED == 'true' && '["windows-latest", "ubuntu-latest"]' || '["macos-latest", "windows-latest", "ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: ${{ fromJSON(vars.MACOS_CI_DISABLED == 'true' && '["windows-latest", "ubuntu-latest"]' || '["macos-latest", "windows-latest", "ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,7 +101,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: ${{ fromJSON(vars.MACOS_CI_DISABLED == 'true' && '["windows-latest", "ubuntu-latest"]' || '["macos-latest", "windows-latest", "ubuntu-latest"]') }}
         partition: [1, 2]
         partitions: [2]
     name: test (${{ matrix.os }}, ${{ matrix.partition }}/${{ matrix.partitions }})

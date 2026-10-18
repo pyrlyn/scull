@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Scull.Core;
@@ -25,13 +26,27 @@ internal sealed partial class TerminalTextRange(TextSnapshot snapshot, TextRange
     public void ExpandToEnclosingUnit(Uia.TextUnit unit) =>
         range = snapshot.Text.ExpandToEnclosingUnit(range, Unit(unit));
 
-    // Colours, fonts and the like are not text attributes a terminal reports.
-    public ITextRangeProvider FindAttribute(int attributeId, object value, bool backward) => null!;
+    public ITextRangeProvider FindAttribute(int attributeId, object value, bool backward) =>
+        snapshot.Attributes?.Find(range, attributeId, value, backward) is { } found ? new TerminalTextRange(snapshot, found, owner) : null!;
 
     public ITextRangeProvider FindText(string text, bool backward, bool ignoreCase) =>
         snapshot.Text.Find(range, text, backward, ignoreCase) is { } found ? new TerminalTextRange(snapshot, found, owner) : null!;
 
-    public object GetAttributeValue(int attributeId) => DependencyProperty.UnsetValue;
+    // XAML turns UnsetValue into UI Automation's mixed-attribute value (the dxaml layer's TextRangeAdapter
+    // does the same), and a failure with E_NOT_SUPPORTED into its not-supported value.
+    public object GetAttributeValue(int attributeId) => snapshot.Attributes?.Get(range, attributeId) is { } result
+        ? result.State switch
+        {
+            AttributeState.Value => result.Value!,
+            AttributeState.Mixed => DependencyProperty.UnsetValue,
+            _ => throw NotSupported(),
+        }
+        : throw NotSupported();
+
+    // The exact HRESULT is the contract: a client reads it as "not supported", and no other exception type carries it.
+#pragma warning disable CA2201
+    private static COMException NotSupported() => new("the terminal does not report this text attribute", unchecked((int)0x80070032));
+#pragma warning restore CA2201
 
     /// <summary>Left, top, width and height of each row's rectangle in turn, in screen pixels.</summary>
     public void GetBoundingRectangles(out double[] returnValue)

@@ -37,6 +37,8 @@ internal sealed class TerminalPane : IDisposable
     private Renderer renderer;
     private float scale;
     private bool focused;
+    // The family the renderer drew with last, which a screen reader reports as the pane's font.
+    private string shownFamily = "";
 
     /// <param name="settings">The config's settings, null for the defaults.</param>
     /// <param name="atlases">The window's atlases, shared with its other panes whose font matches.</param>
@@ -101,6 +103,7 @@ internal sealed class TerminalPane : IDisposable
             try
             {
                 use(family);
+                shownFamily = family;
                 return;
             }
             catch (ArgumentException) when (family != families[^1])
@@ -178,7 +181,10 @@ internal sealed class TerminalPane : IDisposable
         }
         try
         {
-            return TextSnapshot.Capture(terminal, new CellGeometry(Metrics.Width, Metrics.Height, Area.X, Area.Y));
+            // Points are 72 to the inch and the font size is in 96-per-inch pixels.
+            Palette palette = renderer.Palette;
+            TextLook look = new(style => palette.Colors(style), shownFamily, font.Size * 0.75);
+            return TextSnapshot.Capture(terminal, new CellGeometry(Metrics.Width, Metrics.Height, Area.X, Area.Y), look);
         }
         catch (TerminalPoisonedException)
         {

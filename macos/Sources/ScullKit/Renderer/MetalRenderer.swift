@@ -420,14 +420,34 @@ public final class MetalRenderer {
     /// The cursor's own quads in view pixels: what goes under the text,
     /// and what goes over it.
     /// The input method's composing text, which the frame already shows,
-    /// underlined across the span the frame marks.
+    /// underlined across the span the frame marks: raw input dotted,
+    /// converted text plain, the clause being converted thick. Text the input
+    /// method did not divide into clauses gets one plain line.
     private func preeditQuads(_ session: TerminalSession) -> [Quad] {
-        let preedit = session.view.preedit
+        let view = session.view
+        let preedit = view.preedit
         guard preedit.cols > 0, Int(preedit.row) < grid.rows else { return [] }
-        let (first, end) = (Int(preedit.col), Int(preedit.col) + Int(preedit.cols))
-        let y = CGFloat(preedit.row) * metrics.height + metrics.underline - metrics.thickness / 2
-        return [Quad(x: x(first), y: Float(y.rounded()), w: x(end) - x(first), h: Float(metrics.thickness),
-                     color: Self.rgba(palette.foreground))]
+        let marks: [(first: Int, end: Int, kind: UInt8)] = view.preedit_spans_len == 0
+            ? [(Int(preedit.col), Int(preedit.col) + Int(preedit.cols), UInt8(TT_PREEDIT_CONVERTED))]
+            : UnsafeBufferPointer(start: view.preedit_spans, count: view.preedit_spans_len).map {
+                (Int($0.col), Int($0.col) + Int($0.cols), $0.kind)
+            }
+        let thickness = Float(metrics.thickness)
+        let y = Float((CGFloat(preedit.row) * metrics.height + metrics.underline - metrics.thickness / 2).rounded())
+        let color = Self.rgba(palette.foreground)
+        return marks.flatMap { first, end, kind -> [Quad] in
+            let (left, right) = (x(first), x(end))
+            switch Int32(kind) {
+            case TT_PREEDIT_INPUT:
+                return stride(from: left, to: right, by: 2 * thickness).map {
+                    Quad(x: $0, y: y, w: min(thickness, right - $0), h: thickness, color: color)
+                }
+            case TT_PREEDIT_TARGET:
+                return [Quad(x: left, y: y, w: right - left, h: 2 * thickness, color: color)]
+            default:
+                return [Quad(x: left, y: y, w: right - left, h: thickness, color: color)]
+            }
+        }
     }
 
     private func cursorQuads(_ session: TerminalSession, focused: Bool) -> (under: [Quad], over: [Quad]) {

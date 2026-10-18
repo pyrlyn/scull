@@ -32,6 +32,48 @@ private let none = NSRange(location: NSNotFound, length: 0)
     #expect(input.preedit.caret == 5)
 }
 
+/// Marked text as an input method gives it: `thick` underlines the clause
+/// being converted, `tagged` carries the clause segment.
+private func marked(_ parts: [(String, thick: Bool, tagged: Bool)]) -> NSAttributedString {
+    let text = NSMutableAttributedString()
+    for (index, part) in parts.enumerated() {
+        var attributes: [NSAttributedString.Key: Any] = [.underlineStyle: part.thick ? NSUnderlineStyle.thick.rawValue : NSUnderlineStyle.single.rawValue]
+        if part.tagged { attributes[.markedClauseSegment] = index }
+        text.append(NSAttributedString(string: part.0, attributes: attributes))
+    }
+    return text
+}
+
+@Test func clausesComeFromTheInputMethodsAttributes() {
+    var input = TextInput()
+    // Converting: the thick clause is the target, the tagged others are converted.
+    input.setMarked(marked([("今日", false, true), ("は", true, true), ("晴れ", false, true)]),
+                    selectedRange: NSRange(location: 2, length: 1))
+    #expect(input.preedit.clauses == [
+        PreeditClause(start: 0, end: 6, kind: UInt8(TT_PREEDIT_CONVERTED)),
+        PreeditClause(start: 6, end: 9, kind: UInt8(TT_PREEDIT_TARGET)),
+        PreeditClause(start: 9, end: 15, kind: UInt8(TT_PREEDIT_CONVERTED)),
+    ])
+    // Typing: tagged but nothing thick is still raw input.
+    input.setMarked(marked([("にほん", false, true)]), selectedRange: NSRange(location: 3, length: 0))
+    #expect(input.preedit.clauses == [PreeditClause(start: 0, end: 9, kind: UInt8(TT_PREEDIT_INPUT))])
+    // Offsets are UTF-8 even where UTF-16 differs: a surrogate pair is four bytes.
+    input.setMarked(marked([("😀", false, true), ("a", true, true)]), selectedRange: NSRange(location: 3, length: 0))
+    #expect(input.preedit.clauses == [
+        PreeditClause(start: 0, end: 4, kind: UInt8(TT_PREEDIT_CONVERTED)),
+        PreeditClause(start: 4, end: 5, kind: UInt8(TT_PREEDIT_TARGET)),
+    ])
+}
+
+@Test func textTheInputMethodDidNotMarkHasNoClauses() {
+    var input = TextInput()
+    input.setMarked("にほ", selectedRange: NSRange(location: 2, length: 0))
+    #expect(input.preedit.clauses.isEmpty)
+    // Only an underline, thin, and no segment tags: nothing to tell apart.
+    input.setMarked(marked([("ab", false, false)]), selectedRange: NSRange(location: 2, length: 0))
+    #expect(input.preedit.clauses.isEmpty)
+}
+
 @Test func substringsComeFromTheMarkedTextOnly() {
     var input = TextInput()
     var actual = none
@@ -99,6 +141,36 @@ private let none = NSRange(location: NSNotFound, length: 0)
     #expect(session.view.preedit.cols == 0)
     #expect(session.runs(row: 0).map(\.text) == ["ab"])
     #expect(session.view.cursor.col == 2)
+}
+
+@MainActor
+@Test func theClausesReachTheFrameAsSpans() throws {
+    let session = try TerminalSession(cols: 10, rows: 1)
+    let clauses = [PreeditClause(start: 0, end: 3, kind: UInt8(TT_PREEDIT_CONVERTED)),
+                   PreeditClause(start: 3, end: 9, kind: UInt8(TT_PREEDIT_TARGET))]
+    #expect(session.preedit("は日本", caret: 3, clauses: clauses) == TT_OK)
+    #expect(session.update())
+    let view = session.view
+    let spans = Array(UnsafeBufferPointer(start: view.preedit_spans, count: view.preedit_spans_len))
+    #expect(spans.map { [Int($0.col), Int($0.cols), Int($0.kind)] }
+            == [[0, 2, Int(TT_PREEDIT_CONVERTED)], [2, 4, Int(TT_PREEDIT_TARGET)]])
+    // Without clauses the frame has the one span of the preedit and no kinds.
+    #expect(session.preedit("は日本", caret: 3) == TT_OK)
+    #expect(session.update())
+    #expect(session.view.preedit_spans_len == 0 && session.view.preedit.cols == 6)
+}
+
+@MainActor
+@Test func theViewAsksInputMethodsForTheirClauseAttributes() throws {
+    let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
+    #expect(view.validAttributesForMarkedText().contains(.markedClauseSegment))
+    #expect(view.validAttributesForMarkedText().contains(.underlineStyle))
+    view.session = try TerminalSession(cols: 20, rows: 3)
+    view.setMarkedText(marked([("今日", false, true), ("は", true, true)]),
+                       selectedRange: NSRange(location: 2, length: 0), replacementRange: none)
+    let frame = try #require(view.session?.view)
+    #expect(frame.preedit_spans_len == 2)
+    #expect(frame.preedit_spans[1].kind == UInt8(TT_PREEDIT_TARGET))
 }
 
 private func key(_ chars: String, _ plain: String, code: UInt16, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {

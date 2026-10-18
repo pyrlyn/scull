@@ -673,7 +673,7 @@ internal sealed partial class TerminalWindow : Window, IDisposable
         }
         (uint scanCode, bool extended) = (e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey);
         KeyModifiers held = Held();
-        if (PaneCommands.Match(key, held) is { } command)
+        if (PaneCommands.Match(key, held, extended, () => current?.Focused.SelectionText() is { Length: > 0 }) is { } command)
         {
             e.Handled = true;
             swallowed.Press(key, true);

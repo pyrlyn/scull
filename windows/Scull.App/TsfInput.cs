@@ -22,8 +22,11 @@ internal interface ITsfClient
     /// <summary>The terminal's visible area, in screen pixels.</summary>
     Rectangle Viewport();
 
-    /// <summary>The composing text changed; empty when there is none. <paramref name="caret"/> is a UTF-16 index.</summary>
-    void Preedit(string text, int caret);
+    /// <summary>
+    /// The composing text changed; empty when there is none. <paramref name="caret"/> and the
+    /// <paramref name="clauses"/> the input method marked are UTF-16 offsets into the text.
+    /// </summary>
+    void Preedit(string text, int caret, IReadOnlyList<PreeditClause> clauses);
 
     /// <summary>Text the input method finished.</summary>
     void Commit(string text);
@@ -89,6 +92,9 @@ internal sealed unsafe class TsfInput : IDisposable
     private ITfDocumentMgr* documentMgr;
     private ITfContext* context;
     private ITfSource* source;
+    // Made on the first composition that marks its text, and kept: a lookup per key would be a call into COM for each.
+    private ITfCategoryMgr* categories;
+    private ITfDisplayAttributeMgr* displays;
     private uint clientId, ownerCookie = PInvoke.TF_INVALID_COOKIE, editCookie = PInvoke.TF_INVALID_COOKIE;
     private bool requested, associated;
 
@@ -201,7 +207,7 @@ internal sealed unsafe class TsfInput : IDisposable
             return;
         }
         tracker.Reset();
-        client.Preedit("", 0);
+        client.Preedit("", 0, []);
         ITfContextOwnerCompositionServices* services;
         if (context->QueryInterface(out services).Succeeded)
         {
@@ -270,6 +276,7 @@ internal sealed unsafe class TsfInput : IDisposable
         }
         while (fetched == 8);
 
+        List<(int Start, int End, int Attribute)> marked = ReadAttributes(ec, whole);
         int caret = Caret(ec);
         CompositionSplit split = CompositionSplit.Of(runs, caret);
         if (split.Finished.Length > 0)
@@ -286,11 +293,119 @@ internal sealed unsafe class TsfInput : IDisposable
         Release(property);
         Release(whole);
 
-        client.Preedit(split.Active, split.Caret);
+        client.Preedit(split.Active, split.Caret, split.Clauses(marked));
         if (split.Finished.Length > 0)
         {
             client.Commit(split.Finished);
         }
+    }
+
+    // Where the input method marked the text as input, converted or being converted, as (start, end,
+    // TF_ATTR_*) in characters from the document's start. The calls throw on failure, and a failed lookup
+    // marks nothing: the text is then shown as one plain clause, which is also what an input method that
+    // marks nothing gets.
+    private List<(int Start, int End, int Attribute)> ReadAttributes(uint ec, ITfRange* whole)
+    {
+        List<(int, int, int)> found = [];
+        ITfProperty* property = null;
+        IEnumTfRanges* ranges = null;
+        try
+        {
+            Guid attributeId = PInvoke.GUID_PROP_ATTRIBUTE;
+            ITfProperty* made;
+            context->GetProperty(&attributeId, &made);
+            property = made;
+            IEnumTfRanges* enumerated;
+            property->EnumRanges(ec, &enumerated, whole);
+            ranges = enumerated;
+            var batch = stackalloc ITfRange*[8];
+            uint fetched;
+            do
+            {
+                ranges->Next(8, batch, &fetched);
+                for (uint i = 0; i < fetched; i++)
+                {
+                    try
+                    {
+                        VARIANT value;
+                        property->GetValue(ec, batch[i], &value);
+                        if (value.vt == VARENUM.VT_I4 && DisplayAttribute((uint)value.lVal) is int attribute)
+                        {
+                            found.Add((Position(ec, batch[i], TfAnchor.TF_ANCHOR_START), Position(ec, batch[i], TfAnchor.TF_ANCHOR_END), attribute));
+                        }
+                    }
+                    catch (COMException)
+                    {
+                        // One range whose attribute TSF cannot name is left plain; the others still count.
+                    }
+                    finally
+                    {
+                        Release(batch[i]);
+                    }
+                }
+            }
+            while (fetched == 8);
+        }
+        catch (COMException)
+        {
+        }
+        Release(ranges);
+        Release(property);
+        return found;
+    }
+
+    // TF_DISPLAYATTRIBUTE.bAttr of the attribute a guid atom stands for; null when TSF cannot say.
+    private int? DisplayAttribute(uint atom)
+    {
+        if (categories is null)
+        {
+            Guid categoryClass = PInvoke.CLSID_TF_CategoryMgr;
+            if (PInvoke.CoCreateInstance(categoryClass, null, CLSCTX.CLSCTX_INPROC_SERVER, out ITfCategoryMgr* made).Failed)
+            {
+                return null;
+            }
+            categories = made;
+        }
+        if (displays is null)
+        {
+            Guid displayClass = PInvoke.CLSID_TF_DisplayAttributeMgr;
+            if (PInvoke.CoCreateInstance(displayClass, null, CLSCTX.CLSCTX_INPROC_SERVER, out ITfDisplayAttributeMgr* made).Failed)
+            {
+                return null;
+            }
+            displays = made;
+        }
+        Guid id;
+        categories->GetGUID(atom, &id);
+        ITfDisplayAttributeInfo* info;
+        Guid owner;
+        displays->GetDisplayAttributeInfo(&id, &info, &owner);
+        if (info is null)
+        {
+            return null;
+        }
+        TF_DISPLAYATTRIBUTE attribute;
+        try
+        {
+            info->GetAttributeInfo(&attribute);
+            return (int)attribute.bAttr;
+        }
+        finally
+        {
+            Release(info);
+        }
+    }
+
+    // The characters from the start of the document to one end of a range.
+    private int Position(uint ec, ITfRange* target, TfAnchor anchor)
+    {
+        ITfRange* start;
+        context->GetStart(ec, &start);
+        var halt = new TF_HALTCOND { pHaltRange = target, aHaltPos = anchor };
+        int position;
+        start->ShiftEnd(ec, int.MaxValue, &position, &halt);
+        Release(start);
+        return position;
     }
 
     // The caret as a count of characters from the start of the document.
@@ -367,10 +482,14 @@ internal sealed unsafe class TsfInput : IDisposable
         {
             threadMgr->Deactivate();
         }
+        Release(displays);
+        Release(categories);
         Release(source);
         Release(context);
         Release(documentMgr);
         Release(threadMgr);
+        displays = null;
+        categories = null;
         source = null;
         context = null;
         documentMgr = null;

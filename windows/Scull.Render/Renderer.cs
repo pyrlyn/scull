@@ -414,6 +414,9 @@ public sealed unsafe class Renderer : IDisposable
                 }
             }
         }
+        // Only the composing row has marks to look up.
+        Preedit preedit = view.Preedit;
+        ReadOnlySpan<PreeditSpan> clauses = preedit.Row == row ? view.PreeditSpans : default;
         int start = 0;
         uint current = palette.Background;
         for (int col = 0; col <= cols; col++)
@@ -462,6 +465,27 @@ public sealed unsafe class Renderer : IDisposable
             if (cell.IsLink && nf < capFg)
             {
                 quads[fgBase + nf++] = Rect(x, m.Underline, w, m.Thickness, Rgba(fg));
+            }
+            // The input method's text: raw input dotted, converted text plain, the clause being converted thick.
+            if (PreeditMarks.At(preedit, clauses, row, col) is { } mark && nf < capFg)
+            {
+                uint line = Rgba(fg);
+                switch (mark)
+                {
+                    case PreeditKind.Input:
+                        AtlasEntry dotted = Entry(Sprites.UnderlineKey(Underline.Dotted));
+                        for (int c = 0; c < cell.Width; c++)
+                        {
+                            Glyph(dotted, x + c * m.Width, line, 255);
+                        }
+                        break;
+                    case PreeditKind.Target:
+                        quads[fgBase + nf++] = Rect(x, m.Underline, w, Math.Min(2 * m.Thickness, Math.Max(m.Thickness, m.Height - m.Underline)), line);
+                        break;
+                    default:
+                        quads[fgBase + nf++] = Rect(x, m.Underline, w, m.Thickness, line);
+                        break;
+                }
             }
         }
         (bgCount[slot], fgCount[slot]) = (nb, nf);

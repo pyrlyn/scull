@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 9;
+        internal const uint TT_ABI_VERSION_MINOR = 10;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 9;
+        internal const uint TT_ABI_VERSION = 10;
         /// <summary>
         ///  `tt_keybind.action`: paste the clipboard.
         /// </summary>
@@ -234,6 +234,18 @@ namespace Scull.Native
         ///  Dashed.
         /// </summary>
         internal const byte TT_UNDERLINE_DASHED = 5;
+        /// <summary>
+        ///  Typed and not converted yet: the input method's raw text.
+        /// </summary>
+        internal const byte TT_PREEDIT_INPUT = 0;
+        /// <summary>
+        ///  Converted, but not the clause being edited.
+        /// </summary>
+        internal const byte TT_PREEDIT_CONVERTED = 1;
+        /// <summary>
+        ///  The clause being converted now: the one a candidate list belongs to.
+        /// </summary>
+        internal const byte TT_PREEDIT_TARGET = 2;
         /// <summary>
         ///  Most bytes of composing text a frame shows.
         /// </summary>
@@ -681,6 +693,23 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_frame_preedit", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_frame_preedit(tt_frame* frame, byte* bytes, nuint len, nuint caret);
+
+        /// <summary>
+        ///  `tt_frame_preedit` with the input method's clauses: `clauses_len`
+        ///  entries of `clauses`, each a byte range of the text and a `TT_PREEDIT_*`
+        ///  kind. They are cut to the text, so a sloppy list is harmless; text no
+        ///  clause names counts as `TT_PREEDIT_INPUT`. The next `tt_frame_update`
+        ///  reports them in columns as `tt_frame_view.preedit_spans`. At most
+        ///  `TT_MAX_PREEDIT_BYTES` clauses are read. `TT_INVALID` for a `NULL` frame,
+        ///  text that is not UTF-8, or `NULL` `clauses` with a length.
+        ///
+        ///  # Safety
+        ///
+        ///  As `tt_frame_preedit`; `clauses` points to `clauses_len` readable
+        ///  entries.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_frame_preedit_clauses", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_frame_preedit_clauses(tt_frame* frame, byte* bytes, nuint len, nuint caret, tt_preedit_clause* clauses, nuint clauses_len);
 
         /// <summary>
         ///  Frees the frame and every buffer its views pointed to. `NULL` is a
@@ -1436,6 +1465,48 @@ namespace Scull.Native
     }
 
     /// <summary>
+    ///  One clause of the composing text, as the input method reports it, for
+    ///  `tt_frame_preedit_clauses`: bytes `start` up to `end` of the text.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_preedit_clause
+    {
+        /// <summary>
+        ///  First byte.
+        /// </summary>
+        public nuint start;
+        /// <summary>
+        ///  One past the last byte.
+        /// </summary>
+        public nuint end;
+        /// <summary>
+        ///  A `TT_PREEDIT_*` kind; an unknown one counts as input.
+        /// </summary>
+        public byte kind;
+    }
+
+    /// <summary>
+    ///  A run of columns of the shown composing text with one clause kind, in
+    ///  `tt_frame_view.preedit_spans`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_preedit_span
+    {
+        /// <summary>
+        ///  First column, on the row of `tt_frame_view.preedit`.
+        /// </summary>
+        public ushort col;
+        /// <summary>
+        ///  Columns covered.
+        /// </summary>
+        public ushort cols;
+        /// <summary>
+        ///  A `TT_PREEDIT_*` kind.
+        /// </summary>
+        public byte kind;
+    }
+
+    /// <summary>
     ///  An image's pixels, shared and immutable. Opaque to the host: read it
     ///  with `tt_image_pixels`.
     /// </summary>
@@ -1596,6 +1667,16 @@ namespace Scull.Native
         ///  changed.
         /// </summary>
         public tt_preedit preedit;
+        /// <summary>
+        ///  The composing text split by clause kind, in column order; empty
+        ///  when it was set without clauses, in which case `preedit` is all
+        ///  there is to mark.
+        /// </summary>
+        public tt_preedit_span* preedit_spans;
+        /// <summary>
+        ///  Number of spans.
+        /// </summary>
+        public nuint preedit_spans_len;
     }
 
     /// <summary>

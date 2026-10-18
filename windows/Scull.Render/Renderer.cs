@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.InteropServices;
 using Scull.Core;
 using System.Runtime.Versioning;
@@ -28,15 +29,18 @@ public sealed unsafe class Renderer : IDisposable
         public ushort U, V;
         public uint Color;
         public uint Kind;
+        public ushort SpanU, SpanV;
     }
 
+    internal const uint Image = 3;
     private const uint Solid = 0, Coverage = 1, ColorGlyph = 2;
     private const int CursorQuads = 24;
 
     private readonly RenderDevice device;
-    private readonly FontFaces fonts;
-    private readonly AtlasPacker packer = new();
-    private readonly Palette palette;
+    private readonly GlyphAtlases atlases;
+    private GlyphAtlas glyphs;
+    private readonly ImageLayer images;
+    private Palette palette;
     private readonly Quad[] cursor = new Quad[CursorQuads];
     private ID3D11VertexShader* vertexShader;
     private ID3D11PixelShader* pixelShader;
@@ -45,25 +49,36 @@ public sealed unsafe class Renderer : IDisposable
     private ID3D11RasterizerState* raster;
     private ID3D11Buffer* uniforms;
     private ID3D11Buffer* overlay;
+    private ID3D11Buffer* pictures;
+    private ID3D11SamplerState* sampler;
+    private int picturesCapacity;
     private ID3D11Buffer* instances;
-    private ID3D11Texture2D* atlas;
-    private ID3D11ShaderResourceView* atlasView;
-    private int atlasSize;
     private int cols, rows, capBg, capFg, stride;
     private Quad[] quads = [];
     private int[] bgCount = [], fgCount = [], slotOfRow = [], sources = [], before = [], next = [], free = [], build = [];
     private bool[] taken = [];
     private HashSet<ushort>[] shelvesOf = [];
-    private ulong frame;
+    private int builtGeneration;
     private bool needsRebuild = true;
+    private int areaWidth, areaHeight;
 
+    /// <summary>A renderer with an atlas of its own.</summary>
     public Renderer(RenderDevice device, string fontFamily, float fontSizePixels, Palette? palette = null)
+        : this(device, new GlyphAtlases(device), fontFamily, fontSizePixels, palette)
     {
-        this.device = device;
+    }
+
+    /// <summary>A renderer that shares the atlas of <paramref name="atlases"/> for this font with every other renderer drawing it.</summary>
+    public Renderer(RenderDevice device, GlyphAtlases atlases, string fontFamily, float fontSizePixels, Palette? palette = null)
+    {
+        ArgumentNullException.ThrowIfNull(atlases);
+        (this.device, this.atlases) = (device, atlases);
         this.palette = palette ?? new Palette();
-        fonts = new FontFaces(fontFamily, fontSizePixels);
+        glyphs = atlases.Get(fontFamily, fontSizePixels);
+        glyphs.Acquire(this);
         try
         {
+            images = new ImageLayer(device);
             CreatePipeline();
         }
         catch
@@ -73,15 +88,55 @@ public sealed unsafe class Renderer : IDisposable
         }
     }
 
-    public CellMetrics Metrics => fonts.Metrics;
+    public CellMetrics Metrics => glyphs.Fonts.Metrics;
+
+    /// <summary>The atlas this renderer draws glyphs from.</summary>
+    public GlyphAtlas Atlas => glyphs;
+
+    /// <summary>The atlas shelves each row slot draws from, which its atlas keeps through evictions.</summary>
+    internal HashSet<ushort>[] Shelves => shelvesOf;
+
+    /// <summary>The colours rows are drawn in; a new palette rebuilds every row.</summary>
+    public Palette Palette
+    {
+        get => palette;
+        set
+        {
+            palette = value ?? throw new ArgumentNullException(nameof(value));
+            needsRebuild = true;
+        }
+    }
+
+    /// <summary>
+    /// Draws with another font from the next frame: the atlas for it, shared
+    /// as the first one was, the pipeline kept. A missing family throws
+    /// <see cref="ArgumentException"/> and leaves the current font in place.
+    /// The cell size may change, so the caller sends the terminal its new grid.
+    /// </summary>
+    public void SetFont(string fontFamily, float fontSizePixels)
+    {
+        GlyphAtlas next = atlases.Get(fontFamily, fontSizePixels);
+        next.Acquire(this);
+        glyphs.Release(this);
+        glyphs = next;
+        // Rows name the old atlas's shelves.
+        foreach (HashSet<ushort> shelves in shelvesOf)
+        {
+            shelves.Clear();
+        }
+        needsRebuild = true;
+    }
 
     /// <summary>A focused view draws a block cursor, an unfocused one a hollow box.</summary>
     public bool Focused { get; set; } = true;
 
     /// <summary>Distinct glyphs in the atlas, blanks included.</summary>
-    public int AtlasEntries => packer.Count;
+    public int AtlasEntries => glyphs.Count;
 
-    public int AtlasGeneration => packer.Generation;
+    public int AtlasGeneration => glyphs.Generation;
+
+    /// <summary>Image textures held, for tests of their release.</summary>
+    internal int ImageTextures => images.Textures;
 
     private ID3D11DeviceContext* Context => device.Context;
 
@@ -101,7 +156,7 @@ public sealed unsafe class Renderer : IDisposable
             {
                 d->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), null, p);
             }
-            fixed (byte* rect = "RECT"u8, uv = "UV"u8, color = "COLOR"u8, kind = "KIND"u8)
+            fixed (byte* rect = "RECT"u8, uv = "UV"u8, color = "COLOR"u8, kind = "KIND"u8, span = "SPAN"u8)
             fixed (ID3D11InputLayout** l = &layout)
             {
                 D3D11_INPUT_ELEMENT_DESC* elements = stackalloc D3D11_INPUT_ELEMENT_DESC[]
@@ -110,8 +165,9 @@ public sealed unsafe class Renderer : IDisposable
                     Element(uv, DXGI_FORMAT.DXGI_FORMAT_R16G16_UINT, 16),
                     Element(color, DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM, 20),
                     Element(kind, DXGI_FORMAT.DXGI_FORMAT_R32_UINT, 24),
+                    Element(span, DXGI_FORMAT.DXGI_FORMAT_R16G16_UINT, 28),
                 };
-                d->CreateInputLayout(elements, 4, vs->GetBufferPointer(), vs->GetBufferSize(), l);
+                d->CreateInputLayout(elements, 5, vs->GetBufferPointer(), vs->GetBufferSize(), l);
             }
         }
         finally
@@ -133,11 +189,21 @@ public sealed unsafe class Renderer : IDisposable
         };
         // No culling: a quad's winding is whatever its corners give.
         var rasterDesc = new D3D11_RASTERIZER_DESC { FillMode = D3D11_FILL_MODE.D3D11_FILL_SOLID, CullMode = D3D11_CULL_MODE.D3D11_CULL_NONE, DepthClipEnable = true };
+        var samplerDesc = new D3D11_SAMPLER_DESC
+        {
+            Filter = D3D11_FILTER.D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+            AddressU = D3D11_TEXTURE_ADDRESS_MODE.D3D11_TEXTURE_ADDRESS_CLAMP,
+            AddressV = D3D11_TEXTURE_ADDRESS_MODE.D3D11_TEXTURE_ADDRESS_CLAMP,
+            AddressW = D3D11_TEXTURE_ADDRESS_MODE.D3D11_TEXTURE_ADDRESS_CLAMP,
+            MaxLOD = float.MaxValue,
+        };
         fixed (ID3D11BlendState** b = &blend)
         fixed (ID3D11RasterizerState** r = &raster)
+        fixed (ID3D11SamplerState** s = &sampler)
         {
             device.Device->CreateBlendState(&blendDesc, b);
             device.Device->CreateRasterizerState(&rasterDesc, r);
+            device.Device->CreateSamplerState(&samplerDesc, s);
         }
         uniforms = Buffer(16, D3D11_BIND_FLAG.D3D11_BIND_CONSTANT_BUFFER);
         overlay = Buffer(CursorQuads * sizeof(Quad), D3D11_BIND_FLAG.D3D11_BIND_VERTEX_BUFFER);
@@ -197,7 +263,14 @@ public sealed unsafe class Renderer : IDisposable
     }
 
     /// <summary>Draws <paramref name="view"/> into <paramref name="target"/>, the grid from its top-left pixel.</summary>
-    public void Render(FrameView view, RenderTarget target)
+    public void Render(FrameView view, RenderTarget target) => Render(view, target, null);
+
+    /// <summary>
+    /// Draws <paramref name="view"/> into <paramref name="region"/> of <paramref name="target"/>, the grid from the
+    /// region's top-left pixel: a pane of a window whose panes share one swap chain. The region is filled with the
+    /// background and nothing outside it is touched; null is the whole target, cleared.
+    /// </summary>
+    public void Render(FrameView view, RenderTarget target, Region? region)
     {
         if (view.Cols != cols || view.Rows != rows)
         {
@@ -208,7 +281,8 @@ public sealed unsafe class Renderer : IDisposable
         {
             return;
         }
-        frame++;
+        // Another user of the atlas grew it since this renderer's rows were built.
+        needsRebuild |= builtGeneration != glyphs.Generation;
         int dirty = needsRebuild ? rows : Remap();
         if (needsRebuild)
         {
@@ -218,34 +292,29 @@ public sealed unsafe class Renderer : IDisposable
             }
         }
         needsRebuild = false;
-        // Shelves that reused rows draw from must survive this frame's evictions.
-        foreach (HashSet<ushort> shelves in shelvesOf)
-        {
-            foreach (ushort shelf in shelves)
-            {
-                packer.Touch(shelf, frame);
-            }
-        }
-        int generation = packer.Generation;
+        // Shelves that reused rows draw from, this renderer's or a neighbour's, must survive this frame's evictions.
+        glyphs.BeginFrame();
+        int generation = glyphs.Generation;
         for (int i = 0; i < dirty; i++)
         {
             Build(build[i], view);
         }
         // A grown atlas dropped every entry, so rows built before the growth
         // point at texels that are gone.
-        for (int attempt = 0; attempt < 4 && packer.Generation != generation; attempt++)
+        for (int attempt = 0; attempt < 4 && glyphs.Generation != generation; attempt++)
         {
-            generation = packer.Generation;
+            generation = glyphs.Generation;
             for (int row = 0; row < rows; row++)
             {
                 Build(row, view);
             }
         }
+        builtGeneration = generation;
         for (int row = 0; row < rows; row++)
         {
             sources[row] = row;
         }
-        Draw(view, target);
+        Draw(view, target, region);
     }
 
     private void Allocate(int newCols, int newRows)
@@ -314,8 +383,40 @@ public sealed unsafe class Renderer : IDisposable
         int bgBase = slot * stride, fgBase = bgBase + capBg, nb = 0, nf = 0;
         HashSet<ushort> shelves = shelvesOf[slot];
         shelves.Clear();
-        CellMetrics m = fonts.Metrics;
+        CellMetrics m = Metrics;
         ReadOnlySpan<Cell> cells = view.Cells.Slice(row * cols, cols);
+        if (row < view.Lines.Length)
+        {
+            Row line = view.Lines[row];
+            foreach (Run run in line.Runs)
+            {
+                Style style = view.StyleAt(run.Style);
+                StyleAttributes attrs = style.Attributes;
+                if ((attrs & StyleAttributes.Hidden) != 0)
+                {
+                    continue;
+                }
+                uint alpha = (attrs & StyleAttributes.Dim) != 0 ? 128u : 255u;
+                uint color = Rgba(palette.Colors(style).Fg, alpha);
+                int face = ((attrs & StyleAttributes.Bold) != 0 ? 1 : 0) | ((attrs & StyleAttributes.Italic) != 0 ? 2 : 0);
+                foreach (ShapedGlyph g in glyphs.Shaper.Shape(line.TextOf(run), face, run.Width))
+                {
+                    int col = run.Col + g.Column;
+                    if (col >= cols || nf >= capFg)
+                    {
+                        break;
+                    }
+                    // The current match's background is bright in any theme, so its text has its own colour.
+                    uint tint = cells[col].IsCurrentMatch ? Rgba(palette.CurrentMatchText, alpha) : color;
+                    // Pinned to its cluster's column, so a fallback's own
+                    // advances never push the rest of the run off the grid.
+                    Glyph(Entry(g.Key), col * m.Width + (int)MathF.Round(g.Dx), tint, alpha, (int)MathF.Round(g.Dy));
+                }
+            }
+        }
+        // Only the composing row has marks to look up.
+        Preedit preedit = view.Preedit;
+        ReadOnlySpan<PreeditSpan> clauses = preedit.Row == row ? view.PreeditSpans : default;
         int start = 0;
         uint current = palette.Background;
         for (int col = 0; col <= cols; col++)
@@ -323,6 +424,7 @@ public sealed unsafe class Renderer : IDisposable
             Cell cell = col < cols ? cells[col] : default;
             Style style = view.StyleAt(cell.Style);
             (uint fg, uint bg) = palette.Colors(style);
+            bg = palette.Highlight(cell, bg);
             // Neighbouring cells of one colour share a quad; the default
             // background is the clear colour.
             if (col == cols || bg != current)
@@ -341,23 +443,15 @@ public sealed unsafe class Renderer : IDisposable
             uint alpha = (attrs & StyleAttributes.Dim) != 0 ? 128u : 255u;
             uint color = Rgba(fg, alpha);
             int x = col * m.Width, w = cell.Width * m.Width;
-            if (cell.CodePoint > ' ' && nf < capFg)
-            {
-                AtlasEntry e = Entry(fonts.Lookup(cell.CodePoint, (attrs & StyleAttributes.Bold) != 0, (attrs & StyleAttributes.Italic) != 0));
-                if (!e.IsEmpty)
-                {
-                    quads[fgBase + nf++] = new Quad
-                    {
-                        X = x + e.Left, Y = m.Baseline - e.Top, W = e.Width, H = e.Height, U = e.X, V = e.Y,
-                        Color = e.IsColor ? Rgba(0xFFFFFF, alpha) : color, Kind = e.IsColor ? ColorGlyph : Coverage,
-                    };
-                    shelves.Add(e.Shelf);
-                }
-            }
-            // Every underline kind is a straight line until sprites arrive (T17.5).
+            // One sprite per column, so a curly line keeps one period per cell.
             if (style.Underline != Underline.None && nf < capFg)
             {
-                quads[fgBase + nf++] = Rect(x, m.Underline, w, m.Thickness, Rgba(palette.Rgb(style.UnderlineColor, fg), alpha));
+                AtlasEntry e = Entry(Sprites.UnderlineKey(style.Underline));
+                uint tint = Rgba(palette.Rgb(style.UnderlineColor, fg), alpha);
+                for (int c = 0; c < cell.Width; c++)
+                {
+                    Glyph(e, x + c * m.Width, tint, alpha);
+                }
             }
             if ((attrs & StyleAttributes.Strike) != 0 && nf < capFg)
             {
@@ -367,6 +461,32 @@ public sealed unsafe class Renderer : IDisposable
             {
                 quads[fgBase + nf++] = Rect(x, 0, w, m.Thickness, color);
             }
+            // The link under the pointer while Ctrl is held: a plain line in the text's colour, whatever the program styled.
+            if (cell.IsLink && nf < capFg)
+            {
+                quads[fgBase + nf++] = Rect(x, m.Underline, w, m.Thickness, Rgba(fg));
+            }
+            // The input method's text: raw input dotted, converted text plain, the clause being converted thick.
+            if (PreeditMarks.At(preedit, clauses, row, col) is { } mark && nf < capFg)
+            {
+                uint line = Rgba(fg);
+                switch (mark)
+                {
+                    case PreeditKind.Input:
+                        AtlasEntry dotted = Entry(Sprites.UnderlineKey(Underline.Dotted));
+                        for (int c = 0; c < cell.Width; c++)
+                        {
+                            Glyph(dotted, x + c * m.Width, line, 255);
+                        }
+                        break;
+                    case PreeditKind.Target:
+                        quads[fgBase + nf++] = Rect(x, m.Underline, w, Math.Min(2 * m.Thickness, Math.Max(m.Thickness, m.Height - m.Underline)), line);
+                        break;
+                    default:
+                        quads[fgBase + nf++] = Rect(x, m.Underline, w, m.Thickness, line);
+                        break;
+                }
+            }
         }
         (bgCount[slot], fgCount[slot]) = (nb, nf);
         // One upload per rebuilt row: its backgrounds' region and its glyphs.
@@ -375,52 +495,39 @@ public sealed unsafe class Renderer : IDisposable
         {
             Context->UpdateSubresource((ID3D11Resource*)instances, 0, &box, q, 0, 0);
         }
-    }
 
-    private AtlasEntry Entry(GlyphKey key)
-    {
-        if (packer.TryGet(key, frame, out AtlasEntry entry))
+        void Glyph(AtlasEntry e, int pen, uint color, uint alpha, int rise = 0)
         {
-            return entry;
-        }
-        if (!fonts.Rasterize(key, out GlyphBitmap bitmap))
-        {
-            return packer.AddEmpty(key);
-        }
-        // Not remembered when it fits nowhere: a later eviction may make room.
-        if (packer.Place(key, bitmap.Width, bitmap.Height, (short)bitmap.Left, (short)bitmap.Top, bitmap.IsColor, frame) is not AtlasEntry placed)
-        {
-            return default;
-        }
-        if (atlasSize != packer.Size)
-        {
-            // Growth dropped every entry, so the old texels are not needed.
-            Com.Release(ref atlasView);
-            Com.Release(ref atlas);
-            atlasSize = packer.Size;
-            atlas = device.CreateTexture(atlasSize, atlasSize, D3D11_BIND_FLAG.D3D11_BIND_SHADER_RESOURCE);
-            fixed (ID3D11ShaderResourceView** v = &atlasView)
+            if (e.IsEmpty || nf >= capFg)
             {
-                device.Device->CreateShaderResourceView((ID3D11Resource*)atlas, null, v);
+                return;
             }
+            quads[fgBase + nf++] = new Quad
+            {
+                X = pen + e.Left, Y = m.Baseline - rise - e.Top, W = e.Width, H = e.Height, U = e.X, V = e.Y,
+                Color = e.IsColor ? Rgba(0xFFFFFF, alpha) : color, Kind = e.IsColor ? ColorGlyph : Coverage,
+            };
+            shelves.Add(e.Shelf);
         }
-        var box = new D3D11_BOX { left = placed.X, top = placed.Y, right = (uint)(placed.X + placed.Width), bottom = (uint)(placed.Y + placed.Height), back = 1 };
-        fixed (byte* pixels = bitmap.Pixels)
-        {
-            Context->UpdateSubresource((ID3D11Resource*)atlas, 0, &box, pixels, (uint)(bitmap.Width * 4), 0);
-        }
-        return placed;
     }
 
-    private void Draw(FrameView view, RenderTarget target)
+    private AtlasEntry Entry(GlyphKey key) => glyphs.Entry(key);
+
+    private void Draw(FrameView view, RenderTarget target, Region? region)
     {
         ID3D11DeviceContext* c = Context;
         ID3D11RenderTargetView* rtv = target.View;
         uint bg = palette.Background;
         float* clear = stackalloc float[] { (bg >> 16 & 0xFF) / 255f, (bg >> 8 & 0xFF) / 255f, (bg & 0xFF) / 255f, 1 };
-        c->ClearRenderTargetView(rtv, clear);
+        Region area = region ?? new Region(0, 0, target.Width, target.Height);
+        (areaWidth, areaHeight) = (area.Width, area.Height);
+        if (region is null)
+        {
+            c->ClearRenderTargetView(rtv, clear);
+        }
         c->OMSetRenderTargets(1, &rtv, null);
-        var viewport = new D3D11_VIEWPORT { Width = target.Width, Height = target.Height, MaxDepth = 1 };
+        // The viewport also clips, so a pane can never draw over its neighbour.
+        var viewport = new D3D11_VIEWPORT { TopLeftX = area.X, TopLeftY = area.Y, Width = area.Width, Height = area.Height, MaxDepth = 1 };
         c->RSSetViewports(1, &viewport);
         c->RSSetState(raster);
         // A null blend factor: the span overload would demand four floats.
@@ -431,8 +538,25 @@ public sealed unsafe class Renderer : IDisposable
         c->PSSetShader(pixelShader, null, 0);
         ID3D11Buffer* u = uniforms;
         c->VSSetConstantBuffers(0, 1, &u);
-        ID3D11ShaderResourceView* a = atlasView;
+        ID3D11ShaderResourceView* a = glyphs.View;
         c->PSSetShaderResources(0, 1, &a);
+        ID3D11SamplerState* s = sampler;
+        c->PSSetSamplers(0, 1, &s);
+        images.Place(view, Metrics);
+        UploadPictures();
+        if (region is not null)
+        {
+            // A region cannot be cleared by ClearRenderTargetView, so one background quad does it.
+            cursor[0] = Rect(0, 0, area.Width, area.Height, Rgba(palette.Background));
+            var fill = new D3D11_BOX { right = (uint)sizeof(Quad), bottom = 1, back = 1 };
+            fixed (Quad* q = cursor)
+            {
+                c->UpdateSubresource((ID3D11Resource*)overlay, 0, &fill, q, 0, 0);
+            }
+            Bind(overlay);
+            Origin(0);
+            c->DrawInstanced(4, 1, 0, 0);
+        }
         (int under, int over) = Cursor(view);
         if (under + over > 0)
         {
@@ -442,7 +566,7 @@ public sealed unsafe class Renderer : IDisposable
                 c->UpdateSubresource((ID3D11Resource*)overlay, 0, &box, q, 0, 0);
             }
         }
-        int height = fonts.Metrics.Height;
+        int height = Metrics.Height;
         for (int layer = 0; layer < 2; layer++)
         {
             Bind(instances);
@@ -452,19 +576,52 @@ public sealed unsafe class Renderer : IDisposable
                 int count = layer == 0 ? bgCount[slot] : fgCount[slot];
                 if (count > 0)
                 {
-                    Origin(target, row * height);
+                    Origin(row * height);
                     c->DrawInstanced(4, (uint)count, 0, (uint)(slot * stride + (layer == 0 ? 0 : capBg)));
                 }
             }
+            // Images with a negative z go under the text, the rest over it.
             // The cursor block goes over the backgrounds; the glyph under it
             // is drawn again on top in the background colour.
+            for (int i = 0; i < images.Count; i++)
+            {
+                if (images.Below(i) == (layer == 0))
+                {
+                    Bind(pictures);
+                    Origin(0);
+                    ID3D11ShaderResourceView* picture = images.View(i);
+                    c->PSSetShaderResources(1, 1, &picture);
+                    c->DrawInstanced(4, 1, 0, (uint)i);
+                }
+            }
             int n = layer == 0 ? under : over;
             if (n > 0)
             {
                 Bind(overlay);
-                Origin(target, 0);
+                Origin(0);
                 c->DrawInstanced(4, (uint)n, 0, layer == 0 ? 0u : (uint)under);
             }
+        }
+    }
+
+    private void UploadPictures()
+    {
+        int count = images.Count;
+        if (count == 0)
+        {
+            return;
+        }
+        if (count > picturesCapacity)
+        {
+            // Grown by doubling, so a steady set of images allocates nothing.
+            Com.Release(ref pictures);
+            picturesCapacity = Math.Max(4, (int)BitOperations.RoundUpToPowerOf2((uint)count));
+            pictures = Buffer(picturesCapacity * sizeof(Quad), D3D11_BIND_FLAG.D3D11_BIND_VERTEX_BUFFER);
+        }
+        var box = new D3D11_BOX { right = (uint)(count * sizeof(Quad)), bottom = 1, back = 1 };
+        fixed (Quad* q = images.Quads)
+        {
+            Context->UpdateSubresource((ID3D11Resource*)pictures, 0, &box, q, 0, 0);
         }
     }
 
@@ -474,9 +631,9 @@ public sealed unsafe class Renderer : IDisposable
         Context->IASetVertexBuffers(0, 1, &buffer, &quadStride, &offset);
     }
 
-    private void Origin(RenderTarget target, int y)
+    private void Origin(int y)
     {
-        float* values = stackalloc float[] { target.Width, target.Height, 0, y };
+        float* values = stackalloc float[] { areaWidth, areaHeight, 0, y };
         Context->UpdateSubresource((ID3D11Resource*)uniforms, 0, null, values, 0, 0);
     }
 
@@ -488,7 +645,7 @@ public sealed unsafe class Renderer : IDisposable
         {
             return (0, 0);
         }
-        CellMetrics m = fonts.Metrics;
+        CellMetrics m = Metrics;
         int left = at.Col * m.Width, top = at.Row * m.Height;
         int width = Math.Max(1, (int)view.Cells[at.Row * cols + at.Col].Width) * m.Width;
         uint color = Rgba(palette.Cursor);
@@ -518,9 +675,10 @@ public sealed unsafe class Renderer : IDisposable
 
     public void Dispose()
     {
-        Com.Release(ref atlasView);
-        Com.Release(ref atlas);
         Com.Release(ref instances);
+        images?.Dispose();
+        Com.Release(ref pictures);
+        Com.Release(ref sampler);
         Com.Release(ref overlay);
         Com.Release(ref uniforms);
         Com.Release(ref raster);
@@ -528,6 +686,6 @@ public sealed unsafe class Renderer : IDisposable
         Com.Release(ref layout);
         Com.Release(ref pixelShader);
         Com.Release(ref vertexShader);
-        fonts.Dispose();
+        glyphs.Release(this);
     }
 }

@@ -76,3 +76,55 @@ private extension Array {
         return low
     }
 }
+
+/// A run of selected cells on one screen line; `endCol` is the column after the last one.
+struct SelectedSpan: Equatable {
+    var line: Int
+    var col: Int
+    var endCol: Int
+}
+
+/// A cell range on the screen, ends inclusive, as the core's selection takes it.
+struct ScreenSelection: Equatable {
+    var start: (row: Int, col: Int)
+    var end: (row: Int, col: Int)
+
+    static func == (a: Self, b: Self) -> Bool { a.start == b.start && a.end == b.end }
+}
+
+extension ScreenText {
+    /// The value's ranges the selected `spans` cover, one per span. A span begins at the character
+    /// its first column belongs to and ends after the one holding its last, so a wide character is
+    /// never cut; cells past the trimmed text add nothing, and a span with no text is dropped.
+    /// `width(line)(col)` answers a row's cell width at a column.
+    func ranges(of spans: [SelectedSpan], width: (Int) -> (Int) -> Int) -> [NSRange] {
+        spans.compactMap { span in
+            let stops = columns(line: span.line, width: width(span.line))
+            guard let start = stops.last(where: { $0.col <= span.col }) else { return nil }
+            let end = stops.first { $0.col >= span.endCol } ?? stops[stops.count - 1]
+            return end.index > start.index ? NSRange(location: start.index, length: end.index - start.index) : nil
+        }
+    }
+
+    /// The cells a client's `range` selects: from the first character in it to the last, newlines
+    /// skipped. Nil when it holds no character of the text.
+    func selection(for range: NSRange, width: (Int) -> (Int) -> Int) -> ScreenSelection? {
+        guard range.location != NSNotFound, range.location >= 0, range.location < length else { return nil }
+        let text = string as NSString
+        let end = min(NSMaxRange(range), length)
+        let isText = { (index: Int) in text.character(at: index) != 0x0A }
+        guard let first = (range.location..<end).first(where: isText),
+              let last = (range.location..<end).last(where: isText),
+              let head = cell(at: first, width: width), let tail = cell(at: last, width: width)
+        else { return nil }
+        return ScreenSelection(start: (head.row, head.col), end: (tail.row, tail.col + tail.cols - 1))
+    }
+
+    /// The cell the character holding `index` starts in, with the columns it covers; nil on a line's end.
+    private func cell(at index: Int, width: (Int) -> (Int) -> Int) -> (row: Int, col: Int, cols: Int)? {
+        let row = line(for: index)
+        let stops = columns(line: row, width: width(row))
+        guard let k = stops.lastIndex(where: { $0.index <= index }), k + 1 < stops.count else { return nil }
+        return (row, stops[k].col, stops[k + 1].col - stops[k].col)
+    }
+}

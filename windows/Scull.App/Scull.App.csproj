@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <!-- Exact, as in Scull.Render: the TSF interfaces of the input method (T18.3). -->
+    <PackageReference Include="Microsoft.Windows.CsWin32" Version="[0.3.358]" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

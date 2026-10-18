@@ -19,6 +19,7 @@ scull-unicode = { workspace = true }
 # OSC 52 clipboard payloads; the same crate scull-image uses for images.
 base64 = { workspace = true }
 thiserror = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]
 proptest = { workspace = true }

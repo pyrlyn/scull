@@ -27,7 +27,7 @@ use scull_grid::{Cell, CellFlags, Content, Grid, Style, StyleId};
 use scull_image::{Crop, Image};
 
 use crate::damage::{Damage, RowStamp};
-use crate::preedit::{FramePreedit, Preedit, PreeditLayout};
+use crate::preedit::{FramePreedit, Preedit, PreeditClause, PreeditLayout, PreeditSpan};
 use crate::terminal::Terminal;
 
 /// Drawn for a cluster id the table no longer has. Rows keep their
@@ -62,6 +62,8 @@ impl FrameCell {
     pub const MATCH: u8 = 4;
     /// The cell is part of the current search match (also [`Self::MATCH`]).
     pub const CURRENT_MATCH: u8 = 8;
+    /// The cell carries the link the host hovers.
+    pub const LINK: u8 = 16;
 }
 
 /// Highlight bits laid over columns `start..end` of viewport row `row`.
@@ -339,7 +341,21 @@ impl Frame {
     /// the cursor row as text of the default style and moves the cursor to
     /// the caret. Cut at [`crate::MAX_PREEDIT_BYTES`].
     pub fn set_preedit(&mut self, text: &str, caret: usize) {
+        self.set_preedit_clauses(text, caret, &[]);
+    }
+
+    /// [`Frame::set_preedit`] with the input method's clauses, which
+    /// [`Frame::preedit_spans`] reports in columns. Offsets are bytes of
+    /// `text` and are cut to it; text no clause names counts as input.
+    pub fn set_preedit_clauses(&mut self, text: &str, caret: usize, clauses: &[PreeditClause]) {
         self.preedit.set(text, caret);
+        self.preedit.set_clauses(clauses);
+    }
+
+    /// The shown preedit's clauses as column runs, empty when it was set
+    /// without clauses or is not shown.
+    pub fn preedit_spans(&self) -> &[PreeditSpan] {
+        self.shown_preedit.as_ref().map_or(&[], |p| &p.spans)
     }
 
     /// Where the last update showed the preedit, `None` when it did not.
@@ -416,6 +432,7 @@ impl Frame {
         self.marks.clear();
         term.selection_marks(&mut self.marks);
         term.search_marks(&mut self.marks);
+        term.link_marks(&mut self.marks);
         self.marks.sort_by_key(|m| m.row);
         for m in &self.marks {
             if let Some(slot) = self.slices.get_mut(usize::from(m.row)) {
@@ -650,6 +667,7 @@ impl Terminal {
 mod tests {
     use std::time::Duration;
 
+    use crate::ClauseKind;
     use proptest::prelude::*;
     use scull_grid::Color;
 
@@ -845,6 +863,59 @@ mod tests {
             (f.preedit(), f.cursor()),
             (None, Some(FrameCursor { row: 0, col: 2 }))
         );
+    }
+
+    #[test]
+    fn a_change_of_clause_alone_is_damage_and_spans_ride_with_the_preedit() {
+        let mut t = term();
+        let mut f = fresh(&mut t);
+        let (text, one, two) = ("日本ご", ClauseKind::Converted, ClauseKind::Target);
+        let set = |f: &mut Frame, target: ClauseKind| {
+            let clauses = [
+                PreeditClause {
+                    start: 0,
+                    end: 6,
+                    kind: one,
+                },
+                PreeditClause {
+                    start: 6,
+                    end: 9,
+                    kind: target,
+                },
+            ];
+            f.set_preedit_clauses(text, text.len(), &clauses);
+        };
+        set(&mut f, two);
+        updated(&mut t, &mut f);
+        assert_eq!(
+            f.preedit_spans(),
+            [
+                PreeditSpan {
+                    col: 0,
+                    cols: 4,
+                    kind: one
+                },
+                PreeditSpan {
+                    col: 4,
+                    cols: 2,
+                    kind: two
+                },
+            ]
+        );
+        set(&mut f, two);
+        updated(&mut t, &mut f);
+        assert!(f.damage().is_empty(), "the same clauses are not damage");
+        set(&mut f, one);
+        updated(&mut t, &mut f);
+        assert_eq!(
+            f.damage().dirty(),
+            [0],
+            "a clause that changed repaints its row"
+        );
+        assert_eq!(f.preedit_spans().len(), 1);
+        f.set_preedit("", 0);
+        updated(&mut t, &mut f);
+        assert!(f.preedit_spans().is_empty());
     }
 
     #[test]

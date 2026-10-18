@@ -29,10 +29,10 @@ extension TerminalView: @preconcurrency NSTextInputClient {
 
     private func showPreedit() {
         guard let session else { return }
-        let (text, caret) = textInput.preedit
-        _ = session.preedit(text, caret: caret)
+        let preedit = textInput.preedit
+        _ = session.preedit(preedit.text, caret: preedit.caret, clauses: preedit.clauses)
         // Composing returns the view to the screen, where the cursor is.
-        if !text.isEmpty { _ = session.scrollDisplay(Int32.min) }
+        if !preedit.text.isEmpty { _ = session.scrollDisplay(Int32.min) }
         if session.update() { needsDisplay = true }
     }
 
@@ -63,8 +63,8 @@ extension TerminalView: @preconcurrency NSTextInputClient {
         textInput.substring(range, actualRange: actualRange)
     }
 
-    // The core draws the preedit in one style, so no attribute is used.
-    public func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
+    // An input method only tags its clauses when the client says it reads the tags.
+    public func validAttributesForMarkedText() -> [NSAttributedString.Key] { [.underlineStyle, .markedClauseSegment] }
 
     /// The cursor cell, which the frame keeps at the composition's caret,
     /// in screen coordinates: the candidate window opens beside it.

@@ -100,6 +100,10 @@ impl State {
         self.leave_alt_screen(true);
         clear_screen(&mut self.grid);
         self.images.clear();
+        // The prompts on the blanked rows are gone with their text; the
+        // scrollback keeps its own.
+        self.images
+            .remove_lines(self.line_of(0)..self.line_of(self.rows()));
         self.sixel = None;
         let (cols, rows) = (self.cols(), self.rows());
         self.cursor = Cursor::default();

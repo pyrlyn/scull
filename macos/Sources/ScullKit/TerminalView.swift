@@ -30,16 +30,27 @@ public final class TerminalView: NSView {
     /// Runs when this view becomes the first responder, so a host can track
     /// which pane has the keyboard.
     public var onFocus: (() -> Void)?
+    /// Where programs' notifications go; a test passes its own.
+    var notificationPoster: any NotificationPoster = UserNotificationPoster.shared
     /// A host with several panes picks the focused one itself.
     public var takesFocusOnAttach = true
     var textInput = TextInput()
-    private var lastMotionCell: (Int, Int)?
+    /// The cell of the last mouse report, for motion de-duplication.
+    private(set) var lastMotionCell: (Int, Int)?
     private var scrollRemainder: CGFloat = 0
     /// The left-button gesture the host owns; nil while the program has it.
     var selectionDrag: SelectionDrag?
+    /// The selection last posted to VoiceOver.
+    var postedSelection: [NSRange] = []
     var findBar: FindBar?
     var find = FindState()
     var findSettle: Timer?
+    /// The link underlined while Cmd is held.
+    var hoveredLink: UInt32?
+    /// A Cmd+click opened a link: its drag and release are not the program's.
+    var linkClick = false
+    /// Opens a link the user Cmd+clicked; tests catch it instead.
+    var launch: (LinkTarget) -> Void = { $0.launch() }
     #if DEBUG
     private var initialInput = UserDefaults.standard.string(forKey: "ScullInitialInput")
     private var probe: LatencyProbe?
@@ -81,11 +92,17 @@ public final class TerminalView: NSView {
     private func wake() {
         guard let session else { return }
         let title = session.title
-        if session.drainEvents(bell: { NSSound.beep() }) {
+        let exited = session.drainEvents(bell: { NSSound.beep() },
+                                         notify: NotificationPolicy.wanted(windowIsKey: window?.isKeyWindow ?? false))
+        // Before the exit below: a program's last word can be a notification.
+        NotificationPolicy.post(session.takeNotices(), fallbackTitle: session.title, to: notificationPoster)
+        if exited {
             if let onChildExit { onChildExit() } else { window?.close() }
             return
         }
         if session.title != title { showTitle(window?.firstResponder === self) }
+        // Output can move a link under a still pointer.
+        followLinkUnderPointer()
         if session.update() {
             needsDisplay = true
             screenChanged()
@@ -197,8 +214,17 @@ public final class TerminalView: NSView {
         case .scrollPageDown: scroll(-Int32(grid.rows))
         case .scrollToTop: scroll(Int32.max)
         case .scrollToBottom: scroll(-Int32.max)
+        case .previousPrompt: scrollToPrompt(forward: false)
+        case .nextPrompt: scrollToPrompt(forward: true)
         }
         return true
+    }
+
+    func scrollToPrompt(forward: Bool) {
+        guard let session else { return }
+        // Nothing to jump to is not an error; the viewport stays.
+        _ = session.scrollToPrompt(forward: forward)
+        if session.update() { needsDisplay = true }
     }
 
     private func scroll(_ rows: Int32) {
@@ -322,6 +348,7 @@ public final class TerminalView: NSView {
     private func setFocused(_ value: Bool) {
         guard value != focused else { return }
         focused = value
+        if !value { hoverLink(at: nil, flags: []) }
         _ = session?.focus(value)
         needsDisplay = true
     }
@@ -390,7 +417,7 @@ public final class TerminalView: NSView {
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
                                        owner: self))
     }
 
@@ -426,6 +453,10 @@ public final class TerminalView: NSView {
     }
 
     public override func mouseDown(with e: NSEvent) {
+        if openLink(e) {
+            linkClick = true
+            return
+        }
         // The program sees the press first, as before selection existed.
         if !SelectionGesture.forcesSelection(e.modifierFlags), mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_LEFT) {
             selectionDrag = nil
@@ -435,15 +466,24 @@ public final class TerminalView: NSView {
     }
 
     public override func mouseUp(with e: NSEvent) {
+        if linkClick {
+            linkClick = false
+            return
+        }
         if selectionDrag != nil { return selectionRelease() }
         mouse(e, action: TT_MOUSE_RELEASE, button: TT_MOUSE_LEFT)
     }
 
     public override func mouseDragged(with e: NSEvent) {
+        if linkClick { return }
         if selectionDrag != nil { return selectionDragged(e) }
         mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_LEFT)
     }
-    public override func mouseMoved(with e: NSEvent) { mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_NONE) }
+    public override func mouseMoved(with e: NSEvent) {
+        hoverLink(at: convert(e.locationInWindow, from: nil), flags: e.modifierFlags)
+        mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_NONE)
+    }
+    public override func mouseExited(with e: NSEvent) { hoverLink(at: nil, flags: []) }
     public override func rightMouseDown(with e: NSEvent) { mouse(e, action: TT_MOUSE_PRESS, button: TT_MOUSE_RIGHT) }
     public override func rightMouseUp(with e: NSEvent) { mouse(e, action: TT_MOUSE_RELEASE, button: TT_MOUSE_RIGHT) }
     public override func rightMouseDragged(with e: NSEvent) { mouse(e, action: TT_MOUSE_MOTION, button: TT_MOUSE_RIGHT) }
@@ -465,6 +505,7 @@ public final class TerminalView: NSView {
         } else {
             // History scrolling sends no wakeup, so the view refreshes here.
             _ = session.scrollDisplay(Int32(clamping: steps))
+            followLinkUnderPointer()
             if session.update() { needsDisplay = true }
         }
     }

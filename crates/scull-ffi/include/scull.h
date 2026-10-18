@@ -21,11 +21,11 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 7
+#define TT_ABI_VERSION_MINOR 10
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 7
+#define TT_ABI_VERSION 10
 
 // `tt_keybind.action`: paste the clipboard.
 #define TT_ACTION_PASTE 1
@@ -50,6 +50,12 @@
 
 // Scroll back to the screen.
 #define TT_ACTION_SCROLL_TO_BOTTOM 8
+
+// Scroll to the previous shell prompt: `tt_term_scroll_to_prompt` backwards.
+#define TT_ACTION_PREVIOUS_PROMPT 9
+
+// Scroll to the next shell prompt.
+#define TT_ACTION_NEXT_PROMPT 10
 
 // `tt_event.kind`: the program rang the bell, once or more since the last
 // poll.
@@ -176,6 +182,15 @@
 // Dashed.
 #define TT_UNDERLINE_DASHED 5
 
+// Typed and not converted yet: the input method's raw text.
+#define TT_PREEDIT_INPUT 0
+
+// Converted, but not the clause being edited.
+#define TT_PREEDIT_CONVERTED 1
+
+// The clause being converted now: the one a candidate list belongs to.
+#define TT_PREEDIT_TARGET 2
+
 // Most bytes of composing text a frame shows.
 #define TT_MAX_PREEDIT_BYTES 1024
 
@@ -275,6 +290,26 @@
 
 // One wheel step right.
 #define TT_MOUSE_WHEEL_RIGHT 7
+
+// `tt_cell.flags`: the cell carries the link `tt_term_link_hover` set.
+#define TT_CELL_LINK 16
+
+// `tt_link_target` kind: nothing to open.
+#define TT_LINK_REFUSED 0
+
+// An http or https page; the target is the URI.
+#define TT_LINK_WEB 1
+
+// A mailto address; the target is the URI.
+#define TT_LINK_MAIL 2
+
+// A directory on this machine, to open in the file manager; the target is
+// its path.
+#define TT_LINK_DIRECTORY 3
+
+// Any other existing file on this machine, to reveal in the file manager
+// and never open; the target is its path.
+#define TT_LINK_FILE 4
 
 // `tt_term_select_start` kind: cell by cell, for a drag.
 #define TT_SELECT_CELL 0
@@ -483,8 +518,8 @@ typedef struct tt_cell {
   uint16_t style;
   // Columns covered: 1, 2 for a wide character, 0 for the cell behind it.
   uint8_t width;
-  // `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH` and
-  // `TT_CELL_CURRENT_MATCH` bits.
+  // `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH`,
+  // `TT_CELL_CURRENT_MATCH` and `TT_CELL_LINK` bits.
   uint8_t flags;
 } tt_cell;
 
@@ -595,6 +630,17 @@ typedef struct tt_preedit {
   uint16_t cols;
 } tt_preedit;
 
+// A run of columns of the shown composing text with one clause kind, in
+// `tt_frame_view.preedit_spans`.
+typedef struct tt_preedit_span {
+  // First column, on the row of `tt_frame_view.preedit`.
+  uint16_t col;
+  // Columns covered.
+  uint16_t cols;
+  // A `TT_PREEDIT_*` kind.
+  uint8_t kind;
+} tt_preedit_span;
+
 // What `tt_frame_update` hands back. Set `struct_size` before the call.
 typedef struct tt_frame_view {
   // `sizeof(tt_frame_view)` as the host knows it; on return, the bytes
@@ -640,7 +686,24 @@ typedef struct tt_frame_view {
   // The composing text's span; its row is in `dirty` whenever it
   // changed.
   struct tt_preedit preedit;
+  // The composing text split by clause kind, in column order; empty
+  // when it was set without clauses, in which case `preedit` is all
+  // there is to mark.
+  const struct tt_preedit_span *preedit_spans;
+  // Number of spans.
+  size_t preedit_spans_len;
 } tt_frame_view;
+
+// One clause of the composing text, as the input method reports it, for
+// `tt_frame_preedit_clauses`: bytes `start` up to `end` of the text.
+typedef struct tt_preedit_clause {
+  // First byte.
+  size_t start;
+  // One past the last byte.
+  size_t end;
+  // A `TT_PREEDIT_*` kind; an unknown one counts as input.
+  uint8_t kind;
+} tt_preedit_clause;
 
 // One key event, as Ghostty's embedding API reports it: what was
 // pressed and what text it typed; the core picks the bytes.
@@ -882,6 +945,25 @@ tt_status tt_frame_update(struct tt_frame *frame,
 // `bytes` points to `len` readable bytes.
 tt_status tt_frame_preedit(struct tt_frame *frame, const uint8_t *bytes, size_t len, size_t caret);
 
+// `tt_frame_preedit` with the input method's clauses: `clauses_len`
+// entries of `clauses`, each a byte range of the text and a `TT_PREEDIT_*`
+// kind. They are cut to the text, so a sloppy list is harmless; text no
+// clause names counts as `TT_PREEDIT_INPUT`. The next `tt_frame_update`
+// reports them in columns as `tt_frame_view.preedit_spans`. At most
+// `TT_MAX_PREEDIT_BYTES` clauses are read. `TT_INVALID` for a `NULL` frame,
+// text that is not UTF-8, or `NULL` `clauses` with a length.
+//
+// # Safety
+//
+// As `tt_frame_preedit`; `clauses` points to `clauses_len` readable
+// entries.
+tt_status tt_frame_preedit_clauses(struct tt_frame *frame,
+                                   const uint8_t *bytes,
+                                   size_t len,
+                                   size_t caret,
+                                   const struct tt_preedit_clause *clauses,
+                                   size_t clauses_len);
+
 // Frees the frame and every buffer its views pointed to. `NULL` is a
 // no-op.
 //
@@ -982,6 +1064,58 @@ tt_status tt_term_mouse(const struct tt_term *term,
 //
 // `term` is `NULL` or live.
 tt_status tt_term_scroll_display(const struct tt_term *term, int32_t delta);
+
+// Writes the link id of viewport cell `row`, `col` to `*id`, for
+// `tt_term_link_uri`. `TT_EMPTY` (and 0) where no link covers the cell
+// or the cell is off the viewport; `TT_INVALID` for a `NULL` `id`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `id` is `NULL` or writable.
+tt_status tt_term_link_at(const struct tt_term *term, uint16_t row, uint16_t col, uint32_t *id);
+
+// Underlines link `id`: from the next `tt_frame_update` every viewport
+// cell carrying it has `TT_CELL_LINK`, across rows when it wraps. 0
+// clears it; so does an id no live link has, and the core dropping the
+// link later.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_link_hover(const struct tt_term *term, uint32_t id);
+
+// Sorts the OSC 8 `uri` a click landed on: writes a `TT_LINK_*` to
+// `*kind` and copies the target (the URI, or a local path in this
+// platform's style) into `buf` as `tt_term_link_uri` does. `machine` is
+// this computer's name, which a file URL may give as its host. A refused
+// link is `TT_OK` with `TT_LINK_REFUSED` and an empty target; so is a file
+// URL whose path does not exist. `TT_INVALID` for text that is not UTF-8
+// or a `NULL` `kind` or `len`.
+//
+// # Safety
+//
+// `uri` and `machine` are valid as `tt_str`; `kind` is `NULL` or
+// writable; `buf`, `cap` and `len` as for `tt_term_link_uri`.
+tt_status tt_link_target(struct tt_str uri,
+                         struct tt_str machine,
+                         uint32_t *kind,
+                         uint8_t *buf,
+                         size_t cap,
+                         size_t *len);
+
+// Scrolls the viewport so the previous (`forward` 0) or next (`forward`
+// non-zero) prompt the shell marked with OSC 133 `A` is its top row, or
+// the live screen when that prompt is on it. `TT_EMPTY`, and nothing
+// moves, when there is no such prompt: none marked, none above the
+// viewport, or the next one already in view at the bottom. Marks follow
+// the text through a resize, and go with the lines the scrollback's
+// trimming, ED 2, ED 3 or a full reset remove. Call `tt_frame_update`
+// afterwards.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_scroll_to_prompt(const struct tt_term *term, uint8_t forward);
 
 // Starts a selection of `kind` (`TT_SELECT_*`) at viewport cell `row`,
 // `col` (clamped), replacing any other. It covers that cell, word or line

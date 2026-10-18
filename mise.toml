@@ -1,8 +1,28 @@
 # The one Rust version for local work and CI; bump it here and nowhere else.
 [tools]
+"cargo:https://github.com/pyrlyn/tools" = "rev:90448075a5ff0f2fe3ae69579ed333b18dcfcd51" # `mise run sweep`, `just cache`, `just swarfr` (ptools)
+"cargo:cargo-sweep" = "0.8.0" # `mise run sweep`: drops build artifacts unused for 1 day (ptools sweep)
+mold = { version = "2.42.1", os = ["linux"] } # linker, Linux only; opt in with `cargo --config .cargo/mold.toml`
+sccache = { version = "0.18.0", os = ["linux", "macos"] } # compiler cache; mise [env] below makes it the rustc wrapper where it is installed
 rust = { version = "1.99.0", components = "rustfmt,clippy" }
 "cargo:cargo-nextest" = "0.9.146" # `just test`
 just = "1.58.0" # task runner (Justfile)
 "github:jdx/jactionlint" = "2.0.2" # ci.yml's jactionlint job, the pre-push hook and local `mise x -- jactionlint`
 hk = "2.5.0" # runs jactionlint as a pre-push hook (hk.pkl); `mise x -- hk install --mise`
 shellcheck = "0.11.0" # used by jactionlint for run: scripts; CI uses the runner image's copy
+"cargo:cargo-hakari" = "0.9.39"
+
+[env]
+# sccache as the rustc wrapper only where mise has it installed; empty means no wrapper (CI jobs
+# that install just Rust, Windows, machines without the tool). Not in .cargo/config.toml: there a
+# missing sccache would break every build. The probe variable stops `mise which` from recursing
+# into this same template. CI backend (R2): .github/actions/sccache, where the repo has its own jobs.
+RUSTC_WRAPPER = "{% if os() != 'windows' and get_env(name='MISE_SCCACHE_PROBE', default='') == '' %}{{ exec(command='MISE_SCCACHE_PROBE=1 \"' ~ mise_bin ~ '\" which sccache 2>/dev/null || true') }}{% endif %}"
+
+[tasks.sweep]
+description = "Remove cargo build artifacts unused for 1 day (cargo-sweep, via ptools)"
+run = "ptools sweep --days 1"
+
+[tasks.sweep-dry]
+description = "Preview what sweep would remove; deletes nothing"
+run = "ptools sweep --days 1 --dry-run"

@@ -14,12 +14,53 @@ use scull_unicode::{ClusterPolicy, GraphemeState, WidthOptions, cluster_width};
 /// words, and the layout costs a pass over every byte per update.
 pub const MAX_PREEDIT_BYTES: usize = 1024;
 
+/// How an input method treats a stretch of its composing text. Renderers
+/// draw them apart so the user can tell what is still raw from what the
+/// engine converted, and which clause a candidate list is open on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum ClauseKind {
+    /// Typed and not converted yet (a kana before its conversion).
+    #[default]
+    Input = 0,
+    /// Converted, not the one being edited.
+    Converted = 1,
+    /// The clause the user is converting now.
+    Target = 2,
+}
+
+/// A stretch of the preedit text, as byte offsets, with its kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PreeditClause {
+    /// First byte.
+    pub start: usize,
+    /// One past the last byte.
+    pub end: usize,
+    /// How the input method treats the stretch.
+    pub kind: ClauseKind,
+}
+
+/// A run of columns of the shown preedit with one kind, for a renderer
+/// that draws the clauses apart. Spans are in column order and do not
+/// overlap; none is listed for a preedit set without clauses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PreeditSpan {
+    /// First column.
+    pub col: u16,
+    /// Columns covered.
+    pub cols: u16,
+    /// What the run is.
+    pub kind: ClauseKind,
+}
+
 /// The preedit as the UI set it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Preedit {
     text: String,
     /// Byte offset of the caret in `text`, on a character boundary.
     caret: usize,
+    /// In text order, non-empty, on character boundaries, not overlapping.
+    clauses: Vec<(Range<usize>, ClauseKind)>,
 }
 
 impl Preedit {
@@ -30,6 +71,28 @@ impl Preedit {
         self.text.clear();
         self.text.push_str(text.unwrap_or_default());
         self.caret = self.text.floor_char_boundary(caret);
+        self.clauses.clear();
+    }
+
+    /// Marks stretches of the text set last. The input method is not
+    /// trusted to be tidy, so every clause is cut to the text and onto
+    /// character boundaries, and one that starts inside the one before it
+    /// loses the overlap. Text no clause names is [`ClauseKind::Input`].
+    /// At most one clause per byte of text is kept, so the list is bounded.
+    pub(crate) fn set_clauses(&mut self, clauses: &[PreeditClause]) {
+        self.clauses.clear();
+        let mut ordered: Vec<&PreeditClause> = clauses.iter().collect();
+        ordered.sort_by_key(|c| c.start);
+        let mut from = 0;
+        for c in ordered {
+            let start = self.text.floor_char_boundary(c.start.min(self.text.len()));
+            let start = start.max(from);
+            let end = self.text.floor_char_boundary(c.end.min(self.text.len()));
+            if start < end {
+                self.clauses.push((start..end, c.kind));
+                from = end;
+            }
+        }
     }
 
     pub(crate) fn text(&self) -> &str {
@@ -89,13 +152,43 @@ impl Preedit {
         let start = u32::from(col).min(cols - total);
         let caret = (start + caret.saturating_sub(dropped)).min(cols - 1);
         let narrow = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
+        let spans = self.spans(&shown, narrow(start));
         Some(PreeditLayout {
             row,
             col: narrow(start),
             cols: narrow(total),
             caret: narrow(caret),
             clusters: shown,
+            spans,
         })
+    }
+
+    /// The shown clusters grouped by clause kind, from column `col`; a
+    /// cluster belongs to the clause its first byte is in.
+    fn spans(&self, shown: &[(Range<usize>, u8)], col: u16) -> Vec<PreeditSpan> {
+        let mut spans: Vec<PreeditSpan> = Vec::new();
+        if self.clauses.is_empty() {
+            return spans;
+        }
+        let mut at = col;
+        for (range, width) in shown {
+            let kind = self
+                .clauses
+                .iter()
+                .find(|(c, _)| c.contains(&range.start))
+                .map_or(ClauseKind::Input, |&(_, k)| k);
+            let width = u16::from(*width);
+            match spans.last_mut() {
+                Some(last) if last.kind == kind => last.cols += width,
+                _ => spans.push(PreeditSpan {
+                    col: at,
+                    cols: width,
+                    kind,
+                }),
+            }
+            at += width;
+        }
+        spans
     }
 }
 
@@ -111,6 +204,8 @@ pub(crate) struct PreeditLayout {
     pub(crate) caret: u16,
     /// The clusters shown, as byte ranges of the preedit, with their widths.
     pub(crate) clusters: Vec<(Range<usize>, u8)>,
+    /// The clusters grouped by clause; empty when none were set.
+    pub(crate) spans: Vec<PreeditSpan>,
 }
 
 impl PreeditLayout {
@@ -205,5 +300,105 @@ mod tests {
         assert_eq!(p.caret, p.text().len());
         p.set("日本", 1);
         assert_eq!(p.caret, 0, "a caret inside a character moves back");
+    }
+
+    fn clauses(
+        text: &str,
+        set: &[(usize, usize, ClauseKind)],
+        cursor: (u16, u16),
+        cols: u16,
+    ) -> Vec<PreeditSpan> {
+        let mut p = Preedit::default();
+        p.set(text, text.len());
+        let list: Vec<_> = set
+            .iter()
+            .map(|&(start, end, kind)| PreeditClause { start, end, kind })
+            .collect();
+        p.set_clauses(&list);
+        p.layout(
+            cursor,
+            cols,
+            WidthOptions::default(),
+            ClusterPolicy::default(),
+        )
+        .unwrap()
+        .spans
+    }
+
+    fn span(col: u16, cols: u16, kind: ClauseKind) -> PreeditSpan {
+        PreeditSpan { col, cols, kind }
+    }
+
+    #[test]
+    fn clauses_become_runs_of_columns() {
+        use ClauseKind::{Converted, Input, Target};
+        // 日本 converted, ご the target, "x" still input.
+        let text = "日本ごx";
+        let got = clauses(
+            text,
+            &[(0, 6, Converted), (6, 9, Target), (9, 10, Input)],
+            (0, 2),
+            20,
+        );
+        assert_eq!(
+            got,
+            [span(2, 4, Converted), span(6, 2, Target), span(8, 1, Input)]
+        );
+    }
+
+    #[test]
+    fn text_no_clause_names_is_input_and_neighbours_of_one_kind_merge() {
+        use ClauseKind::{Converted, Input};
+        let got = clauses("abcd", &[(0, 1, Converted), (1, 2, Converted)], (0, 0), 10);
+        assert_eq!(got, [span(0, 2, Converted), span(2, 2, Input)]);
+    }
+
+    #[test]
+    fn no_clauses_no_spans() {
+        assert_eq!(clauses("abc", &[], (0, 0), 10), []);
+    }
+
+    #[test]
+    fn untidy_clauses_are_cut_to_the_text_and_never_overlap() {
+        use ClauseKind::{Converted, Target};
+        // Out of order, past the end, inside a character, overlapping, empty.
+        let got = clauses(
+            "日本",
+            &[
+                (3, 99, Target),
+                (0, 4, Converted),
+                (5, 5, Target),
+                (2, 1, Target),
+            ],
+            (0, 0),
+            10,
+        );
+        assert_eq!(got, [span(0, 2, Converted), span(2, 2, Target)]);
+    }
+
+    #[test]
+    fn spans_follow_the_clusters_that_stay_in_view() {
+        use ClauseKind::{Converted, Target};
+        let got = clauses("abcdefgh", &[(0, 4, Converted), (4, 8, Target)], (0, 3), 4);
+        assert_eq!(got, [span(0, 4, Target)], "the left clause scrolled out");
+    }
+
+    #[test]
+    fn setting_the_text_again_drops_the_clauses() {
+        let mut p = Preedit::default();
+        p.set("abc", 3);
+        p.set_clauses(&[PreeditClause {
+            start: 0,
+            end: 3,
+            kind: ClauseKind::Target,
+        }]);
+        p.set("abc", 3);
+        let l = p.layout(
+            (0, 0),
+            10,
+            WidthOptions::default(),
+            ClusterPolicy::default(),
+        );
+        assert!(l.unwrap().spans.is_empty());
     }
 }

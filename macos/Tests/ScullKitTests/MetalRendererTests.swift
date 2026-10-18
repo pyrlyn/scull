@@ -133,6 +133,67 @@ private func renderer() throws -> MetalRenderer {
     #expect(!inked(4))
 }
 
+/// The pixels of `col` along the preedit underline's rows that carry ink,
+/// as (rows with ink, columns of pixels with ink) over the cell's width.
+private func underlineInk(_ pixels: [UInt8], cols: Int, col: Int) -> (rows: Int, columns: Int) {
+    let inked = { (dx: Int, dy: Int) in rgb(pixels, cols: cols, row: 0, col: col, dx: dx, dy: dy) == 0xE5E5E5 }
+    return ((16..<32).filter { dy in (0..<cellPixels.w).contains { inked($0, dy) } }.count,
+            (0..<cellPixels.w).filter { dx in (16..<32).contains { inked(dx, $0) } }.count)
+}
+
+@MainActor
+@Test func rendererDrawsEachPreeditClauseInItsOwnStyle() throws {
+    let session = try TerminalSession(cols: 8, rows: 1)
+    let renderer = try renderer()
+    // Spaces leave only the underline: raw input, converted text, the target.
+    let clauses = [PreeditClause(start: 0, end: 2, kind: UInt8(TT_PREEDIT_INPUT)),
+                   PreeditClause(start: 2, end: 4, kind: UInt8(TT_PREEDIT_CONVERTED)),
+                   PreeditClause(start: 4, end: 6, kind: UInt8(TT_PREEDIT_TARGET))]
+    #expect(session.preedit("      ", caret: 6, clauses: clauses) == TT_OK)
+    let pixels = try render(session, renderer)
+    let (input, converted, target) = (underlineInk(pixels, cols: 8, col: 0), underlineInk(pixels, cols: 8, col: 2),
+                                      underlineInk(pixels, cols: 8, col: 4))
+    #expect(converted.rows > 0 && converted.columns == cellPixels.w)
+    // Input is dotted: gaps along the line, the same height as converted.
+    #expect(input.rows == converted.rows && input.columns > 0 && input.columns < converted.columns)
+    // The target is thick.
+    #expect(target.rows == 2 * converted.rows && target.columns == cellPixels.w)
+    #expect(underlineInk(pixels, cols: 8, col: 7) == (0, 0))
+}
+
+@MainActor
+@Test func rendererUnderlinesTheHoveredLink() throws {
+    let session = try TerminalSession(cols: 6, rows: 1)
+    let renderer = try renderer()
+    // Spaces leave only the underline in the cells it marks.
+    _ = session.feed(Array("\u{1b}]8;;https://example.com\u{1b}\\  \u{1b}]8;;\u{1b}\\  ".utf8))
+    let id = try #require(session.linkAt(row: 0, col: 0))
+    let inked = { (pixels: [UInt8], col: Int) in
+        (16..<32).contains { rgb(pixels, cols: 6, row: 0, col: col, dx: 8, dy: $0) == 0xE5E5E5 }
+    }
+    let plain = try render(session, renderer)
+    #expect(!inked(plain, 0))
+    session.hoverLink(id)
+    let hovered = try render(session, renderer)
+    #expect(inked(hovered, 0) && inked(hovered, 1))
+    #expect(!inked(hovered, 2))
+}
+
+@MainActor
+@Test func rendererUnderlinesAWideLinkedCellAcrossBothColumns() throws {
+    let session = try TerminalSession(cols: 6, rows: 1)
+    let renderer = try renderer()
+    // An ideographic space: two columns and no ink of its own.
+    _ = session.feed(Array("\u{1b}]8;;https://example.com\u{1b}\\\u{3000}\u{1b}]8;;\u{1b}\\  ".utf8))
+    session.hoverLink(try #require(session.linkAt(row: 0, col: 1)))
+    let hovered = try render(session, renderer)
+    let inked = { (col: Int) in
+        (16..<32).contains { rgb(hovered, cols: 6, row: 0, col: col, dx: 8, dy: $0) == 0xE5E5E5 }
+    }
+    #expect(inked(0) && inked(1))
+    #expect(!inked(2))
+}
+
 @MainActor
 @Test func rendererRemakesGlyphsForANewFont() throws {
     let session = try TerminalSession(cols: 2, rows: 1)

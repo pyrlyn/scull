@@ -46,6 +46,12 @@ public final class TerminalSession {
     public private(set) var workingDirectory: String?
     /// Where OSC 52 writes go; a test passes a private one.
     var pasteboard = NSPasteboard.general
+    /// Notifications the program asked for since the view last took them: cleaned,
+    /// and within this terminal's rate limit.
+    private var notices: [Notice] = []
+    private var limiter = NotificationLimiter()
+    /// Seconds on a monotonic clock; a test replaces it.
+    var clock: () -> Double = { ProcessInfo.processInfo.systemUptime }
 
     /// Runs the user's shell. `onWake` runs on the main actor whenever
     /// there is output or an event to look at.
@@ -114,9 +120,11 @@ public final class TerminalSession {
     }
 
     /// Takes every pending event; true once the child has exited. Rings the
-    /// bell through `bell`, keeps the title and directory, and writes OSC 52
-    /// clipboard writes to `pasteboard`.
-    public func drainEvents(bell: () -> Void) -> Bool {
+    /// bell through `bell`, keeps the title and directory, writes OSC 52
+    /// clipboard writes to `pasteboard` and collects notifications for `takeNotices`
+    /// unless `notify` is false (the user is looking at this pane): those are dropped
+    /// before the rate limit sees them, so they spend none of it.
+    public func drainEvents(bell: () -> Void, notify: Bool = true) -> Bool {
         var event = tt_event()
         event.struct_size = UInt32(MemoryLayout<tt_event>.size)
         var exited = false
@@ -136,6 +144,12 @@ public final class TerminalSession {
                     pasteboard.clearContents()
                     pasteboard.setString(text, forType: .string)
                 }
+            case TT_EVENT_NOTIFICATION:
+                let body = eventText(event).map { String(decoding: $0, as: UTF8.self) } ?? ""
+                let heading = eventText(event, part: Int32(TT_EVENT_TEXT_TITLE)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+                if notify, let notice = NotificationPolicy.make(title: heading, body: body), limiter.allow(at: clock()) {
+                    notices.append(notice)
+                }
             case TT_EVENT_CLIPBOARD_READ:
                 // A read hands the user's clipboard to whatever the shell
                 // runs, a remote host included; refused until a setting
@@ -147,13 +161,20 @@ public final class TerminalSession {
         return exited
     }
 
-    /// The text of `event`, the one polled last, sized from the event.
-    private func eventText(_ event: tt_event) -> [UInt8]? {
-        let count = Int(event.text_len)
+    /// The notifications `drainEvents` found, once.
+    public func takeNotices() -> [Notice] {
+        defer { notices = [] }
+        return notices
+    }
+
+    /// The text of `event` (its body, or a notification's title), the one polled last, sized from the event.
+    private func eventText(_ event: tt_event, part: Int32 = TT_EVENT_TEXT_BODY) -> [UInt8]? {
+        let count = Int(part == TT_EVENT_TEXT_TITLE ? event.title_len : event.text_len)
+        if count == 0 { return [] }
         var bytes = [UInt8](repeating: 0, count: count)
         var len = 0
         let status = bytes.withUnsafeMutableBufferPointer {
-            track(tt_term_event_text(term, event.serial, UInt32(TT_EVENT_TEXT_BODY), $0.baseAddress, count, &len))
+            track(tt_term_event_text(term, event.serial, UInt32(part), $0.baseAddress, count, &len))
         }
         return status == TT_OK ? Array(bytes.prefix(len)) : nil
     }
@@ -234,6 +255,17 @@ public final class TerminalSession {
         return tt_term_selection_text(term, nil, 0, &len) != TT_EMPTY
     }
 
+    /// The selected cells the frame marks, one span per row that has any: where the selection is on
+    /// screen, which is what a screen reader sees. The core gives no bounds of its own.
+    func selectedSpans() -> [SelectedSpan] {
+        let cols = Int(view.cols)
+        return (0..<Int(view.rows)).compactMap { row in
+            let marked = (0..<cols).filter { Int32(cell(row: row, col: $0)?.flags ?? 0) & TT_CELL_SELECTED != 0 }
+            guard let first = marked.first, let last = marked.last else { return nil }
+            return SelectedSpan(line: row, col: first, endCol: last + max(1, Int(cell(row: row, col: last)?.width ?? 1)))
+        }
+    }
+
     /// Replaces the search; an empty pattern ends it.
     public func search(_ pattern: String, ignoreCase: Bool) -> tt_status {
         var pattern = pattern
@@ -254,6 +286,35 @@ public final class TerminalSession {
     public func searchCount() -> Int {
         var count = 0
         return track(tt_term_search_count(term, &count)) == TT_OK ? count : 0
+    }
+
+    /// The OSC 8 link id of viewport cell `row`, `col`; nil where no link
+    /// covers it.
+    public func linkAt(row: Int, col: Int) -> UInt32? {
+        guard let row = UInt16(exactly: row), let col = UInt16(exactly: col) else { return nil }
+        var id: UInt32 = 0
+        return track(tt_term_link_at(term, row, col, &id)) == TT_OK ? id : nil
+    }
+
+    /// The URI of link `id`, as the program wrote it: untrusted, so the
+    /// caller decides whether it may be opened. Nil once the link is gone.
+    public func linkURI(_ id: UInt32) -> String? {
+        var len = 0
+        // The first call only measures; the URI is fixed while the id lives.
+        let measured = track(tt_term_link_uri(term, id, nil, 0, &len))
+        guard measured == TT_OK || measured == TT_FULL else { return nil }
+        var bytes = [UInt8](repeating: 0, count: len)
+        let status = bytes.withUnsafeMutableBufferPointer {
+            track(tt_term_link_uri(term, id, $0.baseAddress, $0.count, &len))
+        }
+        guard status == TT_OK else { return nil }
+        return String(bytes: bytes.prefix(len), encoding: .utf8)
+    }
+
+    /// Underlines link `id` (`TT_CELL_LINK`) from the next update; nil
+    /// clears it.
+    public func hoverLink(_ id: UInt32?) {
+        track(tt_term_link_hover(term, id ?? 0))
     }
 
     public func cell(row: Int, col: Int) -> tt_cell? {
@@ -300,10 +361,17 @@ public final class TerminalSession {
 
     /// Shows an input method's composing text at the cursor from the next
     /// update, the caret at UTF-8 offset `caret`; empty text clears it.
+    /// `clauses` mark stretches of it as input, converted or being
+    /// converted (the frame reports them as `view.preedit_spans`).
     /// It never reaches the child.
-    public func preedit(_ text: String, caret: Int) -> tt_status {
+    func preedit(_ text: String, caret: Int, clauses: [PreeditClause] = []) -> tt_status {
         var text = text
-        return text.withUTF8 { tt_frame_preedit(frame, $0.baseAddress, $0.count, max(0, caret)) }
+        let native = clauses.map { tt_preedit_clause(start: $0.start, end: $0.end, kind: $0.kind) }
+        return text.withUTF8 { bytes in
+            native.withUnsafeBufferPointer { list in
+                tt_frame_preedit_clauses(frame, bytes.baseAddress, bytes.count, max(0, caret), list.baseAddress, list.count)
+            }
+        }
     }
 
     public func paste(_ text: String) -> tt_status {
@@ -325,6 +393,9 @@ public final class TerminalSession {
     }
 
     public func scrollDisplay(_ delta: Int32) -> tt_status { track(tt_term_scroll_display(term, delta)) }
+
+    /// Scrolls the viewport to the previous or next shell prompt; TT_EMPTY when there is none.
+    public func scrollToPrompt(forward: Bool) -> tt_status { track(tt_term_scroll_to_prompt(term, forward ? 1 : 0)) }
 
     public func resizeBegin() -> tt_status { track(tt_term_resize_begin(term)) }
 

@@ -20,7 +20,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use scull_grid::{Attrs, Color, Style, Underline};
-use scull_term::{Frame, FrameCell, FramePlacement, Image, MAX_PREEDIT_BYTES, TextRun};
+use scull_term::{
+    ClauseKind, Frame, FrameCell, FramePlacement, Image, MAX_PREEDIT_BYTES, PreeditClause,
+    PreeditSpan, TextRun,
+};
 
 use crate::guard::{SizedStruct, can_write, guard, tt_status, with_term, write_sized};
 use crate::spawn::{text, tt_str};
@@ -36,8 +39,8 @@ pub struct tt_cell {
     pub style: u16,
     /// Columns covered: 1, 2 for a wide character, 0 for the cell behind it.
     pub width: u8,
-    /// `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH` and
-    /// `TT_CELL_CURRENT_MATCH` bits.
+    /// `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH`,
+    /// `TT_CELL_CURRENT_MATCH` and `TT_CELL_LINK` bits.
     pub flags: u8,
 }
 
@@ -247,6 +250,49 @@ pub struct tt_preedit {
     pub cols: u16,
 }
 
+/// Typed and not converted yet: the input method's raw text.
+pub const TT_PREEDIT_INPUT: u8 = 0;
+/// Converted, but not the clause being edited.
+pub const TT_PREEDIT_CONVERTED: u8 = 1;
+/// The clause being converted now: the one a candidate list belongs to.
+pub const TT_PREEDIT_TARGET: u8 = 2;
+
+/// One clause of the composing text, as the input method reports it, for
+/// `tt_frame_preedit_clauses`: bytes `start` up to `end` of the text.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct tt_preedit_clause {
+    /// First byte.
+    pub start: usize,
+    /// One past the last byte.
+    pub end: usize,
+    /// A `TT_PREEDIT_*` kind; an unknown one counts as input.
+    pub kind: u8,
+}
+
+/// A run of columns of the shown composing text with one clause kind, in
+/// `tt_frame_view.preedit_spans`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct tt_preedit_span {
+    /// First column, on the row of `tt_frame_view.preedit`.
+    pub col: u16,
+    /// Columns covered.
+    pub cols: u16,
+    /// A `TT_PREEDIT_*` kind.
+    pub kind: u8,
+}
+
+impl From<&PreeditSpan> for tt_preedit_span {
+    fn from(s: &PreeditSpan) -> Self {
+        Self {
+            col: s.col,
+            cols: s.cols,
+            kind: s.kind as u8,
+        }
+    }
+}
+
 /// An image's pixels, shared and immutable. Opaque to the host: read it
 /// with `tt_image_pixels`.
 pub struct tt_image {
@@ -361,6 +407,12 @@ pub struct tt_frame_view {
     /// The composing text's span; its row is in `dirty` whenever it
     /// changed.
     pub preedit: tt_preedit,
+    /// The composing text split by clause kind, in column order; empty
+    /// when it was set without clauses, in which case `preedit` is all
+    /// there is to mark.
+    pub preedit_spans: *const tt_preedit_span,
+    /// Number of spans.
+    pub preedit_spans_len: usize,
 }
 
 // SAFETY: repr(C), `struct_size` first, integers and raw pointers only.
@@ -375,6 +427,7 @@ pub struct tt_frame {
     styles: Vec<tt_style>,
     scrolls: Vec<tt_scroll>,
     placements: Vec<tt_placement>,
+    preedit_spans: Vec<tt_preedit_span>,
     /// Set while an update runs; still set afterwards only if it panicked.
     torn: bool,
 }
@@ -414,6 +467,9 @@ impl tt_frame {
         self.placements.clear();
         self.placements
             .extend(frame.placements().iter().map(tt_placement::from));
+        self.preedit_spans.clear();
+        self.preedit_spans
+            .extend(frame.preedit_spans().iter().map(tt_preedit_span::from));
     }
 
     fn view(&self, updated: bool) -> tt_frame_view {
@@ -451,6 +507,8 @@ impl tt_frame {
                     col: p.col,
                     cols: p.cols,
                 }),
+            preedit_spans: self.preedit_spans.as_ptr(),
+            preedit_spans_len: self.preedit_spans.len(),
         }
     }
 }
@@ -541,6 +599,62 @@ pub unsafe extern "C" fn tt_frame_preedit(
             return tt_status::TT_INVALID;
         };
         frame.frame.set_preedit(text, caret);
+        tt_status::TT_OK
+    })
+}
+
+/// `tt_frame_preedit` with the input method's clauses: `clauses_len`
+/// entries of `clauses`, each a byte range of the text and a `TT_PREEDIT_*`
+/// kind. They are cut to the text, so a sloppy list is harmless; text no
+/// clause names counts as `TT_PREEDIT_INPUT`. The next `tt_frame_update`
+/// reports them in columns as `tt_frame_view.preedit_spans`. At most
+/// `TT_MAX_PREEDIT_BYTES` clauses are read. `TT_INVALID` for a `NULL` frame,
+/// text that is not UTF-8, or `NULL` `clauses` with a length.
+///
+/// # Safety
+///
+/// As `tt_frame_preedit`; `clauses` points to `clauses_len` readable
+/// entries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tt_frame_preedit_clauses(
+    frame: *mut tt_frame,
+    bytes: *const u8,
+    len: usize,
+    caret: usize,
+    clauses: *const tt_preedit_clause,
+    clauses_len: usize,
+) -> tt_status {
+    guard(|| {
+        // SAFETY: NULL or live and unshared, by the caller's contract.
+        let Some(frame) = (unsafe { frame.as_mut() }) else {
+            return tt_status::TT_INVALID;
+        };
+        // SAFETY: the caller's contract.
+        let Some(text) = (unsafe { text(tt_str { ptr: bytes, len }) }) else {
+            return tt_status::TT_INVALID;
+        };
+        let wanted = clauses_len.min(MAX_PREEDIT_BYTES);
+        let list: &[tt_preedit_clause] = if wanted == 0 {
+            &[]
+        } else if clauses.is_null() {
+            return tt_status::TT_INVALID;
+        } else {
+            // SAFETY: the caller's contract; fewer than they gave is fine.
+            unsafe { std::slice::from_raw_parts(clauses, wanted) }
+        };
+        let list: Vec<PreeditClause> = list
+            .iter()
+            .map(|c| PreeditClause {
+                start: c.start,
+                end: c.end,
+                kind: match c.kind {
+                    TT_PREEDIT_CONVERTED => ClauseKind::Converted,
+                    TT_PREEDIT_TARGET => ClauseKind::Target,
+                    _ => ClauseKind::Input,
+                },
+            })
+            .collect();
+        frame.frame.set_preedit_clauses(text, caret, &list);
         tt_status::TT_OK
     })
 }
@@ -947,6 +1061,93 @@ mod tests {
                 (view.preedit, row_text(&view, 0)),
                 (tt_preedit::default(), "ab")
             );
+        });
+    }
+
+    fn clause(start: usize, end: usize, kind: u8) -> tt_preedit_clause {
+        tt_preedit_clause { start, end, kind }
+    }
+
+    #[test]
+    fn clauses_reach_the_view_as_column_spans() {
+        with_frame(12, 2, |frame, term| {
+            let text = "日本ご".as_bytes();
+            let list = [
+                clause(0, 6, TT_PREEDIT_CONVERTED),
+                clause(6, 9, TT_PREEDIT_TARGET),
+            ];
+            // SAFETY: a live frame; whole text and list.
+            let status = unsafe {
+                tt_frame_preedit_clauses(frame, text.as_ptr(), text.len(), 9, list.as_ptr(), 2)
+            };
+            assert_eq!(status, tt_status::TT_OK);
+            let (_, view) = update(frame, term);
+            assert_eq!(
+                parts(view.preedit_spans, view.preedit_spans_len),
+                [
+                    tt_preedit_span {
+                        col: 0,
+                        cols: 4,
+                        kind: TT_PREEDIT_CONVERTED
+                    },
+                    tt_preedit_span {
+                        col: 4,
+                        cols: 2,
+                        kind: TT_PREEDIT_TARGET
+                    },
+                ]
+            );
+            assert_eq!(view.preedit.cols, 6);
+            // Plain text clears them: only the span is left to mark.
+            assert_eq!(set_preedit(frame, text, 9), tt_status::TT_OK);
+            let (_, view) = update(frame, term);
+            assert_eq!((view.preedit_spans_len, view.preedit.cols), (0, 6));
+        });
+    }
+
+    #[test]
+    fn a_sloppy_clause_list_is_cut_and_an_unknown_kind_is_input() {
+        with_frame(12, 2, |frame, term| {
+            let list = [clause(1, 99, 7), clause(0, 0, TT_PREEDIT_TARGET)];
+            // SAFETY: a live frame; whole text and list.
+            let status =
+                unsafe { tt_frame_preedit_clauses(frame, b"abc".as_ptr(), 3, 3, list.as_ptr(), 2) };
+            assert_eq!(status, tt_status::TT_OK);
+            let (_, view) = update(frame, term);
+            assert_eq!(
+                parts(view.preedit_spans, view.preedit_spans_len),
+                [tt_preedit_span {
+                    col: 0,
+                    cols: 3,
+                    kind: TT_PREEDIT_INPUT
+                }],
+                "the unnamed 'a' and the unknown kind are both input, so they merge"
+            );
+            // SAFETY: NULL clauses with a length are refused before any read.
+            let status =
+                unsafe { tt_frame_preedit_clauses(frame, b"a".as_ptr(), 1, 0, ptr::null(), 1) };
+            assert_eq!(status, tt_status::TT_INVALID);
+            // SAFETY: NULL with length 0 is an empty list.
+            let status =
+                unsafe { tt_frame_preedit_clauses(frame, b"a".as_ptr(), 1, 0, ptr::null(), 0) };
+            assert_eq!(status, tt_status::TT_OK);
+        });
+    }
+
+    #[test]
+    fn a_view_from_before_the_spans_does_not_get_them() {
+        with_frame(8, 2, |frame, term| {
+            assert_eq!(set_preedit(frame, b"x", 0), tt_status::TT_OK);
+            let mut old = blank_view();
+            old.struct_size = u32::try_from(offset_of!(tt_frame_view, preedit_spans)).unwrap();
+            old.preedit_spans_len = 9;
+            // SAFETY: a whole view.
+            assert_eq!(
+                unsafe { tt_frame_update(frame, term, &mut old) },
+                tt_status::TT_OK
+            );
+            assert_eq!(old.preedit_spans_len, 9, "left alone");
+            assert_eq!(old.preedit.cols, 1);
         });
     }
 

@@ -270,4 +270,116 @@ public sealed class WindowsInputTests
     public void WheelStepsPressAWheelButton(int steps, bool horizontal, MouseButton button) =>
         Assert.AreEqual(new MouseInput(MouseAction.Press, button, KeyModifiers.Shift, 7, 8, 70, 160),
             new WindowsPointer().Wheel(steps, horizontal, KeyModifiers.Shift, (7, 8, 70, 160)));
+
+    [TestMethod]
+    public void ALostCaptureReleasesEveryHeldButtonAtTheLastPosition()
+    {
+        var pointer = new WindowsPointer();
+        pointer.Update(1, true, false, false, 0, (1, 1, 15, 25));
+        pointer.Update(5, true, true, false, 0, (1, 1, 15, 25));
+        pointer.Update(0, true, true, false, 0, (4, 2, 45, 35));
+        pointer.Update(2, false, true, false, 0, (4, 2, 45, 35));
+
+        IReadOnlyList<MouseInput> lost = pointer.Lose(KeyModifiers.Shift);
+
+        Assert.HasCount(1, lost);
+        Assert.AreEqual(new MouseInput(MouseAction.Release, MouseButton.Middle, KeyModifiers.Shift, 4, 2, 45, 35), lost[0]);
+        Assert.IsEmpty(pointer.Lose(KeyModifiers.None), "a second loss has nothing left to release");
+    }
+
+    [TestMethod]
+    public void ALostCaptureReleasesInTheOrderLeftRightMiddleBackForward()
+    {
+        var pointer = new WindowsPointer();
+        foreach (int pressed in new[] { 9, 5, 3, 1, 7 })
+        {
+            pointer.Update(pressed, false, false, false, 0, (0, 0, 0, 0));
+        }
+
+        MouseButton[] released = [.. pointer.Lose(KeyModifiers.None).Select(m => m.Button)];
+
+        CollectionAssert.AreEqual(
+            new[] { MouseButton.Left, MouseButton.Right, MouseButton.Middle, MouseButton.Back, MouseButton.Forward },
+            released);
+    }
+
+    [TestMethod]
+    public void NothingIsLostAfterTheReleasesArrived()
+    {
+        var pointer = new WindowsPointer();
+        pointer.Update(1, true, false, false, 0, (2, 2, 25, 35));
+        pointer.Update(2, false, false, false, 0, (2, 2, 25, 35));
+
+        Assert.IsEmpty(pointer.Lose(KeyModifiers.None));
+        Assert.IsEmpty(new WindowsPointer().Lose(KeyModifiers.None));
+    }
+
+    [TestMethod]
+    public void AReleaseIsDroppedOnlyForAKeyWhosePressWasSwallowed()
+    {
+        var keys = new SwallowedKeys();
+        keys.Press(0x56, swallowed: true);
+        keys.Press(0x2D, swallowed: true);
+        keys.Press(0x41, swallowed: false);
+
+        Assert.IsTrue(keys.Release(0x56));
+        Assert.IsFalse(keys.Release(0x56), "owed once");
+        Assert.IsTrue(keys.Release(0x2D));
+        Assert.IsFalse(keys.Release(0x41));
+        Assert.IsFalse(keys.Release(0x10), "never pressed here");
+    }
+
+    [TestMethod]
+    public void ASentPressForgetsAReleaseOwedFromBefore()
+    {
+        var keys = new SwallowedKeys();
+        keys.Press(0x56, swallowed: true);
+        // The focus left the window, so the release never came; the next press is sent.
+        keys.Press(0x56, swallowed: false);
+
+        Assert.IsFalse(keys.Release(0x56));
+    }
+
+    [TestMethod]
+    [DataRow(1, 3u, 24, 3)]
+    [DataRow(-2, 3u, 24, -6)]
+    [DataRow(2, 1u, 24, 2)]
+    [DataRow(1, 0u, 24, 0)]
+    [DataRow(3, WheelScroll.Page, 24, 72)]
+    [DataRow(-1, WheelScroll.Page, 24, -24)]
+    [DataRow(1, WheelScroll.Page, 0, 0)]
+    public void ANotchScrollsTheSystemsLinesOrAPage(int notches, uint lines, int pageRows, int rows) =>
+        Assert.AreEqual(rows, new WheelRows().Add(notches * WheelSteps.Notch, lines, pageRows));
+
+    [TestMethod]
+    public void ATouchpadsPartsOfANotchScrollProportionallyAndCarryTheRest()
+    {
+        var wheel = new WheelRows();
+        // Three lines a notch: 40 units is one line.
+        Assert.AreEqual(1, wheel.Add(40, 3, 24));
+        Assert.AreEqual(0, wheel.Add(20, 3, 24));
+        Assert.AreEqual(1, wheel.Add(20, 3, 24), "60 carried and 60 more fill a line");
+        Assert.AreEqual(0, wheel.Add(-30, 3, 24));
+        Assert.AreEqual(-1, wheel.Add(-30, 3, 24));
+        // A page a notch, 24 rows: 5 units is a row.
+        Assert.AreEqual(1, new WheelRows().Add(5, WheelScroll.Page, 24));
+    }
+
+    [TestMethod]
+    public void TurningWheelScrollingOffDropsWhatWasCarried()
+    {
+        var wheel = new WheelRows();
+        Assert.AreEqual(0, wheel.Add(10, 3, 24));
+        Assert.AreEqual(0, wheel.Add(120, 0, 24));
+        Assert.AreEqual(0, wheel.Add(10, 3, 24));
+        wheel.Reset();
+        Assert.AreEqual(0, wheel.Add(30, 3, 24), "nothing left from before");
+    }
+
+    [TestMethod]
+    public void AHugeDeltaIsClamped()
+    {
+        Assert.AreEqual(int.MaxValue, new WheelRows().Add(int.MaxValue, 100_000_000, 24));
+        Assert.AreEqual(-int.MaxValue, new WheelRows().Add(int.MinValue, 100_000_000, 24));
+    }
 }

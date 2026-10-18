@@ -19,7 +19,7 @@ pub(crate) const MAX_PENDING_CLIPS: usize = MAX_EVENTS;
 /// OSC 8 targets. Rows store the id; the URI lives here.
 pub(crate) const MAX_LINKS: usize = 1024;
 /// URI bytes for one link.
-pub(crate) const MAX_URI: usize = 2083;
+pub const MAX_URI: usize = 2083;
 /// Explicit OSC 8 `id=` bytes.
 pub(crate) const MAX_LINK_KEY: usize = 256;
 

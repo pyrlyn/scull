@@ -105,6 +105,32 @@ impl Terminal {
         self.state.grid.scroll_display(delta);
     }
 
+    /// Scrolls the viewport so the previous (`forward` false) or next
+    /// prompt, as the shell marked it with OSC 133 `A`, is its top row; the
+    /// live screen when that prompt is on it. False, and nothing moves,
+    /// when the shell marked none that way.
+    pub fn scroll_to_prompt(&mut self, forward: bool) -> bool {
+        let Some(offset) = self.state.prompt_offset(forward) else {
+            return false;
+        };
+        let now = self.state.grid.display_offset();
+        let delta = isize::try_from(offset).unwrap_or(isize::MAX)
+            - isize::try_from(now).unwrap_or(isize::MAX);
+        self.state.grid.scroll_display(delta);
+        true
+    }
+
+    /// The absolute lines of the primary screen's prompt marks (tests).
+    #[cfg(test)]
+    pub(crate) fn state_prompts(&self) -> Vec<u64> {
+        let images = if self.state.alt_active {
+            &self.state.alt_images
+        } else {
+            &self.state.images
+        };
+        images.prompts.clone()
+    }
+
     /// Resizes both screens to `cols` x `rows`: the primary screen and its
     /// scrollback are rewrapped, the alternate screen is cut or padded, and
     /// the cursor and saved cursors follow their cells. Margins reset to the

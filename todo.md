@@ -5,3 +5,6 @@
 - T18. Windows input method and accessibility
 - T20. Configuration, fonts and themes
 - T21. Tabs, splits and windows
+- T31. OSC 8 hyperlinks on both platforms
+- T32. Desktop notifications from OSC 9 and OSC 777
+- T33. Jump between shell prompts with OSC 133 marks

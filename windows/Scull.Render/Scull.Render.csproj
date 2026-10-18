@@ -20,6 +20,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The macOS app's copy and licence (T27), so both platforms ship one file;
+         SymbolFont.BundledPath finds it in Fonts next to the assembly. -->
+    <Content Include="../../macos/Resources/SymbolsNerdFontMono-Regular.ttf;../../macos/Resources/SymbolsNerdFont-LICENSE"
+             Link="Fonts/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Scull.Render.Tests" />
   </ItemGroup>
 

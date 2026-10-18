@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Scull.Bench/Scull.Bench.csproj" />
   <Project Path="Scull.Core/Scull.Core.csproj" />
   <Project Path="Scull.Core.Tests/Scull.Core.Tests.csproj" />
   <Project Path="Scull.Render/Scull.Render.csproj" />

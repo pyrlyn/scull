@@ -26,12 +26,12 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 7;
+        internal const uint TT_ABI_VERSION_MINOR = 10;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 7;
+        internal const uint TT_ABI_VERSION = 10;
         /// <summary>
         ///  `tt_keybind.action`: paste the clipboard.
         /// </summary>
@@ -64,6 +64,14 @@ namespace Scull.Native
         ///  Scroll back to the screen.
         /// </summary>
         internal const byte TT_ACTION_SCROLL_TO_BOTTOM = 8;
+        /// <summary>
+        ///  Scroll to the previous shell prompt: `tt_term_scroll_to_prompt` backwards.
+        /// </summary>
+        internal const byte TT_ACTION_PREVIOUS_PROMPT = 9;
+        /// <summary>
+        ///  Scroll to the next shell prompt.
+        /// </summary>
+        internal const byte TT_ACTION_NEXT_PROMPT = 10;
         /// <summary>
         ///  `tt_event.kind`: the program rang the bell, once or more since the last
         ///  poll.
@@ -227,6 +235,18 @@ namespace Scull.Native
         /// </summary>
         internal const byte TT_UNDERLINE_DASHED = 5;
         /// <summary>
+        ///  Typed and not converted yet: the input method's raw text.
+        /// </summary>
+        internal const byte TT_PREEDIT_INPUT = 0;
+        /// <summary>
+        ///  Converted, but not the clause being edited.
+        /// </summary>
+        internal const byte TT_PREEDIT_CONVERTED = 1;
+        /// <summary>
+        ///  The clause being converted now: the one a candidate list belongs to.
+        /// </summary>
+        internal const byte TT_PREEDIT_TARGET = 2;
+        /// <summary>
         ///  Most bytes of composing text a frame shows.
         /// </summary>
         internal const nuint TT_MAX_PREEDIT_BYTES = 1024;
@@ -388,6 +408,32 @@ namespace Scull.Native
         ///  Most bytes `tt_term_selection_text` hands out; longer text is cut.
         /// </summary>
         internal const nuint TT_MAX_SELECTION_BYTES = 16777216;
+        /// <summary>
+        ///  `tt_cell.flags`: the cell carries the link `tt_term_link_hover` set.
+        /// </summary>
+        internal const byte TT_CELL_LINK = 16;
+        /// <summary>
+        ///  `tt_link_target` kind: nothing to open.
+        /// </summary>
+        internal const uint TT_LINK_REFUSED = 0;
+        /// <summary>
+        ///  An http or https page; the target is the URI.
+        /// </summary>
+        internal const uint TT_LINK_WEB = 1;
+        /// <summary>
+        ///  A mailto address; the target is the URI.
+        /// </summary>
+        internal const uint TT_LINK_MAIL = 2;
+        /// <summary>
+        ///  A directory on this machine, to open in the file manager; the target is
+        ///  its path.
+        /// </summary>
+        internal const uint TT_LINK_DIRECTORY = 3;
+        /// <summary>
+        ///  Any other existing file on this machine, to reveal in the file manager
+        ///  and never open; the target is its path.
+        /// </summary>
+        internal const uint TT_LINK_FILE = 4;
 
 
 
@@ -649,6 +695,23 @@ namespace Scull.Native
         internal static extern tt_status tt_frame_preedit(tt_frame* frame, byte* bytes, nuint len, nuint caret);
 
         /// <summary>
+        ///  `tt_frame_preedit` with the input method's clauses: `clauses_len`
+        ///  entries of `clauses`, each a byte range of the text and a `TT_PREEDIT_*`
+        ///  kind. They are cut to the text, so a sloppy list is harmless; text no
+        ///  clause names counts as `TT_PREEDIT_INPUT`. The next `tt_frame_update`
+        ///  reports them in columns as `tt_frame_view.preedit_spans`. At most
+        ///  `TT_MAX_PREEDIT_BYTES` clauses are read. `TT_INVALID` for a `NULL` frame,
+        ///  text that is not UTF-8, or `NULL` `clauses` with a length.
+        ///
+        ///  # Safety
+        ///
+        ///  As `tt_frame_preedit`; `clauses` points to `clauses_len` readable
+        ///  entries.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_frame_preedit_clauses", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_frame_preedit_clauses(tt_frame* frame, byte* bytes, nuint len, nuint caret, tt_preedit_clause* clauses, nuint clauses_len);
+
+        /// <summary>
         ///  Frees the frame and every buffer its views pointed to. `NULL` is a
         ///  no-op.
         ///
@@ -883,6 +946,65 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_term_search_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_term_search_count(tt_term* term, nuint* count);
+
+        /// <summary>
+        ///  Writes the link id of viewport cell `row`, `col` to `*id`, for
+        ///  `tt_term_link_uri`. `TT_EMPTY` (and 0) where no link covers the cell
+        ///  or the cell is off the viewport; `TT_INVALID` for a `NULL` `id`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `id` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_at", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_at(tt_term* term, ushort row, ushort col, uint* id);
+
+        /// <summary>
+        ///  Underlines link `id`: from the next `tt_frame_update` every viewport
+        ///  cell carrying it has `TT_CELL_LINK`, across rows when it wraps. 0
+        ///  clears it; so does an id no live link has, and the core dropping the
+        ///  link later.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_hover", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_hover(tt_term* term, uint id);
+
+        /// <summary>
+        ///  Sorts the OSC 8 `uri` a click landed on: writes a `TT_LINK_*` to
+        ///  `*kind` and copies the target (the URI, or a local path in this
+        ///  platform's style) into `buf` as `tt_term_link_uri` does. `machine` is
+        ///  this computer's name, which a file URL may give as its host. A refused
+        ///  link is `TT_OK` with `TT_LINK_REFUSED` and an empty target; so is a file
+        ///  URL whose path does not exist. `TT_INVALID` for text that is not UTF-8
+        ///  or a `NULL` `kind` or `len`.
+        ///
+        ///  # Safety
+        ///
+        ///  `uri` and `machine` are valid as `tt_str`; `kind` is `NULL` or
+        ///  writable; `buf`, `cap` and `len` as for `tt_term_link_uri`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_link_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_link_target(tt_str uri, tt_str machine, uint* kind, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Scrolls the viewport so the previous (`forward` 0) or next (`forward`
+        ///  non-zero) prompt the shell marked with OSC 133 `A` is its top row, or
+        ///  the live screen when that prompt is on it. `TT_EMPTY`, and nothing
+        ///  moves, when there is no such prompt: none marked, none above the
+        ///  viewport, or the next one already in view at the bottom. Marks follow
+        ///  the text through a resize, and go with the lines the scrollback's
+        ///  trimming, ED 2, ED 3 or a full reset remove. Call `tt_frame_update`
+        ///  afterwards.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_scroll_to_prompt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_scroll_to_prompt(tt_term* term, byte forward);
 
 
     }
@@ -1178,8 +1300,8 @@ namespace Scull.Native
         /// </summary>
         public byte width;
         /// <summary>
-        ///  `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH` and
-        ///  `TT_CELL_CURRENT_MATCH` bits.
+        ///  `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH`,
+        ///  `TT_CELL_CURRENT_MATCH` and `TT_CELL_LINK` bits.
         /// </summary>
         public byte flags;
     }
@@ -1343,6 +1465,48 @@ namespace Scull.Native
     }
 
     /// <summary>
+    ///  One clause of the composing text, as the input method reports it, for
+    ///  `tt_frame_preedit_clauses`: bytes `start` up to `end` of the text.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_preedit_clause
+    {
+        /// <summary>
+        ///  First byte.
+        /// </summary>
+        public nuint start;
+        /// <summary>
+        ///  One past the last byte.
+        /// </summary>
+        public nuint end;
+        /// <summary>
+        ///  A `TT_PREEDIT_*` kind; an unknown one counts as input.
+        /// </summary>
+        public byte kind;
+    }
+
+    /// <summary>
+    ///  A run of columns of the shown composing text with one clause kind, in
+    ///  `tt_frame_view.preedit_spans`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_preedit_span
+    {
+        /// <summary>
+        ///  First column, on the row of `tt_frame_view.preedit`.
+        /// </summary>
+        public ushort col;
+        /// <summary>
+        ///  Columns covered.
+        /// </summary>
+        public ushort cols;
+        /// <summary>
+        ///  A `TT_PREEDIT_*` kind.
+        /// </summary>
+        public byte kind;
+    }
+
+    /// <summary>
     ///  An image's pixels, shared and immutable. Opaque to the host: read it
     ///  with `tt_image_pixels`.
     /// </summary>
@@ -1503,6 +1667,16 @@ namespace Scull.Native
         ///  changed.
         /// </summary>
         public tt_preedit preedit;
+        /// <summary>
+        ///  The composing text split by clause kind, in column order; empty
+        ///  when it was set without clauses, in which case `preedit` is all
+        ///  there is to mark.
+        /// </summary>
+        public tt_preedit_span* preedit_spans;
+        /// <summary>
+        ///  Number of spans.
+        /// </summary>
+        public nuint preedit_spans_len;
     }
 
     /// <summary>

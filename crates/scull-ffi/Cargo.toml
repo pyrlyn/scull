@@ -21,6 +21,8 @@ scull-grid = { workspace = true }
 scull-term = { workspace = true }
 scull-input = { workspace = true }
 scull-pty = { workspace = true }
+percent-encoding = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]
 cargo_metadata = { workspace = true }

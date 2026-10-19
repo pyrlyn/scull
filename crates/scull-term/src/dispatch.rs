@@ -69,7 +69,7 @@ impl Handler for State {
     fn execute(&mut self, byte: u8) {
         self.end_cluster();
         match byte {
-            BEL => self.bell = true,
+            BEL => self.events.ring(),
             BS => self.back(1),
             HT => self.tab(1),
             LF | VT | FF => self.linefeed(),
@@ -116,6 +116,10 @@ impl Handler for State {
             (None, [], _) => self.csi_ansi(csi),
             (Some(b'?'), [], _) => self.csi_dec(csi),
             (Some(b'>'), [], b'c') if arg(p, 0, 0) == 0 => self.secondary_attributes(),
+            // The kitty keyboard flag stack: push, pop, set.
+            (Some(b'>'), [], b'u') => self.kitty_stack().push(arg(p, 0, 0)),
+            (Some(b'<'), [], b'u') => self.kitty_stack().pop(arg(p, 0, 1)),
+            (Some(b'='), [], b'u') => self.kitty_stack().set(arg(p, 0, 0), arg(p, 1, 1)),
             (None, [b'$'], b'p') => self.report_ansi_mode(arg(p, 0, 0)),
             (Some(b'?'), [b'$'], b'p') => self.report_dec_mode(arg(p, 0, 0)),
             (None, [b'!'], b'p') => self.soft_reset(),
@@ -124,7 +128,7 @@ impl Handler for State {
     }
 
     fn osc_dispatch(&mut self, osc: &Osc<'_>) {
-        self.osc(osc.data);
+        self.osc(osc);
     }
 
     fn dcs_hook(&mut self, header: &Csi<'_>) {
@@ -242,6 +246,7 @@ impl State {
                 }
             }
             b'n' => self.device_status(arg(p, 0, 0), true),
+            b'u' => self.kitty_query(),
             _ => {}
         }
     }

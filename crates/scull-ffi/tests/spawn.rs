@@ -19,6 +19,12 @@ use scull_ffi::{
     tt_term_new, tt_term_options, tt_term_poll_event, tt_term_resize, tt_term_resize_begin,
     tt_term_spawn, tt_term_write,
 };
+// Input events are driven through a POSIX shell only.
+#[cfg(unix)]
+use scull_ffi::{
+    TT_KEY_ESCAPE, TT_KEY_PRESS, TT_MOUSE_LEFT, TT_MOUSE_PRESS, tt_key_event, tt_mouse_event,
+    tt_term_focus, tt_term_key, tt_term_mouse, tt_term_paste, tt_term_text,
+};
 
 /// A child that is slow to start on a loaded machine still finishes well inside this.
 const GENEROUS: Duration = Duration::from_secs(30);
@@ -101,6 +107,9 @@ impl Host {
                 tt_status::TT_EMPTY => break,
                 tt_status::TT_OK if event.kind == TT_EVENT_BELL => self.bells += 1,
                 tt_status::TT_OK if event.kind == TT_EVENT_CHILD_EXITED => self.exit = Some(event),
+                // ConPTY sets the window title when it starts; a host skips
+                // the kinds it does not use, as the header asks.
+                tt_status::TT_OK => {}
                 other => panic!("poll answered {other:?}, kind {}", event.kind),
             }
         }
@@ -188,6 +197,67 @@ fn input_reaches_the_child_and_a_resize_is_seen_by_it() {
     assert_eq!((status, written), (tt_status::TT_OK, line.len()));
     host.wait_for("the reply", |h| h.screen.contains("got ping"));
     assert!(host.screen.contains("5 30"), "{:?}", host.screen);
+}
+
+/// The child turns on bracketed paste, mouse tracking in SGR and focus
+/// reports, then compares the raw bytes it reads with what those modes
+/// call for: Up, `é`, a paste, focus in, a left click at the top left.
+#[cfg(unix)]
+const ECHO_INPUT: &str = "stty raw -echo; \
+    printf '\\033[?2004h\\033[?1000h\\033[?1006h\\033[?1004hready'; \
+    x=$(head -c 30 | od -An -tx1 | tr -d ' \\n'); \
+    [ \"$x\" = 1b5b41c3a91b5b3230307e701b5b3230317e1b5b491b5b3c303b313b314d ] \
+    && echo pass || echo \"$x\"";
+
+#[cfg(unix)]
+#[test]
+fn input_events_reach_the_child_encoded_for_its_modes() {
+    let mut host = Host::spawn("/bin/sh", &["-c", ECHO_INPUT]);
+    host.wait_for("the modes", |h| h.screen.contains("ready"));
+    let up = 8;
+    let key = tt_key_event {
+        key: TT_KEY_ESCAPE + up,
+        action: TT_KEY_PRESS,
+        ..zeroed_sized()
+    };
+    let click = tt_mouse_event {
+        action: TT_MOUSE_PRESS,
+        button: TT_MOUSE_LEFT,
+        ..zeroed_sized()
+    };
+    let (text, paste) = ("é", "p");
+    let mut taken = 0;
+    // SAFETY: live handle, whole structs, readable text, writable `taken`.
+    unsafe {
+        assert_eq!(tt_term_key(host.term, &key), tt_status::TT_OK);
+        assert_eq!(
+            tt_term_text(host.term, text.as_ptr(), text.len()),
+            tt_status::TT_OK
+        );
+        assert_eq!(
+            tt_term_paste(host.term, paste.as_ptr(), paste.len()),
+            tt_status::TT_OK
+        );
+        assert_eq!(tt_term_focus(host.term, 1), tt_status::TT_OK);
+        assert_eq!(
+            tt_term_mouse(host.term, &click, &mut taken),
+            tt_status::TT_OK
+        );
+    }
+    assert_eq!(taken, 1);
+    host.wait_for("the verdict", |h| h.exit.is_some());
+    assert!(host.screen.contains("pass"), "{:?}", host.screen);
+}
+
+/// A zeroed input struct with its `struct_size` set.
+#[cfg(unix)]
+fn zeroed_sized<T>() -> T {
+    // SAFETY: the input structs are plain data; all-zero means "not set".
+    let mut value: T = unsafe { std::mem::zeroed() };
+    let size = size_of_u32::<T>();
+    // SAFETY: every input struct starts with its u32 `struct_size`.
+    unsafe { ptr::from_mut(&mut value).cast::<u32>().write(size) };
+    value
 }
 
 #[test]

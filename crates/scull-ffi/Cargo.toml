@@ -10,14 +10,21 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Exports `tt_term_test_panic` so a host's tests can poison one terminal.
+# Off in every shipped library; the header and bindings never list it.
+test-hooks = []
+
 [dependencies]
+scull-config = { workspace = true }
 scull-grid = { workspace = true }
 scull-term = { workspace = true }
 scull-input = { workspace = true }
 scull-pty = { workspace = true }
+percent-encoding = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]
-bless-check = { workspace = true }
 cbindgen = { workspace = true }
 csbindgen = { workspace = true }
 workspace-graph = { workspace = true }

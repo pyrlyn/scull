@@ -13,6 +13,9 @@
 //! code): sixel leaves the cursor under the image's left edge, iTerm2 and
 //! kitty right of its bottom-right cell. Leaving the alternate screen drops
 //! its images, as foot does.
+//!
+//! The same numbering anchors the shell's prompt lines (`prompts.rs`), so
+//! they share the eviction and reflow handling below.
 
 use scull_grid::TrackPoint;
 use scull_image::{
@@ -52,6 +55,8 @@ pub(crate) struct ScreenImages {
     /// Rows that left the top of this screen's grid: the absolute line of
     /// logical row 0.
     pub(crate) evicted: u64,
+    /// Absolute lines where a prompt starts (OSC 133 `A`), ascending.
+    pub(crate) prompts: Vec<u64>,
 }
 
 impl Default for ScreenImages {
@@ -60,6 +65,7 @@ impl Default for ScreenImages {
             store: ImageStore::new(DEFAULT_QUOTA_BYTES),
             kitty: KittyDecoder::new(),
             evicted: 0,
+            prompts: Vec::new(),
         }
     }
 }
@@ -76,6 +82,8 @@ impl ScreenImages {
     /// image again).
     pub(crate) fn prune(&mut self) {
         let first = self.evicted;
+        self.prompts
+            .drain(..self.prompts.partition_point(|&l| l < first));
         let gone = |p: &Placement| p.row.saturating_add(u64::from(p.rows)) <= first;
         if self.store.placements().iter().any(gone) {
             self.store.retain_placements(|p| !gone(p));
@@ -85,6 +93,7 @@ impl ScreenImages {
 
     /// Drops the placements that touch absolute lines `lines`.
     pub(crate) fn remove_lines(&mut self, lines: std::ops::Range<u64>) {
+        self.prompts.retain(|l| !lines.contains(l));
         self.store.retain_placements(|p| {
             p.row >= lines.end || p.row.saturating_add(u64::from(p.rows)) <= lines.start
         });
@@ -188,8 +197,9 @@ impl State {
         }
     }
 
-    /// OSC: iTerm2's `1337;File=` inline image; other OSCs are not handled.
-    pub(crate) fn osc(&mut self, data: &[u8]) {
+    /// iTerm2's `1337;File=` inline image. Other OSCs are dispatched in
+    /// `osc.rs`; this only recognizes the image command.
+    pub(crate) fn osc_image(&mut self, data: &[u8]) {
         let Some(payload) = data.strip_prefix(ITERM_OSC) else {
             return;
         };
@@ -341,21 +351,38 @@ impl State {
 }
 
 /// Anchors of `images`' placements as tracking points for a resize, in
-/// placement order. A placement whose top already left the grid is
-/// anchored at logical row 0 and keeps its distance above it.
+/// placement order, then those of the prompt lines. A placement whose top
+/// already left the grid is anchored at logical row 0 and keeps its
+/// distance above it; `prune` has dropped the prompts that left.
 pub(crate) fn anchors(images: &ScreenImages) -> Vec<TrackPoint> {
     let first = images.evicted;
     let point = |p: &Placement| {
         let row = usize::try_from(p.row.saturating_sub(first)).unwrap_or(usize::MAX);
         TrackPoint::new(row, u16::try_from(p.col).unwrap_or(u16::MAX))
     };
-    images.store.placements().iter().map(point).collect()
+    let prompt = |&l: &u64| {
+        TrackPoint::new(
+            usize::try_from(l.saturating_sub(first)).unwrap_or(usize::MAX),
+            0,
+        )
+    };
+    let placed = images.store.placements().iter().map(point);
+    placed.chain(images.prompts.iter().map(prompt)).collect()
 }
 
 /// Re-anchors `images` after its grid was resized, from the `anchors`
 /// the grid's reflow moved. A placement whose cell did not survive goes.
 pub(crate) fn reanchor(images: &mut ScreenImages, anchors: &[TrackPoint]) {
     let first = images.evicted;
+    let (placed, prompts) = anchors.split_at(images.store.placements().len().min(anchors.len()));
+    // Rewrapping can bring two prompts onto one line.
+    images.prompts = prompts
+        .iter()
+        .filter(|a| !a.clamped)
+        .map(|a| first.saturating_add(u64::try_from(a.row).unwrap_or(u64::MAX)))
+        .collect();
+    images.prompts.dedup();
+    let anchors = placed;
     let mut lost = Vec::with_capacity(anchors.len());
     for (p, a) in images.store.placements_mut().iter_mut().zip(anchors) {
         let above = first.saturating_sub(p.row);

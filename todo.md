@@ -1,14 +1,10 @@
 - T3. Conformance and benchmark harness
-- T13. Selection, search, links, shell integration
-- T14. macOS app: first light
 - T15. macOS renderer
 - T16. macOS input method and accessibility
 - T17. Windows app and renderer
 - T18. Windows input method and accessibility
 - T20. Configuration, fonts and themes
 - T21. Tabs, splits and windows
-- T22. Make no-op link clears generation-neutral in Row::set_link
-- T23. Guard the interner Marks/sweep contract against interleaved interns
-- T24. Reconcile harness eager-wrap with xterm's deferred DECAWM
-- T25. CI: run the fuzz targets and the UCD stale-table check
-- T26. Close grid-layer test gaps
+- T31. OSC 8 hyperlinks on both platforms
+- T32. Desktop notifications from OSC 9 and OSC 777
+- T33. Jump between shell prompts with OSC 133 marks

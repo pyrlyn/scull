@@ -4,3 +4,7 @@
 /fuzz/artifacts
 .DS_Store
 /.claude/worktrees
+/macos/.build
+/windows/*/bin
+/windows/*/obj
+nextest-archive.tar.zst

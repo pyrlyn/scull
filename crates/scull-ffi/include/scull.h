@@ -21,11 +21,41 @@
 
 // Additions (new functions, fields appended to a struct) bump the minor.
 // While the major is 0 every minor may break, so the minor must match too.
-#define TT_ABI_VERSION_MINOR 2
+#define TT_ABI_VERSION_MINOR 10
 
 // The version a host was built against, `major << 16 | minor`; pass it
 // in `tt_term_options.abi_version`.
-#define TT_ABI_VERSION 2
+#define TT_ABI_VERSION 10
+
+// `tt_keybind.action`: paste the clipboard.
+#define TT_ACTION_PASTE 1
+
+// Make the font one point larger.
+#define TT_ACTION_FONT_LARGER 2
+
+// Make the font one point smaller.
+#define TT_ACTION_FONT_SMALLER 3
+
+// Back to the configured font size.
+#define TT_ACTION_FONT_RESET 4
+
+// Scroll the history one screen up.
+#define TT_ACTION_SCROLL_PAGE_UP 5
+
+// Scroll the history one screen down.
+#define TT_ACTION_SCROLL_PAGE_DOWN 6
+
+// Scroll to the oldest history row.
+#define TT_ACTION_SCROLL_TO_TOP 7
+
+// Scroll back to the screen.
+#define TT_ACTION_SCROLL_TO_BOTTOM 8
+
+// Scroll to the previous shell prompt: `tt_term_scroll_to_prompt` backwards.
+#define TT_ACTION_PREVIOUS_PROMPT 9
+
+// Scroll to the next shell prompt.
+#define TT_ACTION_NEXT_PROMPT 10
 
 // `tt_event.kind`: the program rang the bell, once or more since the last
 // poll.
@@ -35,6 +65,51 @@
 // Reported once, last.
 #define TT_EVENT_CHILD_EXITED 2
 
+// `tt_event.kind`: OSC 0, 1 or 2 named the window or icon. `detail` is a
+// `TT_TITLE_*`; the text is the name.
+#define TT_EVENT_TITLE 3
+
+// `tt_event.kind`: OSC 7 reported the working directory; the text is its
+// `file://` URI as the program sent it.
+#define TT_EVENT_WORKING_DIRECTORY 4
+
+// `tt_event.kind`: an OSC 133 shell mark. `detail` is the marker letter
+// (`A` prompt, `B` command, `C` output, `D` done); the text is what
+// followed it, often an exit code.
+#define TT_EVENT_SHELL_MARK 5
+
+// `tt_event.kind`: OSC 52 asks for the clipboard. `id` is the request:
+// answer it with `tt_term_clipboard_reply` or `tt_term_clipboard_deny`.
+// `detail` is the selection byte (`c`, `p`, `q`, `s`, `0`-`7`).
+#define TT_EVENT_CLIPBOARD_READ 6
+
+// `tt_event.kind`: OSC 52 sets the clipboard; the text is the decoded
+// bytes, which need not be UTF-8. `detail` is the selection byte.
+#define TT_EVENT_CLIPBOARD_WRITE 7
+
+// `tt_event.kind`: OSC 8 opened a hyperlink. `id` is its link id; the text
+// is the URI. `tt_term_link_uri` resolves the id later.
+#define TT_EVENT_LINK 8
+
+// `tt_event.kind`: OSC 9 or OSC 777 `notify` asks for a notification. The
+// text is the message, `TT_EVENT_TEXT_TITLE` its title (empty for OSC 9).
+#define TT_EVENT_NOTIFICATION 9
+
+// `tt_event.detail` of `TT_EVENT_TITLE`: OSC 0, icon name and window title.
+#define TT_TITLE_BOTH 0
+
+// `tt_event.detail` of `TT_EVENT_TITLE`: OSC 1, the icon name.
+#define TT_TITLE_ICON 1
+
+// `tt_event.detail` of `TT_EVENT_TITLE`: OSC 2, the window title.
+#define TT_TITLE_WINDOW 2
+
+// `tt_term_event_text` part: the event's text, `text_len` bytes.
+#define TT_EVENT_TEXT_BODY 0
+
+// `tt_term_event_text` part: a notification's title, `title_len` bytes.
+#define TT_EVENT_TEXT_TITLE 1
+
 // `tt_event.exit_code` when the system did not say. A literal, not the
 // PTY crate's constant, so the generated header can spell it.
 #define TT_EXIT_CODE_UNKNOWN 4294967295
@@ -42,6 +117,15 @@
 // The cell holds more code points than `codepoint`; the whole cluster is
 // in its row's text.
 #define TT_CELL_CLUSTER 1
+
+// The cell is selected.
+#define TT_CELL_SELECTED 2
+
+// The cell is part of a search match.
+#define TT_CELL_MATCH 4
+
+// The cell is part of the current search match (`TT_CELL_MATCH` is set too).
+#define TT_CELL_CURRENT_MATCH 8
 
 // A colour: `TT_COLOR_DEFAULT`, `TT_COLOR_INDEXED | index` or
 // `TT_COLOR_RGB | 0xRRGGBB`; the kind is in `TT_COLOR_KIND_MASK`.
@@ -98,6 +182,159 @@
 // Dashed.
 #define TT_UNDERLINE_DASHED 5
 
+// Typed and not converted yet: the input method's raw text.
+#define TT_PREEDIT_INPUT 0
+
+// Converted, but not the clause being edited.
+#define TT_PREEDIT_CONVERTED 1
+
+// The clause being converted now: the one a candidate list belongs to.
+#define TT_PREEDIT_TARGET 2
+
+// Most bytes of composing text a frame shows.
+#define TT_MAX_PREEDIT_BYTES 1024
+
+// `tt_key_event.action`: the key went down.
+#define TT_KEY_PRESS 1
+
+// The key auto-repeats.
+#define TT_KEY_REPEAT 2
+
+// The key went up.
+#define TT_KEY_RELEASE 3
+
+// `tt_key_event.mods` and `tt_mouse_event.mods` bits.
+#define TT_MOD_SHIFT 1
+
+// Alt, Option on macOS.
+#define TT_MOD_ALT 2
+
+// Control.
+#define TT_MOD_CTRL 4
+
+// Super: Command on macOS, the Windows key.
+#define TT_MOD_SUPER 8
+
+// Hyper.
+#define TT_MOD_HYPER 16
+
+// Meta.
+#define TT_MOD_META 32
+
+// Caps Lock is on.
+#define TT_MOD_CAPS_LOCK 64
+
+// Num Lock is on.
+#define TT_MOD_NUM_LOCK 128
+
+// `tt_key_event.key`: Escape. The keys after it, one code each, are
+// Enter, Tab, Backspace, Insert, Delete, Left, Right, Up, Down, Page Up,
+// Page Down, Home and End (`TT_KEY_END`).
+#define TT_KEY_ESCAPE 57344
+
+// The last of the keys from `TT_KEY_ESCAPE`.
+#define TT_KEY_END 57357
+
+// Caps Lock; then Scroll Lock, Num Lock, Print Screen, Pause, Menu.
+#define TT_KEY_CAPS_LOCK 57358
+
+// F1; F`n` is `TT_KEY_F1 + n - 1` up to F35.
+#define TT_KEY_F1 57364
+
+// Keypad 0; then 1 to 9, Decimal, Divide, Multiply, Subtract, Add, Enter,
+// Equal, Separator, Left, Right, Up, Down, Page Up, Page Down, Home, End,
+// Insert, Delete, Begin.
+#define TT_KEY_KP_0 57399
+
+// Play; then Pause, Play/Pause, Reverse, Stop, Fast Forward, Rewind, Next
+// Track, Previous Track, Record, Volume Down, Volume Up, Mute.
+#define TT_KEY_MEDIA_PLAY 57428
+
+// Left Shift on its own; then Left Control, Left Alt, Left Super, Left
+// Hyper, Left Meta, the same six on the right, ISO Level 3 Shift and ISO
+// Level 5 Shift.
+#define TT_KEY_LEFT_SHIFT 57441
+
+// `tt_mouse_event.action`: a button went down; wheel steps are presses.
+#define TT_MOUSE_PRESS 1
+
+// A button went up.
+#define TT_MOUSE_RELEASE 2
+
+// The pointer moved to another cell, or pixel while the program asks
+// for pixels; send it only then.
+#define TT_MOUSE_MOTION 3
+
+// `tt_mouse_event.button`: none, for motion with no button held. Others
+// are X11's numbers: 1 left, 2 middle, 3 right, 4 to 7 wheel up, down,
+// left and right, 8 back, 9 forward, 10 and 11.
+#define TT_MOUSE_NONE 0
+
+// The left button.
+#define TT_MOUSE_LEFT 1
+
+// The middle button.
+#define TT_MOUSE_MIDDLE 2
+
+// The right button.
+#define TT_MOUSE_RIGHT 3
+
+// One wheel step up.
+#define TT_MOUSE_WHEEL_UP 4
+
+// One wheel step down.
+#define TT_MOUSE_WHEEL_DOWN 5
+
+// One wheel step left.
+#define TT_MOUSE_WHEEL_LEFT 6
+
+// One wheel step right.
+#define TT_MOUSE_WHEEL_RIGHT 7
+
+// `tt_cell.flags`: the cell carries the link `tt_term_link_hover` set.
+#define TT_CELL_LINK 16
+
+// `tt_link_target` kind: nothing to open.
+#define TT_LINK_REFUSED 0
+
+// An http or https page; the target is the URI.
+#define TT_LINK_WEB 1
+
+// A mailto address; the target is the URI.
+#define TT_LINK_MAIL 2
+
+// A directory on this machine, to open in the file manager; the target is
+// its path.
+#define TT_LINK_DIRECTORY 3
+
+// Any other existing file on this machine, to reveal in the file manager
+// and never open; the target is its path.
+#define TT_LINK_FILE 4
+
+// `tt_term_select_start` kind: cell by cell, for a drag.
+#define TT_SELECT_CELL 0
+
+// Whole words, for a double click.
+#define TT_SELECT_WORD 1
+
+// Whole lines, soft wraps included, for a triple click.
+#define TT_SELECT_LINE 2
+
+// A rectangle of columns.
+#define TT_SELECT_BLOCK 3
+
+// `tt_term_search_set` flag: fold case.
+#define TT_SEARCH_IGNORE_CASE 1
+
+// Longest pattern, in bytes, `tt_term_search_set` accepts.
+#define TT_MAX_SEARCH_PATTERN 256
+
+// Most matches `tt_term_search_count` counts.
+#define TT_MAX_SEARCH_MATCHES 10000
+
+// Most bytes `tt_term_selection_text` hands out; longer text is cut.
+#define TT_MAX_SELECTION_BYTES 16777216
+
 // What every fallible call answers. Values are only ever appended.
 enum tt_status
 #if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
@@ -116,7 +353,8 @@ enum tt_status
   TT_POISONED = 3,
   // This call panicked inside the core; the terminal is now poisoned.
   TT_PANIC = 4,
-  // Nothing to report: the event queue is empty.
+  // Nothing to report: the event queue is empty, or the event text or
+  // link asked for is no longer held.
   TT_EMPTY = 5,
   // The terminal has no child to talk to: it was made by
   // `tt_term_new`, or its child has gone.
@@ -124,6 +362,9 @@ enum tt_status
   // The operating system refused: no PTY, a program that does not
   // start, a size the PTY rejects.
   TT_IO = 7,
+  // The child is not reading and its input queue cannot take the whole
+  // event; nothing was sent. Try again later.
+  TT_FULL = 8,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -132,6 +373,9 @@ typedef enum tt_status tt_status;
 typedef int32_t tt_status;
 #endif // __STDC_VERSION__ >= 202311L
 #endif // __cplusplus
+
+// The configuration. Opaque to the host.
+typedef struct tt_config tt_config;
 
 // A UI-owned frame. Opaque to the host; one per view, used from one
 // thread at a time.
@@ -144,6 +388,93 @@ typedef struct tt_image tt_image;
 // One terminal. Opaque to the host.
 typedef struct tt_term tt_term;
 
+// UTF-8 text the host owns: `len` bytes at `ptr`, no terminator. `ptr`
+// may be `NULL` when `len` is 0.
+typedef struct tt_str {
+  // The first byte.
+  const uint8_t *ptr;
+  // Bytes, not characters.
+  size_t len;
+} tt_str;
+
+// Called with the `userdata` given at spawn when the terminal has
+// something new: output to draw or an event to poll. It runs on a core
+// thread and must not block, unwind or call any `tt_*` function: post a
+// redraw to the UI thread and return. It is not called again until the
+// host calls `tt_frame_update` or `tt_term_poll_event` on the terminal,
+// and never after `tt_term_free` returns.
+typedef void (*tt_wakeup_fn)(void *userdata);
+
+// How to open the configuration.
+typedef struct tt_config_options {
+  // `sizeof(tt_config_options)` as the host knows it.
+  uint32_t struct_size;
+  // `TT_ABI_VERSION` as the host was built with it.
+  uint32_t abi_version;
+  // The config file; empty for the default place
+  // (`$XDG_CONFIG_HOME/scull/config.toml`, `~/.config/scull/config.toml`,
+  // `%APPDATA%\scull\config.toml`).
+  struct tt_str path;
+  // Called from a core thread when `tt_config_poll` would answer
+  // something new; `NULL` for none. Same contract as `tt_wakeup_fn`:
+  // it must not block or call `tt_*`, it is not called again until the
+  // host polls, and never after `tt_config_free` returns.
+  tt_wakeup_fn wakeup;
+  // Passed to `wakeup` as is.
+  void *userdata;
+} tt_config_options;
+
+// A key binding: when `key` is pressed with exactly `mods` among Shift,
+// Alt, Control and Super held, do `action`.
+typedef struct tt_keybind {
+  // As `tt_key_event.key`.
+  uint32_t key;
+  // `TT_MOD_*` bits.
+  uint8_t mods;
+  // `TT_ACTION_*`.
+  uint8_t action;
+} tt_keybind;
+
+// The settings in force. Every pointer in it stays valid until the next
+// `tt_config_poll` or `tt_config_free` on the same handle.
+typedef struct tt_config_view {
+  // `sizeof(tt_config_view)` as the host knows it.
+  uint32_t struct_size;
+  // 1 when anything changed since the previous poll (always on the first).
+  uint8_t updated;
+  // 1 when file changes are watched; 0 means only `tt_config_set` and a
+  // new handle see the file.
+  uint8_t watching;
+  // Grows with every change of the settings or of `error`.
+  uint64_t generation;
+  // The font family; empty for the platform's monospace font.
+  struct tt_str font_family;
+  // The font size in points.
+  float font_size;
+  // History rows for terminals opened from now on.
+  uint32_t scrollback;
+  // The colour scheme's name as the file spells it (`scull-dark`, ...).
+  struct tt_str scheme;
+  // Default text colour, `0xRRGGBB`.
+  uint32_t foreground;
+  // Default background colour, `0xRRGGBB`.
+  uint32_t background;
+  // Cursor colour, `0xRRGGBB`.
+  uint32_t cursor;
+  // Palette entries 0 to 15, `0xRRGGBB`.
+  uint32_t ansi[16];
+  // The key bindings in force.
+  const struct tt_keybind *keybinds;
+  // Number of `keybinds`.
+  size_t keybinds_len;
+  // Why the file could not be used the last time it was read, with its
+  // name; empty when it was fine. The settings above are then the last
+  // good ones.
+  struct tt_str error;
+  // The config file's path.
+  struct tt_str path;
+} tt_config_view;
+
 // One event. A `u32` kind rather than an enum, so a kind added later is a
 // value an older host skips, not undefined behaviour.
 typedef struct tt_event {
@@ -155,6 +486,18 @@ typedef struct tt_event {
   uint32_t exit_code;
   // `TT_EVENT_CHILD_EXITED`: 1 when a signal ended the child.
   uint8_t signaled;
+  // Names this event to `tt_term_event_text`; never 0.
+  uint64_t serial;
+  // The clipboard request of `TT_EVENT_CLIPBOARD_*`, the link id of
+  // `TT_EVENT_LINK`; 0 otherwise.
+  uint64_t id;
+  // Per kind: a `TT_TITLE_*`, a shell marker letter, a clipboard
+  // selection byte; 0 otherwise.
+  uint32_t detail;
+  // Bytes of the text (`TT_EVENT_TEXT_BODY`); 0 when there is none.
+  uint32_t text_len;
+  // Bytes of a notification's title (`TT_EVENT_TEXT_TITLE`).
+  uint32_t title_len;
 } tt_event;
 
 // The cursor in viewport rows.
@@ -175,7 +518,8 @@ typedef struct tt_cell {
   uint16_t style;
   // Columns covered: 1, 2 for a wide character, 0 for the cell behind it.
   uint8_t width;
-  // `TT_CELL_CLUSTER` or 0.
+  // `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH`,
+  // `TT_CELL_CURRENT_MATCH` and `TT_CELL_LINK` bits.
   uint8_t flags;
 } tt_cell;
 
@@ -273,6 +617,30 @@ typedef struct tt_placement {
   int32_t z;
 } tt_placement;
 
+// Where the frame shows the input method's composing text, set with
+// `tt_frame_preedit`. The text is already in the row's cells and runs and
+// the cursor is at its caret; a renderer only marks the span, usually
+// with an underline. `cols` is 0 when none is shown.
+typedef struct tt_preedit {
+  // Viewport row.
+  uint16_t row;
+  // First column.
+  uint16_t col;
+  // Columns covered.
+  uint16_t cols;
+} tt_preedit;
+
+// A run of columns of the shown composing text with one clause kind, in
+// `tt_frame_view.preedit_spans`.
+typedef struct tt_preedit_span {
+  // First column, on the row of `tt_frame_view.preedit`.
+  uint16_t col;
+  // Columns covered.
+  uint16_t cols;
+  // A `TT_PREEDIT_*` kind.
+  uint8_t kind;
+} tt_preedit_span;
+
 // What `tt_frame_update` hands back. Set `struct_size` before the call.
 typedef struct tt_frame_view {
   // `sizeof(tt_frame_view)` as the host knows it; on return, the bytes
@@ -315,24 +683,90 @@ typedef struct tt_frame_view {
   const struct tt_placement *placements;
   // Number of placements.
   size_t placements_len;
+  // The composing text's span; its row is in `dirty` whenever it
+  // changed.
+  struct tt_preedit preedit;
+  // The composing text split by clause kind, in column order; empty
+  // when it was set without clauses, in which case `preedit` is all
+  // there is to mark.
+  const struct tt_preedit_span *preedit_spans;
+  // Number of spans.
+  size_t preedit_spans_len;
 } tt_frame_view;
 
-// UTF-8 text the host owns: `len` bytes at `ptr`, no terminator. `ptr`
-// may be `NULL` when `len` is 0.
-typedef struct tt_str {
-  // The first byte.
-  const uint8_t *ptr;
-  // Bytes, not characters.
-  size_t len;
-} tt_str;
+// One clause of the composing text, as the input method reports it, for
+// `tt_frame_preedit_clauses`: bytes `start` up to `end` of the text.
+typedef struct tt_preedit_clause {
+  // First byte.
+  size_t start;
+  // One past the last byte.
+  size_t end;
+  // A `TT_PREEDIT_*` kind; an unknown one counts as input.
+  uint8_t kind;
+} tt_preedit_clause;
 
-// Called with the `userdata` given at spawn when the terminal has
-// something new: output to draw or an event to poll. It runs on a core
-// thread and must not block, unwind or call any `tt_*` function: post a
-// redraw to the UI thread and return. It is not called again until the
-// host calls `tt_frame_update` or `tt_term_poll_event` on the terminal,
-// and never after `tt_term_free` returns.
-typedef void (*tt_wakeup_fn)(void *userdata);
+// One key event, as Ghostty's embedding API reports it: what was
+// pressed and what text it typed; the core picks the bytes.
+typedef struct tt_key_event {
+  // `sizeof(tt_key_event)` as the host knows it.
+  uint32_t struct_size;
+  // The key: for a key of the main block, the code point it types on
+  // the US layout with no modifiers (`'a'`, `'1'`, `' '`); for any
+  // other key a `TT_KEY_*` code.
+  uint32_t key;
+  // What the key types on the current layout with no modifiers (`с`
+  // for the `c` key on a Russian layout); 0 when it is `key` itself.
+  uint32_t unshifted;
+  // `TT_KEY_PRESS`, `TT_KEY_REPEAT` or `TT_KEY_RELEASE`.
+  uint8_t action;
+  // `TT_MOD_*` bits held, including this key if it is a modifier.
+  uint8_t mods;
+  // `TT_MOD_*` bits the layout used to type `text` (Option typing `å`).
+  uint8_t consumed_mods;
+  // 1 while an input method is composing: nothing is sent.
+  uint8_t composing;
+  // UTF-8 the key typed, with Shift and consumed modifiers but not
+  // Control applied; may be empty.
+  struct tt_str text;
+} tt_key_event;
+
+// One mouse event, in cells and in pixels: the core picks which the
+// program gets.
+typedef struct tt_mouse_event {
+  // `sizeof(tt_mouse_event)` as the host knows it.
+  uint32_t struct_size;
+  // `TT_MOUSE_PRESS`, `TT_MOUSE_RELEASE` or `TT_MOUSE_MOTION`.
+  uint8_t action;
+  // The button pressed or released; for motion, the lowest one held or
+  // `TT_MOUSE_NONE`.
+  uint8_t button;
+  // `TT_MOD_*` bits; Shift, Alt and Control are reported.
+  uint8_t mods;
+  // Viewport column, from 0.
+  uint32_t col;
+  // Viewport row, from 0.
+  uint32_t row;
+  // Pixels from the left of the text area.
+  uint32_t x_px;
+  // Pixels from the top of the text area.
+  uint32_t y_px;
+} tt_mouse_event;
+
+// A search match: first and last cell, inclusive. Lines are absolute
+// (counted from the first line ever output), so a match keeps its
+// numbers while the text scrolls.
+typedef struct tt_match {
+  // `sizeof(tt_match)` as the host knows it.
+  uint32_t struct_size;
+  // Column of the first cell.
+  uint16_t start_col;
+  // Column of the last cell (a wide character's right half included).
+  uint16_t end_col;
+  // Line of the first cell.
+  uint64_t start_line;
+  // Line of the last cell.
+  uint64_t end_line;
+} tt_match;
 
 // How to create a terminal. Fields a host does not know read as zero;
 // `tt_term_new` reads only up to `scrollback`.
@@ -373,14 +807,113 @@ extern "C" {
 // The ABI version of this library, `major << 16 | minor`.
 uint32_t tt_abi_version(void);
 
+// Opens the configuration and starts watching it. A missing file is the
+// defaults and a broken one is an `error` in the view, so this fails only
+// for bad arguments or a host with no home directory to put the file in.
+// On `TT_OK` `*out` holds the handle; free it with `tt_config_free`.
+//
+// # Safety
+//
+// `options` is `NULL` or points to `struct_size` readable bytes, its
+// strings valid for their lengths during this call; `out` is `NULL` or
+// writable.
+tt_status tt_config_new(const struct tt_config_options *options, struct tt_config **out);
+
+// Fills `*view` with the settings in force and sets `updated` when they
+// are not what the previous poll returned. Polling lets the next wakeup
+// fire.
+//
+// # Safety
+//
+// `config` is `NULL` or live; `view` is `NULL` or points to `struct_size`
+// writable bytes.
+tt_status tt_config_poll(const struct tt_config *config, struct tt_config_view *view);
+
+// Changes one setting in the config file, keeping the rest of the file as
+// it is, and applies it at once. `key` is one of `font.family`,
+// `font.size`, `colors.scheme`, `colors.foreground`, `colors.background`,
+// `colors.cursor`, `scrollback`; `value` is its text (`13.5`,
+// `solarized-dark`, `#1a2b3c`), and an empty `value` removes the key so its
+// default applies. `TT_INVALID` for an unknown key or a value the config
+// does not accept, with the file untouched; `TT_IO` when it cannot be
+// written.
+//
+// # Safety
+//
+// `config` is `NULL` or live; the strings are valid for their lengths.
+tt_status tt_config_set(const struct tt_config *config, struct tt_str key, struct tt_str value);
+
+// Frees the configuration and stops its watcher. `NULL` is a no-op. No
+// other call may use `config` during or after this one.
+//
+// # Safety
+//
+// `config` is `NULL` or live, and not used again.
+void tt_config_free(struct tt_config *config);
+
 // Takes the next event into `*event`: `TT_OK` with one, `TT_EMPTY` when
-// there is none. Call it until `TT_EMPTY` after every wakeup.
+// there is none. Call it until `TT_EMPTY` after every wakeup. The event's
+// text stays readable through `tt_term_event_text` until the next poll.
 //
 // # Safety
 //
 // `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
 // writable bytes.
 tt_status tt_term_poll_event(const struct tt_term *term, struct tt_event *event);
+
+// Copies part `part` (`TT_EVENT_TEXT_*`) of the text of event `serial`
+// into `buf`, as `tt_term_read_text` does: `*len` becomes its length, and
+// `TT_FULL` with nothing copied when that is more than `cap`. Only the
+// event polled last is held: an older `serial` answers `TT_EMPTY`.
+// `TT_INVALID` for an unknown part, a `NULL` `len`, or a `NULL` `buf` with
+// a `cap`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+// bytes; `len` is `NULL` or writable.
+tt_status tt_term_event_text(const struct tt_term *term,
+                             uint64_t serial,
+                             uint32_t part,
+                             uint8_t *buf,
+                             size_t cap,
+                             size_t *len);
+
+// Copies the URI of link `id` (from `TT_EVENT_LINK`) into `buf`, sized
+// as for `tt_term_event_text`. An id stays valid while text on the screen
+// or in history carries it; `TT_EMPTY` once it is gone, after which the
+// core may hand the id to a new link.
+//
+// # Safety
+//
+// As for `tt_term_event_text`.
+tt_status tt_term_link_uri(const struct tt_term *term,
+                           uint32_t id,
+                           uint8_t *buf,
+                           size_t cap,
+                           size_t *len);
+
+// Answers the OSC 52 read `id` with `len` bytes of clipboard content,
+// which the core base64-encodes for the program. `TT_INVALID` when `id`
+// is not an open read (unknown, or answered already), when the content is
+// over 1 MiB, or for `NULL` `data` with a `len`; `TT_FULL` when the reply
+// did not fit and the program got an empty answer instead.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `data` points to `len` readable bytes.
+tt_status tt_term_clipboard_reply(const struct tt_term *term,
+                                  uint64_t id,
+                                  const uint8_t *data,
+                                  size_t len);
+
+// Refuses the OSC 52 read `id`: the program gets an empty answer, so it
+// does not wait. `TT_INVALID` when `id` is not an open read.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_clipboard_deny(const struct tt_term *term, uint64_t id);
 
 // A new, empty frame; the first update fills it. `NULL` only if the core
 // failed. Free it with `tt_frame_free`.
@@ -398,6 +931,38 @@ struct tt_frame *tt_frame_new(void);
 tt_status tt_frame_update(struct tt_frame *frame,
                           const struct tt_term *term,
                           struct tt_frame_view *view);
+
+// Sets the input method's composing text, UTF-8, with the caret at byte
+// `caret` (moved back onto a character boundary); `len` 0 clears it. The
+// next `tt_frame_update` shows it at the cursor (`tt_frame_view.preedit`).
+// It never reaches the child: commit text with `tt_term_text`. Text past
+// `TT_MAX_PREEDIT_BYTES` is cut. `TT_INVALID` for a `NULL` frame or text
+// that is not UTF-8.
+//
+// # Safety
+//
+// `frame` is `NULL` or live and not used by another thread meanwhile;
+// `bytes` points to `len` readable bytes.
+tt_status tt_frame_preedit(struct tt_frame *frame, const uint8_t *bytes, size_t len, size_t caret);
+
+// `tt_frame_preedit` with the input method's clauses: `clauses_len`
+// entries of `clauses`, each a byte range of the text and a `TT_PREEDIT_*`
+// kind. They are cut to the text, so a sloppy list is harmless; text no
+// clause names counts as `TT_PREEDIT_INPUT`. The next `tt_frame_update`
+// reports them in columns as `tt_frame_view.preedit_spans`. At most
+// `TT_MAX_PREEDIT_BYTES` clauses are read. `TT_INVALID` for a `NULL` frame,
+// text that is not UTF-8, or `NULL` `clauses` with a length.
+//
+// # Safety
+//
+// As `tt_frame_preedit`; `clauses` points to `clauses_len` readable
+// entries.
+tt_status tt_frame_preedit_clauses(struct tt_frame *frame,
+                                   const uint8_t *bytes,
+                                   size_t len,
+                                   size_t caret,
+                                   const struct tt_preedit_clause *clauses,
+                                   size_t clauses_len);
 
 // Frees the frame and every buffer its views pointed to. `NULL` is a
 // no-op.
@@ -436,6 +1001,195 @@ const uint8_t *tt_image_pixels(const struct tt_image *image,
                                uint32_t *width,
                                uint32_t *height,
                                size_t *stride);
+
+// Sends a key event. `TT_OK` also when the active modes send nothing
+// for it (a release in legacy mode, a composing key); `TT_CLOSED` when
+// there is no child; `TT_FULL` when the child is not reading and its
+// input queue lacks room, in which case nothing was sent.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
+// readable bytes whose `text` is valid for its length.
+tt_status tt_term_key(const struct tt_term *term, const struct tt_key_event *event);
+
+// Sends text an input method committed outside a key event (dictation,
+// the character viewer). Control characters are dropped. Statuses as for
+// `tt_term_key`; `TT_INVALID` for text that is not UTF-8.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `bytes` points to `len` readable bytes.
+tt_status tt_term_text(const struct tt_term *term, const uint8_t *bytes, size_t len);
+
+// Sends pasted text: bracketed, with any bracket marker inside removed,
+// while the program asks for it (mode 2004); otherwise line feeds become
+// carriage returns. A paste is sent whole or not at all, so one larger
+// than the child's input queue (256 KiB) answers `TT_FULL`. Statuses
+// otherwise as for `tt_term_text`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `bytes` points to `len` readable bytes.
+tt_status tt_term_paste(const struct tt_term *term, const uint8_t *bytes, size_t len);
+
+// Tells the program the view gained (`focused` 1) or lost (0) focus,
+// while it asks for focus reports (mode 1004). Statuses as for
+// `tt_term_key`.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_focus(const struct tt_term *term, uint8_t focused);
+
+// Sends a mouse event if the program takes it. `*taken`, unless `NULL`,
+// becomes 1 when it does: always while it tracks the mouse, and for a
+// wheel step on the alternate screen, which becomes a cursor key (mode
+// 1007). At 0 the event is the host's: select, or scroll the history
+// with `tt_term_scroll_display`. Statuses as for `tt_term_key`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
+// readable bytes; `taken` is `NULL` or writable.
+tt_status tt_term_mouse(const struct tt_term *term,
+                        const struct tt_mouse_event *event,
+                        uint8_t *taken);
+
+// Moves the viewport `delta` rows back into history (negative: towards
+// the screen), clamped to what history holds. Typing, text and paste
+// bring it back to the screen by themselves.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_scroll_display(const struct tt_term *term, int32_t delta);
+
+// Writes the link id of viewport cell `row`, `col` to `*id`, for
+// `tt_term_link_uri`. `TT_EMPTY` (and 0) where no link covers the cell
+// or the cell is off the viewport; `TT_INVALID` for a `NULL` `id`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `id` is `NULL` or writable.
+tt_status tt_term_link_at(const struct tt_term *term, uint16_t row, uint16_t col, uint32_t *id);
+
+// Underlines link `id`: from the next `tt_frame_update` every viewport
+// cell carrying it has `TT_CELL_LINK`, across rows when it wraps. 0
+// clears it; so does an id no live link has, and the core dropping the
+// link later.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_link_hover(const struct tt_term *term, uint32_t id);
+
+// Sorts the OSC 8 `uri` a click landed on: writes a `TT_LINK_*` to
+// `*kind` and copies the target (the URI, or a local path in this
+// platform's style) into `buf` as `tt_term_link_uri` does. `machine` is
+// this computer's name, which a file URL may give as its host. A refused
+// link is `TT_OK` with `TT_LINK_REFUSED` and an empty target; so is a file
+// URL whose path does not exist. `TT_INVALID` for text that is not UTF-8
+// or a `NULL` `kind` or `len`.
+//
+// # Safety
+//
+// `uri` and `machine` are valid as `tt_str`; `kind` is `NULL` or
+// writable; `buf`, `cap` and `len` as for `tt_term_link_uri`.
+tt_status tt_link_target(struct tt_str uri,
+                         struct tt_str machine,
+                         uint32_t *kind,
+                         uint8_t *buf,
+                         size_t cap,
+                         size_t *len);
+
+// Scrolls the viewport so the previous (`forward` 0) or next (`forward`
+// non-zero) prompt the shell marked with OSC 133 `A` is its top row, or
+// the live screen when that prompt is on it. `TT_EMPTY`, and nothing
+// moves, when there is no such prompt: none marked, none above the
+// viewport, or the next one already in view at the bottom. Marks follow
+// the text through a resize, and go with the lines the scrollback's
+// trimming, ED 2, ED 3 or a full reset remove. Call `tt_frame_update`
+// afterwards.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_scroll_to_prompt(const struct tt_term *term, uint8_t forward);
+
+// Starts a selection of `kind` (`TT_SELECT_*`) at viewport cell `row`,
+// `col` (clamped), replacing any other. It covers that cell, word or line
+// until extended; clear it on a click that did not drag. Output that
+// rewrites its rows, a resize and a screen switch drop it. `TT_INVALID`
+// for an unknown kind.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_select_start(const struct tt_term *term,
+                               uint32_t kind,
+                               uint16_t row,
+                               uint16_t col);
+
+// Moves the selection's free end to viewport cell `row`, `col` (clamped).
+// No selection is no change.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_select_extend(const struct tt_term *term, uint16_t row, uint16_t col);
+
+// Drops the selection.
+//
+// # Safety
+//
+// `term` is `NULL` or live.
+tt_status tt_term_select_clear(const struct tt_term *term);
+
+// Copies the selected text into `buf` as `tt_term_read_text` does:
+// UTF-8, soft-wrapped rows joined, hard line ends as `\n`, wide characters
+// once, blank and concealed cells as spaces, trailing spaces trimmed per
+// line, no NUL, at most `TT_MAX_SELECTION_BYTES`. `*len` becomes its
+// length; `TT_FULL` with nothing copied when that is more than `cap`.
+// `TT_EMPTY` with `*len` 0 when nothing is selected. `TT_INVALID` for a
+// `NULL` `len`, or a `NULL` `buf` with a `cap`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+// bytes; `len` is `NULL` or writable.
+tt_status tt_term_selection_text(const struct tt_term *term, uint8_t *buf, size_t cap, size_t *len);
+
+// Searches the scrollback and the screen for `pattern`, literal UTF-8,
+// with `flags` (`TT_SEARCH_IGNORE_CASE` or 0), replacing any earlier
+// search; the frame marks every match in the viewport. An empty pattern
+// ends the search. `TT_INVALID`, ending the search, for text that is not
+// UTF-8, longer than `TT_MAX_SEARCH_PATTERN` bytes, or an unknown flag.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `pattern` is valid for its length.
+tt_status tt_term_search_set(const struct tt_term *term, struct tt_str pattern, uint32_t flags);
+
+// Steps to the next match (`forward` 1) or the previous one (0): from the
+// current match, or else from the top (bottom) of the viewport, wrapping
+// round at the ends. The viewport scrolls to show it and the frame marks
+// it `TT_CELL_CURRENT_MATCH`. `TT_OK` with the match written to `*found`
+// (which may be `NULL`), `TT_EMPTY` when there is no search or no match.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `found` is `NULL` or points to `struct_size`
+// writable bytes.
+tt_status tt_term_search_step(const struct tt_term *term, uint8_t forward, struct tt_match *found);
+
+// Writes the number of matches, up to `TT_MAX_SEARCH_MATCHES`, to
+// `*count`; 0 without a search. `TT_INVALID` for a `NULL` `count`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `count` is `NULL` or writable.
+tt_status tt_term_search_count(const struct tt_term *term, size_t *count);
 
 // Creates a terminal running a child on a new PTY: `options.program`
 // with its arguments, or the user's shell. Output is parsed on core
@@ -512,6 +1266,26 @@ tt_status tt_term_resize(const struct tt_term *term,
 //
 // `term` is `NULL` or live, and not used again.
 void tt_term_free(struct tt_term *term);
+
+// Copies the text of `rows` viewport rows from `row` into `buf`: UTF-8,
+// one line per row joined by `\n` (line N is row `row + N`), wide
+// characters once, blank and concealed (SGR 8) cells as spaces, trailing
+// spaces trimmed, no NUL. `*len` becomes the text's length. When that is
+// more than `cap`, nothing is copied and the answer is `TT_FULL`: call
+// again with a larger buffer (pass `cap` 0 to ask for the length). Rows
+// past the viewport are not read. `TT_INVALID` for a `NULL` `len`, or a
+// `NULL` `buf` with a `cap`.
+//
+// # Safety
+//
+// `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+// bytes; `len` is `NULL` or writable.
+tt_status tt_term_read_text(const struct tt_term *term,
+                            uint16_t row,
+                            uint16_t rows,
+                            uint8_t *buf,
+                            size_t cap,
+                            size_t *len);
 
 #ifdef __cplusplus
 }  // extern "C"

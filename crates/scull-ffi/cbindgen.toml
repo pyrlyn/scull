@@ -27,3 +27,7 @@ usize_is_size_t = true
 [enum]
 # The status values are named for C already (TT_OK, ...).
 rename_variants = "None"
+
+[export]
+# Behind the `test-hooks` feature; a shipped library does not have it.
+exclude = ["tt_term_test_panic"]

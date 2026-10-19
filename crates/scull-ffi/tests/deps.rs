@@ -6,6 +6,9 @@
 
 use workspace_graph::{Graph, Kind};
 
+/// The hakari crate every member depends on (`cargo hakari`); not an architectural edge.
+const HACK: &str = "workspace-hack";
+
 /// Edges between workspace crates, dev-dependencies excluded.
 fn graph() -> Graph {
     Graph::load(env!("CARGO_MANIFEST_DIR"), &[Kind::Normal])
@@ -23,18 +26,23 @@ fn leaves_have_no_workspace_dependencies() {
         "scull-harness",
         "scull-image",
     ] {
-        graph.assert_exact(leaf, &[]);
+        graph.assert_exact(leaf, &[HACK]);
     }
 }
 
 #[test]
 fn parser_depends_only_on_unicode() {
-    graph().assert_exact("scull-parser", &["scull-unicode"]);
+    graph().assert_exact("scull-parser", &["scull-unicode", HACK]);
 }
 
 #[test]
 fn grid_depends_only_on_unicode() {
-    graph().assert_exact("scull-grid", &["scull-unicode"]);
+    graph().assert_exact("scull-grid", &["scull-unicode", HACK]);
+}
+
+#[test]
+fn config_depends_only_on_input() {
+    graph().assert_exact("scull-config", &["scull-input", HACK]);
 }
 
 #[test]

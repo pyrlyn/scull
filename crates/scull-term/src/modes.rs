@@ -5,6 +5,10 @@
 //! Numbers and power-on values follow xterm's ctlseqs ("Set Mode", "DEC
 //! Private Mode Set"); 2026 and 2027 are the synchronized-output and
 //! grapheme-cluster specifications shared by Contour, foot and WezTerm.
+//! The mouse and kitty keyboard state are scull-input's own types, so the
+//! encoders read exactly what the program set.
+
+use scull_input::{KittyKeyboard, MouseEncoding, MouseModes, MouseTracking};
 
 /// Mode switches, in their power-on state by default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +39,15 @@ pub struct Modes {
     pub bracketed_paste: bool,
     /// Mode 2026: the frame should hold its picture until this is reset.
     pub synchronized_output: bool,
+    /// Mouse tracking (`?9`, `?1000`, `?1002`, `?1003`) and its encoding
+    /// (`?1005`, `?1006`, `?1015`, `?1016`).
+    pub mouse: MouseModes,
+    /// `?1007`: on the alternate screen, an untracked wheel sends cursor
+    /// keys. On at power-on, as in Ghostty, so `less` and `man` scroll.
+    pub alternate_scroll: bool,
+    /// The kitty keyboard flag stacks (`CSI > u`, `CSI < u`, `CSI = u`),
+    /// one per screen.
+    pub kitty: KittyKeyboard,
 }
 
 impl Default for Modes {
@@ -52,6 +65,9 @@ impl Default for Modes {
             focus_events: false,
             bracketed_paste: false,
             synchronized_output: false,
+            mouse: MouseModes::default(),
+            alternate_scroll: true,
+            kitty: KittyKeyboard::default(),
         }
     }
 }
@@ -82,14 +98,32 @@ pub(crate) enum DecMode {
     Origin = 6,
     /// DECAWM.
     Autowrap = 7,
+    /// X10 mouse: presses only.
+    X10Mouse = 9,
     /// DECTCEM.
     CursorVisible = 25,
     /// The alternate screen, entered and left without clearing.
     AltScreen = 47,
     /// DECLRMM.
     LeftRightMargins = 69,
+    /// Normal mouse tracking: presses and releases.
+    NormalMouse = 1000,
+    /// Button-event tracking: motion while a button is held.
+    ButtonMouse = 1002,
+    /// Any-event tracking: all motion.
+    AnyMouse = 1003,
     /// Focus reporting.
     FocusEvents = 1004,
+    /// UTF-8 mouse coordinates.
+    Utf8Mouse = 1005,
+    /// SGR mouse reports.
+    SgrMouse = 1006,
+    /// Alternate scroll.
+    AlternateScroll = 1007,
+    /// urxvt mouse reports.
+    UrxvtMouse = 1015,
+    /// SGR mouse reports in pixels.
+    SgrPixelMouse = 1016,
     /// The alternate screen, cleared on leaving.
     AltScreenClear = 1047,
     /// DECSC on set, DECRC on reset.
@@ -110,10 +144,19 @@ impl DecMode {
             Self::CursorKeys,
             Self::Origin,
             Self::Autowrap,
+            Self::X10Mouse,
             Self::CursorVisible,
             Self::AltScreen,
             Self::LeftRightMargins,
+            Self::NormalMouse,
+            Self::ButtonMouse,
+            Self::AnyMouse,
             Self::FocusEvents,
+            Self::Utf8Mouse,
+            Self::SgrMouse,
+            Self::AlternateScroll,
+            Self::UrxvtMouse,
+            Self::SgrPixelMouse,
             Self::AltScreenClear,
             Self::SaveCursor,
             Self::AltScreenSaveCursor,
@@ -123,6 +166,28 @@ impl DecMode {
         ]
         .into_iter()
         .find(|m| *m as u16 == code)
+    }
+
+    /// The tracking a mouse tracking mode selects.
+    pub(crate) fn mouse_tracking(self) -> Option<MouseTracking> {
+        match self {
+            Self::X10Mouse => Some(MouseTracking::X10),
+            Self::NormalMouse => Some(MouseTracking::Normal),
+            Self::ButtonMouse => Some(MouseTracking::ButtonEvent),
+            Self::AnyMouse => Some(MouseTracking::AnyEvent),
+            _ => None,
+        }
+    }
+
+    /// The encoding a mouse encoding mode selects.
+    pub(crate) fn mouse_encoding(self) -> Option<MouseEncoding> {
+        match self {
+            Self::Utf8Mouse => Some(MouseEncoding::Utf8),
+            Self::SgrMouse => Some(MouseEncoding::Sgr),
+            Self::UrxvtMouse => Some(MouseEncoding::Urxvt),
+            Self::SgrPixelMouse => Some(MouseEncoding::SgrPixels),
+            _ => None,
+        }
     }
 }
 

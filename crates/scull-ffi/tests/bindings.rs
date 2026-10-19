@@ -4,33 +4,49 @@
 //! a stale header on every platform with no tool to install. The pattern
 //! is ketch-capi's header drift test, by the same author.
 
-use std::path::{Path, PathBuf};
+// Helpers outside #[test] functions are still test code; a failure here should abort loudly.
+#![allow(clippy::unwrap_used, clippy::panic)]
 
-use bless_check::{Mode, assert_fresh};
+use std::path::{Path, PathBuf};
 
 /// Every module with exports. csbindgen reads each file alone; cbindgen
 /// follows `mod` items from the crate root by itself.
-const SOURCES: [&str; 6] = [
+const SOURCES: [&str; 13] = [
     "src/lib.rs",
+    "src/config.rs",
     "src/guard.rs",
     "src/term.rs",
     "src/spawn.rs",
     "src/event.rs",
     "src/frame.rs",
+    "src/input.rs",
+    "src/text.rs",
+    "src/select.rs",
+    "src/link.rs",
+    "src/link_target.rs",
+    "src/prompt.rs",
 ];
 
 fn crate_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Compares `rendered` with the committed `relative` (CRLF read as LF), or
-/// rewrites it under `SCULL_BLESS`.
+/// Compares `rendered` with the committed `relative`, or rewrites it under
+/// `SCULL_BLESS`.
 fn check_drift(relative: &str, rendered: &str) {
-    assert_fresh(
-        crate_dir().join(relative),
-        rendered,
-        Mode::from_env("SCULL_BLESS"),
-        "run `just bindings`",
+    let path = crate_dir().join(relative);
+    if std::env::var_os("SCULL_BLESS").is_some() {
+        std::fs::write(&path, rendered).unwrap();
+        return;
+    }
+    // A Windows checkout may have turned LF into CRLF, in the committed
+    // file and in inputs such as cbindgen.toml's header; the text is the same.
+    let committed = std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
+    assert!(
+        committed == rendered.replace("\r\n", "\n"),
+        "{relative} is stale: run `just bindings`"
     );
 }
 

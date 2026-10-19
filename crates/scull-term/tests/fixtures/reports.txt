@@ -45,10 +45,12 @@ source: xterm ctlseqs DSR
 input: \e[99n\e[?99n
 replies:
 
-=== OSC is ignored for now
-source: T13 owns OSC; xterm ctlseqs OSC
+=== OSC 0 is a title event and does not answer the program
+source: xterm ctlseqs OSC Ps = 0
 input: \e]0;title\x07a
 replies:
+events:
+|title 0 title|
 screen:
 |a.........|
 |..........|

@@ -202,6 +202,17 @@ impl Pty {
         self.shared.push_input(bytes)
     }
 
+    /// Queue input only if all of it fits, for events that must not be cut
+    /// (a key or mouse report). Never blocks: false, queueing nothing, when
+    /// the write queue lacks room because the child is not reading.
+    ///
+    /// # Errors
+    ///
+    /// As for [`Self::write_input`].
+    pub fn write_input_whole(&self, bytes: &[u8]) -> Result<bool, PtyError> {
+        self.shared.push_input_whole(bytes)
+    }
+
     /// Tell the child the window changed size (`SIGWINCH` on Unix,
     /// `ResizePseudoConsole` on Windows).
     ///

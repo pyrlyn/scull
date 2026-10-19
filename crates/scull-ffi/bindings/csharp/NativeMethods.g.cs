@@ -26,12 +26,52 @@ namespace Scull.Native
         ///  Additions (new functions, fields appended to a struct) bump the minor.
         ///  While the major is 0 every minor may break, so the minor must match too.
         /// </summary>
-        internal const uint TT_ABI_VERSION_MINOR = 2;
+        internal const uint TT_ABI_VERSION_MINOR = 10;
         /// <summary>
         ///  The version a host was built against, `major &lt;&lt; 16 | minor`; pass it
         ///  in `tt_term_options.abi_version`.
         /// </summary>
-        internal const uint TT_ABI_VERSION = 2;
+        internal const uint TT_ABI_VERSION = 10;
+        /// <summary>
+        ///  `tt_keybind.action`: paste the clipboard.
+        /// </summary>
+        internal const byte TT_ACTION_PASTE = 1;
+        /// <summary>
+        ///  Make the font one point larger.
+        /// </summary>
+        internal const byte TT_ACTION_FONT_LARGER = 2;
+        /// <summary>
+        ///  Make the font one point smaller.
+        /// </summary>
+        internal const byte TT_ACTION_FONT_SMALLER = 3;
+        /// <summary>
+        ///  Back to the configured font size.
+        /// </summary>
+        internal const byte TT_ACTION_FONT_RESET = 4;
+        /// <summary>
+        ///  Scroll the history one screen up.
+        /// </summary>
+        internal const byte TT_ACTION_SCROLL_PAGE_UP = 5;
+        /// <summary>
+        ///  Scroll the history one screen down.
+        /// </summary>
+        internal const byte TT_ACTION_SCROLL_PAGE_DOWN = 6;
+        /// <summary>
+        ///  Scroll to the oldest history row.
+        /// </summary>
+        internal const byte TT_ACTION_SCROLL_TO_TOP = 7;
+        /// <summary>
+        ///  Scroll back to the screen.
+        /// </summary>
+        internal const byte TT_ACTION_SCROLL_TO_BOTTOM = 8;
+        /// <summary>
+        ///  Scroll to the previous shell prompt: `tt_term_scroll_to_prompt` backwards.
+        /// </summary>
+        internal const byte TT_ACTION_PREVIOUS_PROMPT = 9;
+        /// <summary>
+        ///  Scroll to the next shell prompt.
+        /// </summary>
+        internal const byte TT_ACTION_NEXT_PROMPT = 10;
         /// <summary>
         ///  `tt_event.kind`: the program rang the bell, once or more since the last
         ///  poll.
@@ -43,6 +83,63 @@ namespace Scull.Native
         /// </summary>
         internal const uint TT_EVENT_CHILD_EXITED = 2;
         /// <summary>
+        ///  `tt_event.kind`: OSC 0, 1 or 2 named the window or icon. `detail` is a
+        ///  `TT_TITLE_*`; the text is the name.
+        /// </summary>
+        internal const uint TT_EVENT_TITLE = 3;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 7 reported the working directory; the text is its
+        ///  `file://` URI as the program sent it.
+        /// </summary>
+        internal const uint TT_EVENT_WORKING_DIRECTORY = 4;
+        /// <summary>
+        ///  `tt_event.kind`: an OSC 133 shell mark. `detail` is the marker letter
+        ///  (`A` prompt, `B` command, `C` output, `D` done); the text is what
+        ///  followed it, often an exit code.
+        /// </summary>
+        internal const uint TT_EVENT_SHELL_MARK = 5;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 52 asks for the clipboard. `id` is the request:
+        ///  answer it with `tt_term_clipboard_reply` or `tt_term_clipboard_deny`.
+        ///  `detail` is the selection byte (`c`, `p`, `q`, `s`, `0`-`7`).
+        /// </summary>
+        internal const uint TT_EVENT_CLIPBOARD_READ = 6;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 52 sets the clipboard; the text is the decoded
+        ///  bytes, which need not be UTF-8. `detail` is the selection byte.
+        /// </summary>
+        internal const uint TT_EVENT_CLIPBOARD_WRITE = 7;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 8 opened a hyperlink. `id` is its link id; the text
+        ///  is the URI. `tt_term_link_uri` resolves the id later.
+        /// </summary>
+        internal const uint TT_EVENT_LINK = 8;
+        /// <summary>
+        ///  `tt_event.kind`: OSC 9 or OSC 777 `notify` asks for a notification. The
+        ///  text is the message, `TT_EVENT_TEXT_TITLE` its title (empty for OSC 9).
+        /// </summary>
+        internal const uint TT_EVENT_NOTIFICATION = 9;
+        /// <summary>
+        ///  `tt_event.detail` of `TT_EVENT_TITLE`: OSC 0, icon name and window title.
+        /// </summary>
+        internal const uint TT_TITLE_BOTH = 0;
+        /// <summary>
+        ///  `tt_event.detail` of `TT_EVENT_TITLE`: OSC 1, the icon name.
+        /// </summary>
+        internal const uint TT_TITLE_ICON = 1;
+        /// <summary>
+        ///  `tt_event.detail` of `TT_EVENT_TITLE`: OSC 2, the window title.
+        /// </summary>
+        internal const uint TT_TITLE_WINDOW = 2;
+        /// <summary>
+        ///  `tt_term_event_text` part: the event's text, `text_len` bytes.
+        /// </summary>
+        internal const uint TT_EVENT_TEXT_BODY = 0;
+        /// <summary>
+        ///  `tt_term_event_text` part: a notification's title, `title_len` bytes.
+        /// </summary>
+        internal const uint TT_EVENT_TEXT_TITLE = 1;
+        /// <summary>
         ///  `tt_event.exit_code` when the system did not say. A literal, not the
         ///  PTY crate's constant, so the generated header can spell it.
         /// </summary>
@@ -52,6 +149,18 @@ namespace Scull.Native
         ///  in its row's text.
         /// </summary>
         internal const byte TT_CELL_CLUSTER = 1;
+        /// <summary>
+        ///  The cell is selected.
+        /// </summary>
+        internal const byte TT_CELL_SELECTED = 2;
+        /// <summary>
+        ///  The cell is part of a search match.
+        /// </summary>
+        internal const byte TT_CELL_MATCH = 4;
+        /// <summary>
+        ///  The cell is part of the current search match (`TT_CELL_MATCH` is set too).
+        /// </summary>
+        internal const byte TT_CELL_CURRENT_MATCH = 8;
         /// <summary>
         ///  A colour: `TT_COLOR_DEFAULT`, `TT_COLOR_INDEXED | index` or
         ///  `TT_COLOR_RGB | 0xRRGGBB`; the kind is in `TT_COLOR_KIND_MASK`.
@@ -125,6 +234,206 @@ namespace Scull.Native
         ///  Dashed.
         /// </summary>
         internal const byte TT_UNDERLINE_DASHED = 5;
+        /// <summary>
+        ///  Typed and not converted yet: the input method's raw text.
+        /// </summary>
+        internal const byte TT_PREEDIT_INPUT = 0;
+        /// <summary>
+        ///  Converted, but not the clause being edited.
+        /// </summary>
+        internal const byte TT_PREEDIT_CONVERTED = 1;
+        /// <summary>
+        ///  The clause being converted now: the one a candidate list belongs to.
+        /// </summary>
+        internal const byte TT_PREEDIT_TARGET = 2;
+        /// <summary>
+        ///  Most bytes of composing text a frame shows.
+        /// </summary>
+        internal const nuint TT_MAX_PREEDIT_BYTES = 1024;
+        /// <summary>
+        ///  `tt_key_event.action`: the key went down.
+        /// </summary>
+        internal const byte TT_KEY_PRESS = 1;
+        /// <summary>
+        ///  The key auto-repeats.
+        /// </summary>
+        internal const byte TT_KEY_REPEAT = 2;
+        /// <summary>
+        ///  The key went up.
+        /// </summary>
+        internal const byte TT_KEY_RELEASE = 3;
+        /// <summary>
+        ///  `tt_key_event.mods` and `tt_mouse_event.mods` bits.
+        /// </summary>
+        internal const byte TT_MOD_SHIFT = 1;
+        /// <summary>
+        ///  Alt, Option on macOS.
+        /// </summary>
+        internal const byte TT_MOD_ALT = 2;
+        /// <summary>
+        ///  Control.
+        /// </summary>
+        internal const byte TT_MOD_CTRL = 4;
+        /// <summary>
+        ///  Super: Command on macOS, the Windows key.
+        /// </summary>
+        internal const byte TT_MOD_SUPER = 8;
+        /// <summary>
+        ///  Hyper.
+        /// </summary>
+        internal const byte TT_MOD_HYPER = 16;
+        /// <summary>
+        ///  Meta.
+        /// </summary>
+        internal const byte TT_MOD_META = 32;
+        /// <summary>
+        ///  Caps Lock is on.
+        /// </summary>
+        internal const byte TT_MOD_CAPS_LOCK = 64;
+        /// <summary>
+        ///  Num Lock is on.
+        /// </summary>
+        internal const byte TT_MOD_NUM_LOCK = 128;
+        /// <summary>
+        ///  `tt_key_event.key`: Escape. The keys after it, one code each, are
+        ///  Enter, Tab, Backspace, Insert, Delete, Left, Right, Up, Down, Page Up,
+        ///  Page Down, Home and End (`TT_KEY_END`).
+        /// </summary>
+        internal const uint TT_KEY_ESCAPE = 57344;
+        /// <summary>
+        ///  The last of the keys from `TT_KEY_ESCAPE`.
+        /// </summary>
+        internal const uint TT_KEY_END = 57357;
+        /// <summary>
+        ///  Caps Lock; then Scroll Lock, Num Lock, Print Screen, Pause, Menu.
+        /// </summary>
+        internal const uint TT_KEY_CAPS_LOCK = 57358;
+        /// <summary>
+        ///  F1; F`n` is `TT_KEY_F1 + n - 1` up to F35.
+        /// </summary>
+        internal const uint TT_KEY_F1 = 57364;
+        /// <summary>
+        ///  Keypad 0; then 1 to 9, Decimal, Divide, Multiply, Subtract, Add, Enter,
+        ///  Equal, Separator, Left, Right, Up, Down, Page Up, Page Down, Home, End,
+        ///  Insert, Delete, Begin.
+        /// </summary>
+        internal const uint TT_KEY_KP_0 = 57399;
+        /// <summary>
+        ///  Play; then Pause, Play/Pause, Reverse, Stop, Fast Forward, Rewind, Next
+        ///  Track, Previous Track, Record, Volume Down, Volume Up, Mute.
+        /// </summary>
+        internal const uint TT_KEY_MEDIA_PLAY = 57428;
+        /// <summary>
+        ///  Left Shift on its own; then Left Control, Left Alt, Left Super, Left
+        ///  Hyper, Left Meta, the same six on the right, ISO Level 3 Shift and ISO
+        ///  Level 5 Shift.
+        /// </summary>
+        internal const uint TT_KEY_LEFT_SHIFT = 57441;
+        /// <summary>
+        ///  `tt_mouse_event.action`: a button went down; wheel steps are presses.
+        /// </summary>
+        internal const byte TT_MOUSE_PRESS = 1;
+        /// <summary>
+        ///  A button went up.
+        /// </summary>
+        internal const byte TT_MOUSE_RELEASE = 2;
+        /// <summary>
+        ///  The pointer moved to another cell, or pixel while the program asks
+        ///  for pixels; send it only then.
+        /// </summary>
+        internal const byte TT_MOUSE_MOTION = 3;
+        /// <summary>
+        ///  `tt_mouse_event.button`: none, for motion with no button held. Others
+        ///  are X11's numbers: 1 left, 2 middle, 3 right, 4 to 7 wheel up, down,
+        ///  left and right, 8 back, 9 forward, 10 and 11.
+        /// </summary>
+        internal const byte TT_MOUSE_NONE = 0;
+        /// <summary>
+        ///  The left button.
+        /// </summary>
+        internal const byte TT_MOUSE_LEFT = 1;
+        /// <summary>
+        ///  The middle button.
+        /// </summary>
+        internal const byte TT_MOUSE_MIDDLE = 2;
+        /// <summary>
+        ///  The right button.
+        /// </summary>
+        internal const byte TT_MOUSE_RIGHT = 3;
+        /// <summary>
+        ///  One wheel step up.
+        /// </summary>
+        internal const byte TT_MOUSE_WHEEL_UP = 4;
+        /// <summary>
+        ///  One wheel step down.
+        /// </summary>
+        internal const byte TT_MOUSE_WHEEL_DOWN = 5;
+        /// <summary>
+        ///  One wheel step left.
+        /// </summary>
+        internal const byte TT_MOUSE_WHEEL_LEFT = 6;
+        /// <summary>
+        ///  One wheel step right.
+        /// </summary>
+        internal const byte TT_MOUSE_WHEEL_RIGHT = 7;
+        /// <summary>
+        ///  `tt_term_select_start` kind: cell by cell, for a drag.
+        /// </summary>
+        internal const uint TT_SELECT_CELL = 0;
+        /// <summary>
+        ///  Whole words, for a double click.
+        /// </summary>
+        internal const uint TT_SELECT_WORD = 1;
+        /// <summary>
+        ///  Whole lines, soft wraps included, for a triple click.
+        /// </summary>
+        internal const uint TT_SELECT_LINE = 2;
+        /// <summary>
+        ///  A rectangle of columns.
+        /// </summary>
+        internal const uint TT_SELECT_BLOCK = 3;
+        /// <summary>
+        ///  `tt_term_search_set` flag: fold case.
+        /// </summary>
+        internal const uint TT_SEARCH_IGNORE_CASE = 1;
+        /// <summary>
+        ///  Longest pattern, in bytes, `tt_term_search_set` accepts.
+        /// </summary>
+        internal const nuint TT_MAX_SEARCH_PATTERN = 256;
+        /// <summary>
+        ///  Most matches `tt_term_search_count` counts.
+        /// </summary>
+        internal const nuint TT_MAX_SEARCH_MATCHES = 10000;
+        /// <summary>
+        ///  Most bytes `tt_term_selection_text` hands out; longer text is cut.
+        /// </summary>
+        internal const nuint TT_MAX_SELECTION_BYTES = 16777216;
+        /// <summary>
+        ///  `tt_cell.flags`: the cell carries the link `tt_term_link_hover` set.
+        /// </summary>
+        internal const byte TT_CELL_LINK = 16;
+        /// <summary>
+        ///  `tt_link_target` kind: nothing to open.
+        /// </summary>
+        internal const uint TT_LINK_REFUSED = 0;
+        /// <summary>
+        ///  An http or https page; the target is the URI.
+        /// </summary>
+        internal const uint TT_LINK_WEB = 1;
+        /// <summary>
+        ///  A mailto address; the target is the URI.
+        /// </summary>
+        internal const uint TT_LINK_MAIL = 2;
+        /// <summary>
+        ///  A directory on this machine, to open in the file manager; the target is
+        ///  its path.
+        /// </summary>
+        internal const uint TT_LINK_DIRECTORY = 3;
+        /// <summary>
+        ///  Any other existing file on this machine, to reveal in the file manager
+        ///  and never open; the target is its path.
+        /// </summary>
+        internal const uint TT_LINK_FILE = 4;
 
 
 
@@ -134,6 +443,62 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_abi_version", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern uint tt_abi_version();
+
+        /// <summary>
+        ///  Opens the configuration and starts watching it. A missing file is the
+        ///  defaults and a broken one is an `error` in the view, so this fails only
+        ///  for bad arguments or a host with no home directory to put the file in.
+        ///  On `TT_OK` `*out` holds the handle; free it with `tt_config_free`.
+        ///
+        ///  # Safety
+        ///
+        ///  `options` is `NULL` or points to `struct_size` readable bytes, its
+        ///  strings valid for their lengths during this call; `out` is `NULL` or
+        ///  writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_config_new", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_config_new(tt_config_options* options, tt_config** @out);
+
+        /// <summary>
+        ///  Fills `*view` with the settings in force and sets `updated` when they
+        ///  are not what the previous poll returned. Polling lets the next wakeup
+        ///  fire.
+        ///
+        ///  # Safety
+        ///
+        ///  `config` is `NULL` or live; `view` is `NULL` or points to `struct_size`
+        ///  writable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_config_poll", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_config_poll(tt_config* config, tt_config_view* view);
+
+        /// <summary>
+        ///  Changes one setting in the config file, keeping the rest of the file as
+        ///  it is, and applies it at once. `key` is one of `font.family`,
+        ///  `font.size`, `colors.scheme`, `colors.foreground`, `colors.background`,
+        ///  `colors.cursor`, `scrollback`; `value` is its text (`13.5`,
+        ///  `solarized-dark`, `#1a2b3c`), and an empty `value` removes the key so its
+        ///  default applies. `TT_INVALID` for an unknown key or a value the config
+        ///  does not accept, with the file untouched; `TT_IO` when it cannot be
+        ///  written.
+        ///
+        ///  # Safety
+        ///
+        ///  `config` is `NULL` or live; the strings are valid for their lengths.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_config_set", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_config_set(tt_config* config, tt_str key, tt_str value);
+
+        /// <summary>
+        ///  Frees the configuration and stops its watcher. `NULL` is a no-op. No
+        ///  other call may use `config` during or after this one.
+        ///
+        ///  # Safety
+        ///
+        ///  `config` is `NULL` or live, and not used again.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_config_free", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern void tt_config_free(tt_config* config);
 
         /// <summary>
         ///  Creates a terminal with no child process: bytes reach it only through
@@ -227,7 +592,8 @@ namespace Scull.Native
 
         /// <summary>
         ///  Takes the next event into `*event`: `TT_OK` with one, `TT_EMPTY` when
-        ///  there is none. Call it until `TT_EMPTY` after every wakeup.
+        ///  there is none. Call it until `TT_EMPTY` after every wakeup. The event's
+        ///  text stays readable through `tt_term_event_text` until the next poll.
         ///
         ///  # Safety
         ///
@@ -236,6 +602,60 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_term_poll_event", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_term_poll_event(tt_term* term, tt_event* @event);
+
+        /// <summary>
+        ///  Copies part `part` (`TT_EVENT_TEXT_*`) of the text of event `serial`
+        ///  into `buf`, as `tt_term_read_text` does: `*len` becomes its length, and
+        ///  `TT_FULL` with nothing copied when that is more than `cap`. Only the
+        ///  event polled last is held: an older `serial` answers `TT_EMPTY`.
+        ///  `TT_INVALID` for an unknown part, a `NULL` `len`, or a `NULL` `buf` with
+        ///  a `cap`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+        ///  bytes; `len` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_event_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_event_text(tt_term* term, ulong serial, uint part, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Copies the URI of link `id` (from `TT_EVENT_LINK`) into `buf`, sized
+        ///  as for `tt_term_event_text`. An id stays valid while text on the screen
+        ///  or in history carries it; `TT_EMPTY` once it is gone, after which the
+        ///  core may hand the id to a new link.
+        ///
+        ///  # Safety
+        ///
+        ///  As for `tt_term_event_text`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_uri", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_uri(tt_term* term, uint id, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Answers the OSC 52 read `id` with `len` bytes of clipboard content,
+        ///  which the core base64-encodes for the program. `TT_INVALID` when `id`
+        ///  is not an open read (unknown, or answered already), when the content is
+        ///  over 1 MiB, or for `NULL` `data` with a `len`; `TT_FULL` when the reply
+        ///  did not fit and the program got an empty answer instead.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `data` points to `len` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_clipboard_reply", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_clipboard_reply(tt_term* term, ulong id, byte* data, nuint len);
+
+        /// <summary>
+        ///  Refuses the OSC 52 read `id`: the program gets an empty answer, so it
+        ///  does not wait. `TT_INVALID` when `id` is not an open read.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_clipboard_deny", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_clipboard_deny(tt_term* term, ulong id);
 
         /// <summary>
         ///  A new, empty frame; the first update fills it. `NULL` only if the core
@@ -257,6 +677,39 @@ namespace Scull.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "tt_frame_update", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern tt_status tt_frame_update(tt_frame* frame, tt_term* term, tt_frame_view* view);
+
+        /// <summary>
+        ///  Sets the input method's composing text, UTF-8, with the caret at byte
+        ///  `caret` (moved back onto a character boundary); `len` 0 clears it. The
+        ///  next `tt_frame_update` shows it at the cursor (`tt_frame_view.preedit`).
+        ///  It never reaches the child: commit text with `tt_term_text`. Text past
+        ///  `TT_MAX_PREEDIT_BYTES` is cut. `TT_INVALID` for a `NULL` frame or text
+        ///  that is not UTF-8.
+        ///
+        ///  # Safety
+        ///
+        ///  `frame` is `NULL` or live and not used by another thread meanwhile;
+        ///  `bytes` points to `len` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_frame_preedit", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_frame_preedit(tt_frame* frame, byte* bytes, nuint len, nuint caret);
+
+        /// <summary>
+        ///  `tt_frame_preedit` with the input method's clauses: `clauses_len`
+        ///  entries of `clauses`, each a byte range of the text and a `TT_PREEDIT_*`
+        ///  kind. They are cut to the text, so a sloppy list is harmless; text no
+        ///  clause names counts as `TT_PREEDIT_INPUT`. The next `tt_frame_update`
+        ///  reports them in columns as `tt_frame_view.preedit_spans`. At most
+        ///  `TT_MAX_PREEDIT_BYTES` clauses are read. `TT_INVALID` for a `NULL` frame,
+        ///  text that is not UTF-8, or `NULL` `clauses` with a length.
+        ///
+        ///  # Safety
+        ///
+        ///  As `tt_frame_preedit`; `clauses` points to `clauses_len` readable
+        ///  entries.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_frame_preedit_clauses", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_frame_preedit_clauses(tt_frame* frame, byte* bytes, nuint len, nuint caret, tt_preedit_clause* clauses, nuint clauses_len);
 
         /// <summary>
         ///  Frees the frame and every buffer its views pointed to. `NULL` is a
@@ -305,7 +758,393 @@ namespace Scull.Native
         [DllImport(__DllName, EntryPoint = "tt_image_pixels", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern byte* tt_image_pixels(tt_image* image, uint* width, uint* height, nuint* stride);
 
+        /// <summary>
+        ///  Sends a key event. `TT_OK` also when the active modes send nothing
+        ///  for it (a release in legacy mode, a composing key); `TT_CLOSED` when
+        ///  there is no child; `TT_FULL` when the child is not reading and its
+        ///  input queue lacks room, in which case nothing was sent.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
+        ///  readable bytes whose `text` is valid for its length.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_key", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_key(tt_term* term, tt_key_event* @event);
 
+        /// <summary>
+        ///  Sends text an input method committed outside a key event (dictation,
+        ///  the character viewer). Control characters are dropped. Statuses as for
+        ///  `tt_term_key`; `TT_INVALID` for text that is not UTF-8.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `bytes` points to `len` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_text(tt_term* term, byte* bytes, nuint len);
+
+        /// <summary>
+        ///  Sends pasted text: bracketed, with any bracket marker inside removed,
+        ///  while the program asks for it (mode 2004); otherwise line feeds become
+        ///  carriage returns. A paste is sent whole or not at all, so one larger
+        ///  than the child's input queue (256 KiB) answers `TT_FULL`. Statuses
+        ///  otherwise as for `tt_term_text`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `bytes` points to `len` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_paste", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_paste(tt_term* term, byte* bytes, nuint len);
+
+        /// <summary>
+        ///  Tells the program the view gained (`focused` 1) or lost (0) focus,
+        ///  while it asks for focus reports (mode 1004). Statuses as for
+        ///  `tt_term_key`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_focus", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_focus(tt_term* term, byte focused);
+
+        /// <summary>
+        ///  Sends a mouse event if the program takes it. `*taken`, unless `NULL`,
+        ///  becomes 1 when it does: always while it tracks the mouse, and for a
+        ///  wheel step on the alternate screen, which becomes a cursor key (mode
+        ///  1007). At 0 the event is the host's: select, or scroll the history
+        ///  with `tt_term_scroll_display`. Statuses as for `tt_term_key`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `event` is `NULL` or points to `struct_size`
+        ///  readable bytes; `taken` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_mouse", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_mouse(tt_term* term, tt_mouse_event* @event, byte* taken);
+
+        /// <summary>
+        ///  Moves the viewport `delta` rows back into history (negative: towards
+        ///  the screen), clamped to what history holds. Typing, text and paste
+        ///  bring it back to the screen by themselves.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_scroll_display", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_scroll_display(tt_term* term, int delta);
+
+        /// <summary>
+        ///  Copies the text of `rows` viewport rows from `row` into `buf`: UTF-8,
+        ///  one line per row joined by `\n` (line N is row `row + N`), wide
+        ///  characters once, blank and concealed (SGR 8) cells as spaces, trailing
+        ///  spaces trimmed, no NUL. `*len` becomes the text's length. When that is
+        ///  more than `cap`, nothing is copied and the answer is `TT_FULL`: call
+        ///  again with a larger buffer (pass `cap` 0 to ask for the length). Rows
+        ///  past the viewport are not read. `TT_INVALID` for a `NULL` `len`, or a
+        ///  `NULL` `buf` with a `cap`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+        ///  bytes; `len` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_read_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_read_text(tt_term* term, ushort row, ushort rows, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Starts a selection of `kind` (`TT_SELECT_*`) at viewport cell `row`,
+        ///  `col` (clamped), replacing any other. It covers that cell, word or line
+        ///  until extended; clear it on a click that did not drag. Output that
+        ///  rewrites its rows, a resize and a screen switch drop it. `TT_INVALID`
+        ///  for an unknown kind.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_select_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_select_start(tt_term* term, uint kind, ushort row, ushort col);
+
+        /// <summary>
+        ///  Moves the selection's free end to viewport cell `row`, `col` (clamped).
+        ///  No selection is no change.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_select_extend", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_select_extend(tt_term* term, ushort row, ushort col);
+
+        /// <summary>
+        ///  Drops the selection.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_select_clear", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_select_clear(tt_term* term);
+
+        /// <summary>
+        ///  Copies the selected text into `buf` as `tt_term_read_text` does:
+        ///  UTF-8, soft-wrapped rows joined, hard line ends as `\n`, wide characters
+        ///  once, blank and concealed cells as spaces, trailing spaces trimmed per
+        ///  line, no NUL, at most `TT_MAX_SELECTION_BYTES`. `*len` becomes its
+        ///  length; `TT_FULL` with nothing copied when that is more than `cap`.
+        ///  `TT_EMPTY` with `*len` 0 when nothing is selected. `TT_INVALID` for a
+        ///  `NULL` `len`, or a `NULL` `buf` with a `cap`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `buf` is `NULL` or points to `cap` writable
+        ///  bytes; `len` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_selection_text", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_selection_text(tt_term* term, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Searches the scrollback and the screen for `pattern`, literal UTF-8,
+        ///  with `flags` (`TT_SEARCH_IGNORE_CASE` or 0), replacing any earlier
+        ///  search; the frame marks every match in the viewport. An empty pattern
+        ///  ends the search. `TT_INVALID`, ending the search, for text that is not
+        ///  UTF-8, longer than `TT_MAX_SEARCH_PATTERN` bytes, or an unknown flag.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `pattern` is valid for its length.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_search_set", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_search_set(tt_term* term, tt_str pattern, uint flags);
+
+        /// <summary>
+        ///  Steps to the next match (`forward` 1) or the previous one (0): from the
+        ///  current match, or else from the top (bottom) of the viewport, wrapping
+        ///  round at the ends. The viewport scrolls to show it and the frame marks
+        ///  it `TT_CELL_CURRENT_MATCH`. `TT_OK` with the match written to `*found`
+        ///  (which may be `NULL`), `TT_EMPTY` when there is no search or no match.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `found` is `NULL` or points to `struct_size`
+        ///  writable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_search_step", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_search_step(tt_term* term, byte forward, tt_match* found);
+
+        /// <summary>
+        ///  Writes the number of matches, up to `TT_MAX_SEARCH_MATCHES`, to
+        ///  `*count`; 0 without a search. `TT_INVALID` for a `NULL` `count`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `count` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_search_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_search_count(tt_term* term, nuint* count);
+
+        /// <summary>
+        ///  Writes the link id of viewport cell `row`, `col` to `*id`, for
+        ///  `tt_term_link_uri`. `TT_EMPTY` (and 0) where no link covers the cell
+        ///  or the cell is off the viewport; `TT_INVALID` for a `NULL` `id`.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live; `id` is `NULL` or writable.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_at", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_at(tt_term* term, ushort row, ushort col, uint* id);
+
+        /// <summary>
+        ///  Underlines link `id`: from the next `tt_frame_update` every viewport
+        ///  cell carrying it has `TT_CELL_LINK`, across rows when it wraps. 0
+        ///  clears it; so does an id no live link has, and the core dropping the
+        ///  link later.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_link_hover", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_link_hover(tt_term* term, uint id);
+
+        /// <summary>
+        ///  Sorts the OSC 8 `uri` a click landed on: writes a `TT_LINK_*` to
+        ///  `*kind` and copies the target (the URI, or a local path in this
+        ///  platform's style) into `buf` as `tt_term_link_uri` does. `machine` is
+        ///  this computer's name, which a file URL may give as its host. A refused
+        ///  link is `TT_OK` with `TT_LINK_REFUSED` and an empty target; so is a file
+        ///  URL whose path does not exist. `TT_INVALID` for text that is not UTF-8
+        ///  or a `NULL` `kind` or `len`.
+        ///
+        ///  # Safety
+        ///
+        ///  `uri` and `machine` are valid as `tt_str`; `kind` is `NULL` or
+        ///  writable; `buf`, `cap` and `len` as for `tt_term_link_uri`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_link_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_link_target(tt_str uri, tt_str machine, uint* kind, byte* buf, nuint cap, nuint* len);
+
+        /// <summary>
+        ///  Scrolls the viewport so the previous (`forward` 0) or next (`forward`
+        ///  non-zero) prompt the shell marked with OSC 133 `A` is its top row, or
+        ///  the live screen when that prompt is on it. `TT_EMPTY`, and nothing
+        ///  moves, when there is no such prompt: none marked, none above the
+        ///  viewport, or the next one already in view at the bottom. Marks follow
+        ///  the text through a resize, and go with the lines the scrollback's
+        ///  trimming, ED 2, ED 3 or a full reset remove. Call `tt_frame_update`
+        ///  afterwards.
+        ///
+        ///  # Safety
+        ///
+        ///  `term` is `NULL` or live.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "tt_term_scroll_to_prompt", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern tt_status tt_term_scroll_to_prompt(tt_term* term, byte forward);
+
+
+    }
+
+    /// <summary>
+    ///  How to open the configuration.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_config_options
+    {
+        /// <summary>
+        ///  `sizeof(tt_config_options)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  `TT_ABI_VERSION` as the host was built with it.
+        /// </summary>
+        public uint abi_version;
+        /// <summary>
+        ///  The config file; empty for the default place
+        ///  (`$XDG_CONFIG_HOME/scull/config.toml`, `~/.config/scull/config.toml`,
+        ///  `%APPDATA%\scull\config.toml`).
+        /// </summary>
+        public tt_str path;
+        /// <summary>
+        ///  Called from a core thread when `tt_config_poll` would answer
+        ///  something new; `NULL` for none. Same contract as `tt_wakeup_fn`:
+        ///  it must not block or call `tt_*`, it is not called again until the
+        ///  host polls, and never after `tt_config_free` returns.
+        /// </summary>
+        public delegate* unmanaged[Cdecl]<void*, void> wakeup;
+        /// <summary>
+        ///  Passed to `wakeup` as is.
+        /// </summary>
+        public void* userdata;
+    }
+
+    /// <summary>
+    ///  A key binding: when `key` is pressed with exactly `mods` among Shift,
+    ///  Alt, Control and Super held, do `action`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_keybind
+    {
+        /// <summary>
+        ///  As `tt_key_event.key`.
+        /// </summary>
+        public uint key;
+        /// <summary>
+        ///  `TT_MOD_*` bits.
+        /// </summary>
+        public byte mods;
+        /// <summary>
+        ///  `TT_ACTION_*`.
+        /// </summary>
+        public byte action;
+    }
+
+    /// <summary>
+    ///  The settings in force. Every pointer in it stays valid until the next
+    ///  `tt_config_poll` or `tt_config_free` on the same handle.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_config_view
+    {
+        /// <summary>
+        ///  `sizeof(tt_config_view)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  1 when anything changed since the previous poll (always on the first).
+        /// </summary>
+        public byte updated;
+        /// <summary>
+        ///  1 when file changes are watched; 0 means only `tt_config_set` and a
+        ///  new handle see the file.
+        /// </summary>
+        public byte watching;
+        /// <summary>
+        ///  Grows with every change of the settings or of `error`.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  The font family; empty for the platform's monospace font.
+        /// </summary>
+        public tt_str font_family;
+        /// <summary>
+        ///  The font size in points.
+        /// </summary>
+        public float font_size;
+        /// <summary>
+        ///  History rows for terminals opened from now on.
+        /// </summary>
+        public uint scrollback;
+        /// <summary>
+        ///  The colour scheme's name as the file spells it (`scull-dark`, ...).
+        /// </summary>
+        public tt_str scheme;
+        /// <summary>
+        ///  Default text colour, `0xRRGGBB`.
+        /// </summary>
+        public uint foreground;
+        /// <summary>
+        ///  Default background colour, `0xRRGGBB`.
+        /// </summary>
+        public uint background;
+        /// <summary>
+        ///  Cursor colour, `0xRRGGBB`.
+        /// </summary>
+        public uint cursor;
+        /// <summary>
+        ///  Palette entries 0 to 15, `0xRRGGBB`.
+        /// </summary>
+        public fixed uint ansi[16];
+        /// <summary>
+        ///  The key bindings in force.
+        /// </summary>
+        public tt_keybind* keybinds;
+        /// <summary>
+        ///  Number of `keybinds`.
+        /// </summary>
+        public nuint keybinds_len;
+        /// <summary>
+        ///  Why the file could not be used the last time it was read, with its
+        ///  name; empty when it was fine. The settings above are then the last
+        ///  good ones.
+        /// </summary>
+        public tt_str error;
+        /// <summary>
+        ///  The config file's path.
+        /// </summary>
+        public tt_str path;
+    }
+
+    /// <summary>
+    ///  The configuration. Opaque to the host.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_config
+    {
     }
 
     /// <summary>
@@ -418,6 +1257,28 @@ namespace Scull.Native
         ///  `TT_EVENT_CHILD_EXITED`: 1 when a signal ended the child.
         /// </summary>
         public byte signaled;
+        /// <summary>
+        ///  Names this event to `tt_term_event_text`; never 0.
+        /// </summary>
+        public ulong serial;
+        /// <summary>
+        ///  The clipboard request of `TT_EVENT_CLIPBOARD_*`, the link id of
+        ///  `TT_EVENT_LINK`; 0 otherwise.
+        /// </summary>
+        public ulong id;
+        /// <summary>
+        ///  Per kind: a `TT_TITLE_*`, a shell marker letter, a clipboard
+        ///  selection byte; 0 otherwise.
+        /// </summary>
+        public uint detail;
+        /// <summary>
+        ///  Bytes of the text (`TT_EVENT_TEXT_BODY`); 0 when there is none.
+        /// </summary>
+        public uint text_len;
+        /// <summary>
+        ///  Bytes of a notification's title (`TT_EVENT_TEXT_TITLE`).
+        /// </summary>
+        public uint title_len;
     }
 
     /// <summary>
@@ -439,7 +1300,8 @@ namespace Scull.Native
         /// </summary>
         public byte width;
         /// <summary>
-        ///  `TT_CELL_CLUSTER` or 0.
+        ///  `TT_CELL_CLUSTER`, `TT_CELL_SELECTED`, `TT_CELL_MATCH`,
+        ///  `TT_CELL_CURRENT_MATCH` and `TT_CELL_LINK` bits.
         /// </summary>
         public byte flags;
     }
@@ -577,6 +1439,71 @@ namespace Scull.Native
         ///  0 when hidden or scrolled out of the viewport.
         /// </summary>
         public byte visible;
+    }
+
+    /// <summary>
+    ///  Where the frame shows the input method's composing text, set with
+    ///  `tt_frame_preedit`. The text is already in the row's cells and runs and
+    ///  the cursor is at its caret; a renderer only marks the span, usually
+    ///  with an underline. `cols` is 0 when none is shown.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_preedit
+    {
+        /// <summary>
+        ///  Viewport row.
+        /// </summary>
+        public ushort row;
+        /// <summary>
+        ///  First column.
+        /// </summary>
+        public ushort col;
+        /// <summary>
+        ///  Columns covered.
+        /// </summary>
+        public ushort cols;
+    }
+
+    /// <summary>
+    ///  One clause of the composing text, as the input method reports it, for
+    ///  `tt_frame_preedit_clauses`: bytes `start` up to `end` of the text.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_preedit_clause
+    {
+        /// <summary>
+        ///  First byte.
+        /// </summary>
+        public nuint start;
+        /// <summary>
+        ///  One past the last byte.
+        /// </summary>
+        public nuint end;
+        /// <summary>
+        ///  A `TT_PREEDIT_*` kind; an unknown one counts as input.
+        /// </summary>
+        public byte kind;
+    }
+
+    /// <summary>
+    ///  A run of columns of the shown composing text with one clause kind, in
+    ///  `tt_frame_view.preedit_spans`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_preedit_span
+    {
+        /// <summary>
+        ///  First column, on the row of `tt_frame_view.preedit`.
+        /// </summary>
+        public ushort col;
+        /// <summary>
+        ///  Columns covered.
+        /// </summary>
+        public ushort cols;
+        /// <summary>
+        ///  A `TT_PREEDIT_*` kind.
+        /// </summary>
+        public byte kind;
     }
 
     /// <summary>
@@ -735,6 +1662,21 @@ namespace Scull.Native
         ///  Number of placements.
         /// </summary>
         public nuint placements_len;
+        /// <summary>
+        ///  The composing text's span; its row is in `dirty` whenever it
+        ///  changed.
+        /// </summary>
+        public tt_preedit preedit;
+        /// <summary>
+        ///  The composing text split by clause kind, in column order; empty
+        ///  when it was set without clauses, in which case `preedit` is all
+        ///  there is to mark.
+        /// </summary>
+        public tt_preedit_span* preedit_spans;
+        /// <summary>
+        ///  Number of spans.
+        /// </summary>
+        public nuint preedit_spans_len;
     }
 
     /// <summary>
@@ -744,6 +1686,123 @@ namespace Scull.Native
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct tt_frame
     {
+    }
+
+    /// <summary>
+    ///  One key event, as Ghostty's embedding API reports it: what was
+    ///  pressed and what text it typed; the core picks the bytes.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_key_event
+    {
+        /// <summary>
+        ///  `sizeof(tt_key_event)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  The key: for a key of the main block, the code point it types on
+        ///  the US layout with no modifiers (`'a'`, `'1'`, `' '`); for any
+        ///  other key a `TT_KEY_*` code.
+        /// </summary>
+        public uint key;
+        /// <summary>
+        ///  What the key types on the current layout with no modifiers (`с`
+        ///  for the `c` key on a Russian layout); 0 when it is `key` itself.
+        /// </summary>
+        public uint unshifted;
+        /// <summary>
+        ///  `TT_KEY_PRESS`, `TT_KEY_REPEAT` or `TT_KEY_RELEASE`.
+        /// </summary>
+        public byte action;
+        /// <summary>
+        ///  `TT_MOD_*` bits held, including this key if it is a modifier.
+        /// </summary>
+        public byte mods;
+        /// <summary>
+        ///  `TT_MOD_*` bits the layout used to type `text` (Option typing `å`).
+        /// </summary>
+        public byte consumed_mods;
+        /// <summary>
+        ///  1 while an input method is composing: nothing is sent.
+        /// </summary>
+        public byte composing;
+        /// <summary>
+        ///  UTF-8 the key typed, with Shift and consumed modifiers but not
+        ///  Control applied; may be empty.
+        /// </summary>
+        public tt_str text;
+    }
+
+    /// <summary>
+    ///  One mouse event, in cells and in pixels: the core picks which the
+    ///  program gets.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_mouse_event
+    {
+        /// <summary>
+        ///  `sizeof(tt_mouse_event)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  `TT_MOUSE_PRESS`, `TT_MOUSE_RELEASE` or `TT_MOUSE_MOTION`.
+        /// </summary>
+        public byte action;
+        /// <summary>
+        ///  The button pressed or released; for motion, the lowest one held or
+        ///  `TT_MOUSE_NONE`.
+        /// </summary>
+        public byte button;
+        /// <summary>
+        ///  `TT_MOD_*` bits; Shift, Alt and Control are reported.
+        /// </summary>
+        public byte mods;
+        /// <summary>
+        ///  Viewport column, from 0.
+        /// </summary>
+        public uint col;
+        /// <summary>
+        ///  Viewport row, from 0.
+        /// </summary>
+        public uint row;
+        /// <summary>
+        ///  Pixels from the left of the text area.
+        /// </summary>
+        public uint x_px;
+        /// <summary>
+        ///  Pixels from the top of the text area.
+        /// </summary>
+        public uint y_px;
+    }
+
+    /// <summary>
+    ///  A search match: first and last cell, inclusive. Lines are absolute
+    ///  (counted from the first line ever output), so a match keeps its
+    ///  numbers while the text scrolls.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct tt_match
+    {
+        /// <summary>
+        ///  `sizeof(tt_match)` as the host knows it.
+        /// </summary>
+        public uint struct_size;
+        /// <summary>
+        ///  Column of the first cell.
+        /// </summary>
+        public ushort start_col;
+        /// <summary>
+        ///  Column of the last cell (a wide character's right half included).
+        /// </summary>
+        public ushort end_col;
+        /// <summary>
+        ///  Line of the first cell.
+        /// </summary>
+        public ulong start_line;
+        /// <summary>
+        ///  Line of the last cell.
+        /// </summary>
+        public ulong end_line;
     }
 
 
@@ -775,7 +1834,8 @@ namespace Scull.Native
         /// </summary>
         TT_PANIC = 4,
         /// <summary>
-        ///  Nothing to report: the event queue is empty.
+        ///  Nothing to report: the event queue is empty, or the event text or
+        ///  link asked for is no longer held.
         /// </summary>
         TT_EMPTY = 5,
         /// <summary>
@@ -788,6 +1848,11 @@ namespace Scull.Native
         ///  start, a size the PTY rejects.
         /// </summary>
         TT_IO = 7,
+        /// <summary>
+        ///  The child is not reading and its input queue cannot take the whole
+        ///  event; nothing was sent. Try again later.
+        /// </summary>
+        TT_FULL = 8,
     }
 
 

@@ -2,10 +2,11 @@
  * Copyright (c) 2026 Ivan Tugay
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * The C ABI as a host uses it, from two threads: one feeds output, images
- * and resizes, the other updates a frame and reads every byte the view
+ * The C ABI as a host uses it, from two threads: one feeds output, images,
+ * resizes and input, the other updates a frame and reads every byte the view
  * points to, image pixels included. One image is kept past the frame and
- * the terminal, as a texture cache would. Built and run under the
+ * the terminal, as a texture cache would. Meanwhile the drawing thread
+ * selects, copies and searches as a user would. Built and run under the
  * sanitizers by `just c-abi-test`; a sanitizer report or a wrong status
  * fails it.
  */
@@ -59,6 +60,33 @@ struct shared {
     tt_status feeder_status;
 };
 
+/* Input on a terminal with no child: encoded under the lock the drawer
+ * takes too, then refused for want of a child. */
+static tt_status send_input(tt_term *term) {
+    tt_key_event key;
+    memset(&key, 0, sizeof key);
+    key.struct_size = sizeof key;
+    key.key = 'a';
+    key.action = TT_KEY_PRESS;
+    key.text.ptr = (const uint8_t *)"a";
+    key.text.len = 1;
+    if (tt_term_key(term, &key) != TT_CLOSED)
+        return TT_INVALID;
+    tt_mouse_event wheel;
+    memset(&wheel, 0, sizeof wheel);
+    wheel.struct_size = sizeof wheel;
+    wheel.action = TT_MOUSE_PRESS;
+    wheel.button = TT_MOUSE_WHEEL_UP;
+    uint8_t taken = 1;
+    /* Untracked on the main screen: the host's to scroll with. */
+    CHECK(tt_term_mouse(term, &wheel, &taken));
+    if (taken != 0)
+        return TT_INVALID;
+    CHECK(tt_term_scroll_display(term, ROWS));
+    CHECK(tt_term_scroll_display(term, -ROWS));
+    return TT_OK;
+}
+
 static tt_status feed_all(tt_term *term) {
     char line[LINE_BYTES];
     for (int i = 0; i < FEEDS; i++) {
@@ -72,6 +100,7 @@ static tt_status feed_all(tt_term *term) {
             CHECK(tt_term_feed(term, (const uint8_t *)image, strlen(image)));
         }
         if (i % RESIZE_EVERY == 0) {
+            CHECK(send_input(term));
             uint16_t cols = (uint16_t)(COLS - (i / RESIZE_EVERY) % WIDTH_STEPS);
             CHECK(tt_term_resize_begin(term));
             CHECK(tt_term_resize(term, cols, ROWS, (uint16_t)(cols * CELL_W),
@@ -146,6 +175,45 @@ static tt_status update(tt_frame *frame, tt_term *term, tt_frame_view *view,
     return TT_OK;
 }
 
+/* One frame's worth of a user's mouse and find bar while output streams
+ * in: rows are rewritten under the selection and matches come and go. */
+static tt_status select_and_search(tt_term *term, unsigned long frame,
+                                   char *buf, size_t cap) {
+    uint16_t row = (uint16_t)(frame * 7 % ROWS), col = (uint16_t)(frame * 13 % COLS);
+    if (frame % 3 == 0)
+        CHECK(tt_term_select_start(term, (uint32_t)(frame / 3 % 4), row, col));
+    else
+        CHECK(tt_term_select_extend(term, row, col));
+    size_t len = 0;
+    tt_status copy = tt_term_selection_text(term, (uint8_t *)buf, cap, &len);
+    if (copy != TT_OK && copy != TT_FULL && copy != TT_EMPTY)
+        return copy;
+    /* Counting and stepping scan the history, so they come at a
+     * keypress's pace and leave the frames room to race the feeder. */
+    if (frame % 64 == 0) {
+        static const char PATTERN[] = "LINE 1";
+        tt_str pattern = {(const uint8_t *)PATTERN, sizeof PATTERN - 1};
+        CHECK(tt_term_search_set(term, pattern, TT_SEARCH_IGNORE_CASE));
+    }
+    if (frame % 256 == 128) {
+        size_t count = 0;
+        CHECK(tt_term_search_count(term, &count));
+        if (count > TT_MAX_SEARCH_MATCHES)
+            return TT_INVALID;
+    }
+    if (frame % 16 != 8)
+        return TT_OK;
+    tt_match found;
+    memset(&found, 0, sizeof found);
+    found.struct_size = sizeof found;
+    tt_status step = tt_term_search_step(term, (uint8_t)(frame / 16 & 1), &found);
+    if (step != TT_OK && step != TT_EMPTY)
+        return step;
+    if (step == TT_OK && (found.end_line < found.start_line || found.end_col >= COLS))
+        return TT_INVALID;
+    return TT_OK;
+}
+
 /* Draws until the feeder is done, then retains the image on the last row
  * into `*kept`. */
 static tt_status draw_until_done(struct shared *shared, const tt_image **kept) {
@@ -156,11 +224,32 @@ static tt_status draw_until_done(struct shared *shared, const tt_image **kept) {
     unsigned long sum = 0;
     unsigned long frames = 0;
     tt_status status = TT_OK;
+    /* Composing while output streams in: the overlay follows the cursor. */
+    static const char COMPOSING[] = "\xe6\x97\xa5\xe6\x9c\xac";
     while (status == TT_OK && !atomic_load(&shared->feeding_done)) {
-        status = update(frame, shared->term, &view, &sum);
+        size_t len = (frames & 1) ? sizeof COMPOSING - 1 : 0;
+        status = tt_frame_preedit(frame, (const uint8_t *)COMPOSING, len, 3);
+        if (status == TT_OK)
+            status = update(frame, shared->term, &view, &sum);
+        /* A screen reader reads the text while output streams in. */
+        char text[ROWS * LINE_BYTES];
+        size_t text_len = 0;
+        tt_status read = tt_term_read_text(shared->term, 0, ROWS, (uint8_t *)text,
+                                           sizeof text, &text_len);
+        if (status == TT_OK && read != TT_OK && read != TT_FULL)
+            status = read;
+        if (status == TT_OK)
+            status = select_and_search(shared->term, frames, text, sizeof text);
         frames++;
     }
+    /* Back to the screen for the check below, as closing a find bar is. */
+    if (status == TT_OK)
+        status = tt_term_search_set(shared->term, (tt_str){NULL, 0}, 0);
+    if (status == TT_OK)
+        status = tt_term_scroll_display(shared->term, -(1 << 30));
     /* The last line fed is on the screen once the feeder is done. */
+    if (status == TT_OK)
+        status = tt_frame_preedit(frame, NULL, 0, 0);
     if (status == TT_OK)
         status = update(frame, shared->term, &view, &sum);
     if (status == TT_OK) {

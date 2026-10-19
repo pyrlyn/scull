@@ -1,0 +1,5 @@
+// The C ABI exactly as the Rust side generates it; no copy to drift.
+module CScull [system] {
+    header "../../../crates/scull-ffi/include/scull.h"
+    export *
+}

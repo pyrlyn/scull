@@ -132,3 +132,15 @@ fn truncated_files_are_errors_not_panics() {
         }
     }
 }
+
+#[test]
+fn truncated_png_is_a_decode_error() {
+    // The header is intact, the pixel data is cut: the size check passes and decoding fails.
+    let png = png_2x2();
+    let cut = &png[..png.len() - 20];
+    assert!(
+        matches!(decode_file(cut), Err(ImageError::Decode(_))),
+        "{:?}",
+        decode_file(cut)
+    );
+}

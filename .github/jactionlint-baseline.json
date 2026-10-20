@@ -2,44 +2,20 @@
   "version": 1,
   "entries": [
     {
-      "file": ".github/workflows/ci.yml",
-      "rule": "concurrency-limits",
-      "fingerprint": "c41f0955d93b4ce5",
-      "context": "081b2e27040f94d3",
+      "file": ".github/actions/sccache/action.yml",
+      "rule": "github-env",
+      "fingerprint": "6ebb8edf133d7bdf",
+      "context": "4d666b1998904fe9",
       "occurrence": 0,
-      "message": "workflow has no \"concurrency:\", so every run of it executes at the same time even when a newer run supersedes the older ones. add a top-level \"concurrency:\" with a \"group:\" and \"cancel-in-progress: true\". use a group per pull request such as \"${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}\", so that a new push cancels only the older runs of the same pull request and not the runs of the others"
+      "message": "untrusted input from the variable BUCKET (inputs.bucket) is written to $GITHUB_ENV. an attacker who controls the value can set LD_PRELOAD or NODE_OPTIONS (a newline adds another variable) and run code in the next steps. do not write input that an outsider controls to $GITHUB_ENV; validate it first or pass it to the next step with $GITHUB_OUTPUT"
     },
     {
-      "file": ".github/workflows/ci.yml",
-      "rule": "missing-timeout",
-      "fingerprint": "4f5fbb0037b8881b",
-      "context": "f4387306c267173b",
+      "file": ".github/workflows/pipeline.yml",
+      "rule": "unpinned-uses",
+      "fingerprint": "10b726717e2a34a0",
+      "context": "abe5e0308a3cc54a",
       "occurrence": 0,
-      "message": "\"timeout-minutes\" is not set at this job. Set it to avoid wasting runner minutes when the job hangs"
-    },
-    {
-      "file": ".github/workflows/ci.yml",
-      "rule": "artipacked",
-      "fingerprint": "e5279bfd5468bd43",
-      "context": "992e592f26b109e9",
-      "occurrence": 0,
-      "message": "actions/checkout leaves the GITHUB_TOKEN in the git config of the workspace, where a later step such as an artifact upload can publish it. set \"persist-credentials: false\" under \"with:\" unless a later step needs to push"
-    },
-    {
-      "file": ".github/workflows/ci.yml",
-      "rule": "artipacked",
-      "fingerprint": "c706d89c8c12d4da",
-      "context": "6a51290a6639ae72",
-      "occurrence": 0,
-      "message": "actions/checkout leaves the GITHUB_TOKEN in the git config of the workspace, where a later step such as an artifact upload can publish it. set \"persist-credentials: false\" under \"with:\" unless a later step needs to push"
-    },
-    {
-      "file": ".github/workflows/ci.yml",
-      "rule": "artipacked",
-      "fingerprint": "0cf77c9d7e1224a9",
-      "context": "aa3349e84695ee98",
-      "occurrence": 0,
-      "message": "actions/checkout leaves the GITHUB_TOKEN in the git config of the workspace, where a later step such as an artifact upload can publish it. set \"persist-credentials: false\" under \"with:\" unless a later step needs to push"
+      "message": "reusable workflow call \"pyrlyn/ci/.github/workflows/ci.yml@main\" must be pinned to a full-length commit SHA like \"owner/repo/path/to/workflow.yml@{sha}\" because the \"unpinned-uses\" rule is enabled"
     }
   ]
 }

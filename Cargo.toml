@@ -28,8 +28,9 @@ scull-config = { path = "crates/scull-config" }
 
 # Error enums per library crate (rust.md: no anyhow below a binary).
 thiserror = "2.0.21"
-# Dependency-graph test in scull-ffi/tests/deps.rs.
-cargo_metadata = "0.23.1"
+# Dependency-graph test in scull-ffi/tests/deps.rs: shared, unpublished crate from pyrlyn/crates
+# (rust/workspace-graph), pinned by git rev like other pyrlyn repos pin shared crates.
+workspace-graph = { git = "https://github.com/pyrlyn/crates", rev = "319d363cfe499358203b446ae3d8d20528277e54" }
 # scull-grid interning tables (clippy.toml bans std HashMap: SipHash is slow, order random).
 rustc-hash = "2.1.3"
 # scull-grid cell and SGR flags; scull-input modifier and kitty-flag sets.

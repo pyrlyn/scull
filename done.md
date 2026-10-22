@@ -289,3 +289,9 @@ The creator authorized dependency updates across the audit. Update only vulnerab
 Execution plan: reproduce the advisory audit; apply compatible package-manager updates; review the lockfile diff; run advisory regression checks and the project test/lint/format gates; publish a PR and merge only after required checks pass. No custom dependency implementation is needed. Rollback is a revert of the dependency-update commit.
 
 Validation: 578 workspace tests pass; clippy with warnings denied and format check pass. The isolated RustSec audit reports zero vulnerabilities after rustls 0.23.46. No production logic was replaced; reused upstream security fixes.
+
+### T34. Decode PNG through the shared rgba-png crate
+
+scull-image's `raster::decode_png` and `widen` moved to the shared `rgba-png` crate (pyrlyn/crates, also used by slint-bindings). `decode_png` keeps its order: header first, `rgba_len` on the size before any pixel buffer, then the capped decode; png errors still map to `ImageError::Decode`. Test fixtures encode through `rgba_png::encode_png`, so they now carry an sRGB chunk; `png` stays as a dev-dependency for the grey and palette fixtures.
+
+Validation: the existing size-cap, widening and truncation tests pass unchanged, plus `truncated_png_is_a_decode_error`, which pins the error variant; workspace tests, clippy with warnings denied and the format check pass.

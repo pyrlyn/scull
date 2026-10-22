@@ -19,14 +19,7 @@ pub fn png_2x2() -> Vec<u8> {
 
 /// An RGBA PNG file.
 pub fn png_rgba(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut encoder = png::Encoder::new(&mut out, width, height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().unwrap();
-    writer.write_image_data(rgba).unwrap();
-    writer.finish().unwrap();
-    out
+    rgba_png::encode_png(width, height, rgba).unwrap()
 }
 
 pub fn b64(data: &[u8]) -> String {

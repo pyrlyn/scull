@@ -50,8 +50,11 @@ parking_lot = "0.12.5"
 # scull-image: payload decoding for iTerm2 inline images and kitty graphics.
 base64 = "0.23.1"
 # scull-image: the image formats iTerm2 sends (kitty needs only PNG); direct crates rather than
-# `image`, which adds colour management (moxcms) the core does not use.
+# `image`, which adds colour management (moxcms) the core does not use. png itself is only for
+# test fixtures; decoding goes through rgba-png.
 png = "0.18.1"
+# scull-image: capped any-PNG to RGBA8 decoding, shared with slint-bindings; not on crates.io.
+rgba-png = { git = "https://github.com/pyrlyn/crates", rev = "a6f89b270ac5442c090715cfca6f36996c668f22" }
 zune-jpeg = "0.5.15"
 # scull-image: zlib for kitty `o=z`; already in the tree through png.
 flate2 = "1.1.10"

@@ -27,4 +27,8 @@ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 [dev-dependencies]
 cbindgen = { workspace = true }
 csbindgen = { workspace = true }
+# Drift checks. Header generation stays on this crate's cbindgen 0.29.4
+# (abi-drift's optional cbindgen is 0.29.3). csbindgen 1.9.8 matches, so the
+# C# file goes through abi-drift. Default features stay off: they pull cbindgen.
+abi-drift = { version = "0.1.0", default-features = false, features = ["csbindgen"] }
 workspace-graph = { workspace = true }

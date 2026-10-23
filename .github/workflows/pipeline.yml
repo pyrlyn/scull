@@ -23,7 +23,30 @@ permissions:
   contents: read
 
 jobs:
+  # infra's config action on .github/infra.yml: `docs-only` is "true" when docs-only applies to
+  # this event and every changed file is documentation (fails open: "false" when unsure).
+  changes:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.config.outputs.docs-only }}
+    steps:
+      - id: config
+        uses: pyrlyn/ci/.github/actions/config@main
+
+  ci:
+    needs: changes
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    uses: ./.github/workflows/ci.yml
+    with:
+      docs-only: ${{ needs.changes.outputs.docs-only == 'true' }}
+    # ci.yml's jobs request these; a called workflow cannot exceed them.
+    permissions:
+      contents: read
+
   pipeline:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     uses: pyrlyn/ci/.github/workflows/ci.yml@main
     # The union every nested job asks for, validated up front even for disabled checks.
     permissions:
@@ -31,7 +54,7 @@ jobs:
       security-events: write
       pull-requests: read
       actions: write
-      issues: write # pyrlyn/ci main-failure job
+      issues: write # pyrlyn/ci main-failure job (pyrlyn/ci#56)
     secrets:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

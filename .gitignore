@@ -8,3 +8,4 @@
 /windows/*/bin
 /windows/*/obj
 nextest-archive.tar.zst
+.rtok/

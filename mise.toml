@@ -1,7 +1,7 @@
 # The one Rust version for local work and CI; bump it here and nowhere else.
 [tools]
-python = "3.13.15" # runs ptools
-uv = "0.12.23" # installs the pipx: ptools tool
+python = "3.15.1" # runs ptools
+uv = "0.13.5" # installs the pipx: ptools tool
 "pipx:git+https://github.com/pyrlyn/tools.git" = "d6eb6452cbb7ec4b350de87194548915c2648c27" # `mise run sweep`, `just cache`, `just swarfr` (ptools, Python; pyrlyn/tools#8, repin to a tag once merged)
 "cargo:cargo-sweep" = "0.8.0" # `mise run sweep`: drops build artifacts unused for 1 day (ptools sweep)
 mold = { version = "2.42.1", os = ["linux"] } # linker, Linux only; opt in with `cargo --config .cargo/mold.toml`
@@ -13,7 +13,7 @@ just = "1.58.0" # task runner (Justfile)
 hk = "2.5.0" # runs jactionlint as a pre-push hook (hk.pkl); `mise x -- hk install --mise`
 shellcheck = "0.11.0" # used by jactionlint for run: scripts; CI uses the runner image's copy
 "cargo:cargo-hakari" = "0.9.39"
-node = "24.22.0" # Active LTS; runtime for the npm: tools below
+node = "26.12.1" # Active LTS; runtime for the npm: tools below
 "npm:agent-device" = "0.21.31" # device/app automation CLI for agents (Callstack): Launch and drive the Scull desktop apps.
 
 [env]

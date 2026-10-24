@@ -3,7 +3,7 @@
 version: 1
 
 codeql:
-  languages: [actions, csharp, rust, swift]
+  languages: [actions, csharp, rust]  # Swift: CodeQL has no build-mode none for it on Linux
 
 # Snyk stays off (pyrlyn/ci default).
 snyk:

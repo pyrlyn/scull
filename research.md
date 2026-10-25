@@ -113,7 +113,7 @@ FFI tooling (ffi-native-ui.md Part 3, crates.io API):
 | cbindgen | 0.29.4 (2026-06-09) | Use: header for Swift and C++ |
 | csbindgen | 1.9.8 (2026-05-20) | Use: C# bindings |
 | UniFFI | 0.32.2 (2026-09-23) | Not for frames: compound types are serialised into a `RustBuffer`; C# generator is third-party |
-| bindsmith (this workspace) | — | Not usable: it generates Dart bindings. Its `generate --check` CI gate is the idea to copy |
+| The bindings generator (this workspace) | — | Not usable: it generates Dart bindings. Its `generate --check` CI gate is the idea to copy |
 
 Reuse of Rust crates (wezterm-alacritty.md §4):
 

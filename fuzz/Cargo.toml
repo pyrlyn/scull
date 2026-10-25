@@ -12,7 +12,7 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-# Same resolved pin as apps/agent/fuzz. Nightly-only; CI runs the in-crate corpus.
+# Same resolved pin as apps/cox/fuzz. Nightly-only; CI runs the in-crate corpus.
 libfuzzer-sys = "0.4.13"
 scull-harness = { path = "../crates/scull-harness" }
 scull-image = { path = "../crates/scull-image" }

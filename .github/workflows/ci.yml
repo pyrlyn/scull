@@ -67,7 +67,11 @@ jobs:
       # against the library this job just built. The renderer builds on
       # every runner too; its Direct3D tests draw on WARP on Windows and
       # are skipped on the others.
-      - run: just windows-core-test
+      - name: tests skipped (SKIP_CI_TESTS)
+        if: vars.SKIP_CI_TESTS == 'true' || env.SKIP_CI_TESTS == 'true'
+        run: echo "::notice title=SKIP_CI_TESTS::tests skipped by SKIP_CI_TESTS"
+      - if: vars.SKIP_CI_TESTS != 'true' && env.SKIP_CI_TESTS != 'true'
+        run: just windows-core-test
       # The WinUI 3 shell builds only on Windows; nothing here runs it.
       - if: runner.os == 'Windows'
         run: just windows-app
@@ -83,7 +87,9 @@ jobs:
         run: sudo sysctl vm.mmap_rnd_bits=28
       # The C ABI driven from C under ASan+UBSan and TSan. The Windows
       # runner's cc has no sanitizer runtimes.
-      - if: runner.os != 'Windows'
+      - if: >-
+          (runner.os != 'Windows')
+          && vars.SKIP_CI_TESTS != 'true' && env.SKIP_CI_TESTS != 'true'
         run: just c-abi-test
 
   # Workflow lint: jactionlint with .github/jactionlint.yaml and its baseline, the check the
@@ -151,7 +157,11 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: nextest-archive-${{ matrix.os }}
-      - run: just test-from-archive --partition count:${{ matrix.partition }}/${{ matrix.partitions }}
+      - name: tests skipped (SKIP_CI_TESTS)
+        if: vars.SKIP_CI_TESTS == 'true' || env.SKIP_CI_TESTS == 'true'
+        run: echo "::notice title=SKIP_CI_TESTS::tests skipped by SKIP_CI_TESTS"
+      - if: vars.SKIP_CI_TESTS != 'true' && env.SKIP_CI_TESTS != 'true'
+        run: just test-from-archive --partition count:${{ matrix.partition }}/${{ matrix.partitions }}
 
   # The in-crate stale-table test returns early when target/ucd is empty, and
   # `just check` never calls this. The generator fills that cache from the

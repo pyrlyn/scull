@@ -3,7 +3,9 @@
 version: 1
 
 codeql:
-  languages: [actions, csharp, rust, swift]
+  # Swift is left out: CodeQL Swift needs a macOS runner, and codeql.runs-on is shared by
+  # every language (ubuntu-latest), so swift init fails with a configuration error.
+  languages: [actions, csharp, rust]
 
 # Snyk stays off (pyrlyn/ci default).
 snyk:

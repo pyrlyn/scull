@@ -2,14 +2,6 @@
   "version": 1,
   "entries": [
     {
-      "file": ".github/actions/sccache/action.yml",
-      "rule": "github-env",
-      "fingerprint": "6ebb8edf133d7bdf",
-      "context": "4d666b1998904fe9",
-      "occurrence": 0,
-      "message": "untrusted input from the variable BUCKET (inputs.bucket) is written to $GITHUB_ENV. an attacker who controls the value can set LD_PRELOAD or NODE_OPTIONS (a newline adds another variable) and run code in the next steps. do not write input that an outsider controls to $GITHUB_ENV; validate it first or pass it to the next step with $GITHUB_OUTPUT"
-    },
-    {
       "file": ".github/workflows/pipeline.yml",
       "rule": "unpinned-uses",
       "fingerprint": "10b726717e2a34a0",

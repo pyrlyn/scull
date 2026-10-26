@@ -48,7 +48,7 @@ jobs:
           persist-credentials: false
       # Rust, nextest and just come from mise.toml, so CI runs the pinned versions.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-      - uses: ./.github/actions/sccache
+      - uses: pyrlyn/ci/.github/actions/sccache@228d35117ab56821b54c82fdd5751aac71892cd0 # ci#123, re-pin to main after merge
         with:
           access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -85,6 +85,8 @@ jobs:
       # runner's cc has no sanitizer runtimes.
       - if: runner.os != 'Windows'
         run: just c-abi-test
+      - if: always() && env.RUSTC_WRAPPER == 'sccache'
+        run: sccache --show-stats
 
   # Workflow lint: jactionlint with .github/jactionlint.yaml and its baseline, the check the
   # pre-push hook (hk.pkl) runs. install_args installs only jactionlint, not the Rust toolchain;
@@ -116,7 +118,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-      - uses: ./.github/actions/sccache
+      - uses: pyrlyn/ci/.github/actions/sccache@228d35117ab56821b54c82fdd5751aac71892cd0 # ci#123, re-pin to main after merge
         with:
           access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
           secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -130,6 +132,8 @@ jobs:
           path: nextest-archive.tar.zst
           if-no-files-found: error
           retention-days: 1
+      - if: always() && env.RUSTC_WRAPPER == 'sccache'
+        run: sccache --show-stats
 
   test:
     timeout-minutes: 60

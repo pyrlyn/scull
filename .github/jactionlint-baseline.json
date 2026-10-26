@@ -10,12 +10,36 @@
       "message": "untrusted input from the variable BUCKET (inputs.bucket) is written to $GITHUB_ENV. an attacker who controls the value can set LD_PRELOAD or NODE_OPTIONS (a newline adds another variable) and run code in the next steps. do not write input that an outsider controls to $GITHUB_ENV; validate it first or pass it to the next step with $GITHUB_OUTPUT"
     },
     {
+      "file": ".github/workflows/ci.yml",
+      "rule": "unpinned-uses",
+      "fingerprint": "8d7b11f84c9c3c53",
+      "context": "e5eb876bdc6fd64d",
+      "occurrence": 0,
+      "message": "action \"pyrlyn/ci/.github/actions/macos-runner@main\" must be pinned to a full-length commit SHA like \"{owner}/{repo}@{sha}\" because the \"unpinned-uses\" rule is enabled"
+    },
+    {
+      "file": ".github/workflows/pipeline.yml",
+      "rule": "unpinned-uses",
+      "fingerprint": "19dc0f9c5f536de9",
+      "context": "922004ff6955016b",
+      "occurrence": 0,
+      "message": "action \"pyrlyn/ci/.github/actions/config@main\" must be pinned to a full-length commit SHA like \"{owner}/{repo}@{sha}\" because the \"unpinned-uses\" rule is enabled"
+    },
+    {
       "file": ".github/workflows/pipeline.yml",
       "rule": "unpinned-uses",
       "fingerprint": "10b726717e2a34a0",
       "context": "abe5e0308a3cc54a",
       "occurrence": 0,
       "message": "reusable workflow call \"pyrlyn/ci/.github/workflows/ci.yml@main\" must be pinned to a full-length commit SHA like \"owner/repo/path/to/workflow.yml@{sha}\" because the \"unpinned-uses\" rule is enabled"
+    },
+    {
+      "file": ".github/workflows/sync-docs.yml",
+      "rule": "unpinned-uses",
+      "fingerprint": "e3a12b3b9f2ef7dd",
+      "context": "1b04748f461a8cb9",
+      "occurrence": 0,
+      "message": "reusable workflow call \"pyrlyn/ci/.github/workflows/sync-docs.yml@main\" must be pinned to a full-length commit SHA like \"owner/repo/path/to/workflow.yml@{sha}\" because the \"unpinned-uses\" rule is enabled"
     }
   ]
 }

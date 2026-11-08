@@ -8,4 +8,4 @@
 | [research/](research/) | Per-terminal research notes: kitty, WezTerm and Alacritty, foot and Contour, Warp, FFI to native UI |
 
 The overview of every terminal studied is [research.md](../research.md); work in progress is
-in [plan.md](../plan.md).
+in [plan/](../plan/README.md).

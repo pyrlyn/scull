@@ -1,0 +1,1 @@
+Validation: the existing size-cap, widening and truncation tests pass unchanged, plus `truncated_png_is_a_decode_error`, which pins the error variant; workspace tests, clippy with warnings denied and the format check pass.

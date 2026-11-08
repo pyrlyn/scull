@@ -1,0 +1,1 @@
+Validation: 578 workspace tests pass; clippy with warnings denied and format check pass. The isolated RustSec audit reports zero vulnerabilities after rustls 0.23.46. No production logic was replaced; reused upstream security fixes.

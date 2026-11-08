@@ -17,7 +17,7 @@ just windows-app   # build the Windows app
 
 - [docs/](docs/README.md) — benchmarks, research notes and the config schema.
 - [research.md](research.md) — how kitty, WezTerm, Alacritty, foot, Contour and Warp work, and what Scull takes from each.
-- [plan.md](plan.md) — active tasks.
+- [plan/](plan/README.md) — tasks, one folder each; a closed task also has `done.md`.
 - [roadmap.md](roadmap.md) — approved later work.
 
 ## License

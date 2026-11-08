@@ -1,6 +1,6 @@
 # Ideas
 
-Not approved. Nothing here moves to `roadmap.md` or `plan.md` without the creator.
+Not approved. Nothing here moves to `roadmap.md` or `plan/` without the creator.
 
 - Cold scrollback tier: old rows stored as flat text plus run-length attributes, so long history costs far less than full cells and reflow becomes an index rebuild.
 - Text sizing protocol (OSC 66): wide characters and scaled text as one multicell representation in the grid.

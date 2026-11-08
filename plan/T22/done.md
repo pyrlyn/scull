@@ -1,0 +1,3 @@
+Fix: `drop_links` now reports whether it dropped or shortened anything, `set_link(.., None)` touches only then, and the `set_cols` narrowing path — which could lose its tail links with no stored cells lost and never bump, a second gap found while fixing — bumps when links were dropped. `touch()` documents the `u32` wrap a generation-keyed frame cache accepts.
+Model: ZCode / GLM-5.3 · Status: done 2026-10-07 · Priority: P2 · Complexity: 2 · Files: `crates/scull-grid/src/row.rs`
+Check: `cargo test -p scull-grid` — 77 passed (new: `clearing_links_where_none_exist_is_generation_neutral`, `narrowing_away_links_bumps_the_generation`); `cargo clippy -p scull-grid --all-targets -- -D warnings` and `cargo fmt --check` clean.

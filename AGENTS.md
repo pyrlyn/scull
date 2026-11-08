@@ -8,7 +8,7 @@ If an `AGENTS.md` or `CLAUDE.md` exists higher in the tree, follow it too; on co
 
 - `research.md` — the architecture report and the reasons behind every choice.
 - `docs/research/` — per-terminal findings with `path:line` sources.
-- `plan.md` — active tasks. T1 (open decisions) blocks all other work.
+- `plan/` — tasks, one folder each (`plan/<id>/task.md`); a closed task also has `done.md`.
 
 ## Hard rules
 

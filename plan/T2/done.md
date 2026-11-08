@@ -1,0 +1,1 @@
+Delivered: seven `publish = false` crates under `crates/`, Rust 1.99.0 pinned in `mise.toml`, workspace lints (no unwrap/expect/panic/print outside tests), `clippy.toml` disallowed types and methods, `rustfmt.toml`, `just check` as the merge gate, a CI matrix on macOS arm64, Windows and Linux, and a crate-graph test in `crates/scull-ffi/tests/deps.rs`.
